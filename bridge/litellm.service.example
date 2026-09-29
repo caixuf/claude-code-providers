@@ -1,0 +1,14 @@
+[Unit]
+Description=LiteLLM Proxy Bridge for Claude Code
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/share/litellm-venv/bin/litellm --config %h/.config/litellm/config.yaml --port 4000 --host 127.0.0.1
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+Environment=LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES=true
+
+[Install]
+WantedBy=default.target

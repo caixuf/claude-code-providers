@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+# ccp — Claude Code Provider Switcher
+# Seamlessly switch models and providers for Claude Code CLI.
+
+set -e
+
+CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
+PROVIDERS_DIR="${PROVIDERS_DIR:-$CLAUDE_DIR/providers}"
+SETTINGS_FILE="${SETTINGS_FILE:-$CLAUDE_DIR/settings.json}"
+
+show_help() {
+  cat <<'EOF'
+ccp — Claude Code Provider Switcher
+
+Usage:
+  ccp                      List all available providers (* marks active)
+  ccp <name>               Switch to specified provider (auto-backups current settings)
+  ccp -c, --current        Show currently active provider and endpoint info
+  ccp -r, --rollback [N]   Roll back to the Nth most recent backup (default: 1)
+  ccp -t, --test [name]    Quick test: send a ping through Claude Code
+  ccp -h, --help           Show this help message
+
+Directories:
+  Profiles:  ~/.claude/providers/*.json
+  Active:    ~/.claude/settings.json
+EOF
+}
+
+get_current_url() {
+  if [ -f "$SETTINGS_FILE" ]; then
+    grep -oE '"ANTHROPIC_BASE_URL"[^,]*' "$SETTINGS_FILE" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/' | head -1
+  fi
+}
+
+get_current_model() {
+  if [ -f "$SETTINGS_FILE" ]; then
+    grep -oE '"ANTHROPIC_MODEL"[^,]*' "$SETTINGS_FILE" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/' | head -1
+  fi
+}
+
+get_active_profile_name() {
+  local cur_url cur_model
+  cur_url=$(get_current_url)
+  cur_model=$(get_current_model)
+  if [ -z "$cur_url" ] && [ -z "$cur_model" ]; then
+    return
+  fi
+
+  for p in "$PROVIDERS_DIR"/*.json; do
+    [ -r "$p" ] || continue
+    local p_url p_model
+    p_url=$(grep -oE '"ANTHROPIC_BASE_URL"[^,]*' "$p" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/' | head -1)
+    p_model=$(grep -oE '"ANTHROPIC_MODEL"[^,]*' "$p" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/' | head -1)
+    if [ "$p_url" = "$cur_url" ] && [ "$p_model" = "$cur_model" ]; then
+      basename "$p" .json
+      return
+    fi
+  done
+}
+
+list_providers() {
+  if [ ! -d "$PROVIDERS_DIR" ]; then
+    echo "No providers directory found at $PROVIDERS_DIR"
+    return 1
+  fi
+
+  local active
+  active=$(get_active_profile_name)
+
+  local found=0
+  for p in "$PROVIDERS_DIR"/*.json; do
+    [ -r "$p" ] || continue
+    found=1
+    local name
+    name=$(basename "$p" .json)
+    if [ "$name" = "$active" ]; then
+      printf " \033[32m* %-22s (active)\033[0m\n" "$name"
+    else
+      printf "   %-22s\n" "$name"
+    fi
+  done
+
+  if [ "$found" -eq 0 ]; then
+    echo "No provider profiles found in $PROVIDERS_DIR."
+    echo "Add JSON profile files to $PROVIDERS_DIR/ to get started."
+  fi
+}
+
+show_current() {
+  local active url model
+  active=$(get_active_profile_name)
+  url=$(get_current_url)
+  model=$(get_current_model)
+
+  echo "Current Claude Code Settings:"
+  if [ -n "$active" ]; then
+    echo "  Profile:  $active"
+  else
+    echo "  Profile:  (custom / unmapped)"
+  fi
+  echo "  Base URL: ${url:-default (Anthropic official)}"
+  echo "  Model:    ${model:-default}"
+}
+
+rollback_backup() {
+  local n="${1:-1}"
+  local bak
+  bak=$(ls -1t "$SETTINGS_FILE".bak.* 2>/dev/null | sed -n "${n}p")
+  if [ -n "$bak" ]; then
+    cp "$bak" "$SETTINGS_FILE"
+    echo "Rolled back settings.json to backup: $bak"
+  else
+    echo "No backups available to roll back."
+  fi
+}
+
+test_provider() {
+  local name="${1:-}"
+  if [ -n "$name" ]; then
+    switch_provider "$name"
+  fi
+  echo "Testing provider with 'claude -p \"say pong\"'..."
+  claude -p "say pong"
+}
+
+switch_provider() {
+  local name="$1"
+  local src="$PROVIDERS_DIR/$name.json"
+
+  if [ ! -r "$src" ]; then
+    echo "\033[31mError: unknown provider '$name'\033[0m" >&2
+    echo "Available providers:" >&2
+    list_providers >&2
+    return 1
+  fi
+
+  mkdir -p "$CLAUDE_DIR"
+  if [ -f "$SETTINGS_FILE" ]; then
+    cp "$SETTINGS_FILE" "$SETTINGS_FILE.bak.$(date +%Y%m%d-%H%M%S)"
+  fi
+
+  cp "$src" "$SETTINGS_FILE"
+  echo -e "\033[32m✔ Switched to provider: $name\033[0m"
+  echo "Restart any active 'claude' interactive sessions to take effect."
+}
+
+main() {
+  case "${1:-}" in
+    "")
+      list_providers
+      ;;
+    -h|--help|help)
+      show_help
+      ;;
+    -c|--current|current)
+      show_current
+      ;;
+    -r|--rollback|rollback)
+      rollback_backup "${2:-1}"
+      ;;
+    -t|--test|test)
+      test_provider "${2:-}"
+      ;;
+    *)
+      switch_provider "$1"
+      ;;
+  esac
+}
+
+main "$@"

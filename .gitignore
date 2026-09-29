@@ -1,0 +1,22 @@
+# Credentials & Backups
+*.bak.*
+*.bak
+*.key
+*.pem
+*.token
+auth.json
+
+# Local profiles with secrets (only .example files should be committed)
+providers/*.json
+!providers/*.json.example
+
+# Bridge local configs with secrets
+bridge/config.yaml
+!bridge/config.example.yaml
+
+# System & Python
+__pycache__/
+*.pyc
+.DS_Store
+.venv/
+litellm-venv/

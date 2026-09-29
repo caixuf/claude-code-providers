@@ -1,0 +1,44 @@
+# LiteLLM Proxy Configuration for Claude Code
+# Converts Claude Code Anthropic Messages API (/v1/messages) to OpenAI/OpenRouter APIs (/chat/completions)
+
+model_list:
+  # -------------------------------------------------------------
+  # 1. CommandCode (cmdc) — DeepSeek v4.1 Flash
+  # Get your token from ~/.commandcode/auth.json
+  # -------------------------------------------------------------
+  - model_name: cmdc-deepseek
+    litellm_params:
+      model: openai/deepseek/deepseek-v4.1-flash
+      api_base: https://api.commandcode.ai/provider/v1
+      api_key: YOUR_COMMANDCODE_AUTH_TOKEN
+
+  # -------------------------------------------------------------
+  # 2. Cline Pass (Subscription Token Plan)
+  # NOTE: MUST use the 'cline-pass/' prefix to draw from your flat
+  # monthly subscription rather than pay-as-you-go credits!
+  # -------------------------------------------------------------
+  - model_name: cline-deepseek
+    litellm_params:
+      model: openai/cline-pass/deepseek-v4.1-flash
+      api_base: https://api.cline.bot/api/v1
+      api_key: YOUR_CLINE_PASS_API_KEY
+
+  # -------------------------------------------------------------
+  # 3. OpenRouter (Optional)
+  # -------------------------------------------------------------
+  - model_name: openrouter-claude
+    litellm_params:
+      model: openrouter/anthropic/claude-3.7-sonnet
+      api_key: YOUR_OPENROUTER_API_KEY
+
+  # -------------------------------------------------------------
+  # Wildcard Fallback
+  # -------------------------------------------------------------
+  - model_name: "*"
+    litellm_params:
+      model: openai/deepseek/deepseek-v4.1-flash
+      api_base: https://api.commandcode.ai/provider/v1
+      api_key: YOUR_COMMANDCODE_AUTH_TOKEN
+
+general_settings:
+  master_key: sk-cmdc-litellm-local
