@@ -13,7 +13,7 @@
 
 - ⚡ **One-command switching**: Switch models in 1 second (`ccp cmdc-deepseek`, `ccp minmax`, `ccp deepseek`).
 - 🛡️ **Safe & non-destructive**: Automatically creates timestamped backups of `~/.claude/settings.json` upon every switch; supports instant rollback with `ccp --rollback`.
-- 🌉 **Local protocol bridge** (`bridge/gateway.py` on `127.0.0.1:4000`): Claude Code only speaks Anthropic `/v1/messages`. CommandCode / Cline Pass only speak OpenAI `/chat/completions`. The gateway translates both ways, including **tool_use ↔ tool_calls**, drops `user`/`user_id` (CommandCode 400), unwraps Cline `data.choices`, uses a real User-Agent (Cloudflare 1010), and keeps the **`cline-pass/`** model prefix (subscription vs pay-as-you-go 402).
+- 🌉 **Universal Protocol Bridge**: Claude Code hardcodes the Anthropic Messages API (`/v1/messages`). `ccp` includes an optional zero-latency local proxy bridge (powered by LiteLLM) that allows Claude Code to access **any OpenAI-compatible gateway** (CommandCode, ClinePass, OpenRouter) with full streaming, tool use, and thinking tokens!
 - 🎯 **Preserves Full Capabilities**:
   - ✅ Tool calling (File search, editing, bash execution, LSP)
   - ✅ Thinking tokens (Extended reasoning / CoT streaming)
@@ -27,9 +27,9 @@
 ### 1. Installation
 
 ```bash
-git clone https://github.com/caixuf/claude-code-providers.git ~/code/claude-code-providers
-cd ~/code/claude-code-providers
-bash install.sh --bridge
+git clone https://github.com/caixuf/claude-code-providers.git ~/.claude-code-providers
+cd ~/.claude-code-providers
+bash install.sh
 ```
 
 *(Ensure `~/.local/bin` is in your `PATH`)*
@@ -93,23 +93,43 @@ Pre-configured templates in `providers/`:
 
 ---
 
-## 🌉 Local bridge (`127.0.0.1:4000`)
+## 🌉 Universal Bridge (LiteLLM Local Gateway)
+
+Claude Code strictly issues requests in Anthropic Messages format (`/v1/messages`). Many providers (e.g. CommandCode, ClinePass, OpenRouter, self-hosted vLLM) only provide OpenAI `/chat/completions`.
+
+`ccp` includes an automated local protocol bridge running on `127.0.0.1:4000`:
 
 ```
-Claude Code  --Anthropic /v1/messages + tools-->  gateway.py :4000
-                                                    │
-                         OpenAI /chat/completions   ├── CommandCode (auth.json)
-                                                    └── Cline Pass (CLINE_API_KEY, model cline-pass/…)
+┌─────────────────────────────────┐
+│     Claude Code CLI (claude)    │
+└────────────────┬────────────────┘
+                 │ Anthropic /v1/messages (Streaming + Tool use)
+                 ▼
+┌─────────────────────────────────┐
+│  Local Bridge (127.0.0.1:4000)  │  <-- Zero-buffer loopback proxy (<0.2ms overhead)
+└───────┬─────────────────┬───────┘
+        │                 │
+        ▼                 ▼ OpenAI /chat/completions
+┌────────────────┐ ┌────────────────┐
+│  CommandCode   │ │   ClinePass    │
+│  (DeepSeek)    │ │ (Token Plan)   │
+└────────────────┘ └────────────────┘
 ```
 
+### Enabling the Bridge
+
+Run the automated bridge installer:
 ```bash
-bash bridge/setup_bridge.sh   # systemd --user ccp-gateway.service
-ccp gateway status
+bash bridge/setup_bridge.sh
 ```
 
-Do **not** put OpenAI URLs into `ANTHROPIC_BASE_URL`. Native Anthropic providers (DeepSeek / MiniMax / StepFun) skip the bridge.
-
-`bridge/config.example.yaml` is a LiteLLM reference only. The supported path is `gateway.py` (no third-party source patches).
+This will:
+1. Create an isolated virtualenv at `~/.local/share/litellm-venv`.
+2. Apply critical upstream gateway patches:
+   - **ClinePass token plan compatibility**: Uses `cline-pass/` prefix to correctly draw from flat subscriptions instead of pay-as-you-go balance.
+   - **Gateway unwrap patch**: Unwraps non-standard `{"data": {"choices": ...}}` response envelopes.
+   - **User header filtering**: Drops custom client headers that cause `400 Bad Request` on strict proxies.
+3. Register and start `systemd --user` service `litellm-cmdc.service` on `127.0.0.1:4000`.
 
 ---
 

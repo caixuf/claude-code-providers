@@ -1,140 +1,61 @@
 #!/usr/bin/env bash
 # ccp — Claude Code Provider Switcher
-set -euo pipefail
+# Seamlessly switch models and providers for Claude Code CLI.
+
+set -e
 
 CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
 PROVIDERS_DIR="${PROVIDERS_DIR:-$CLAUDE_DIR/providers}"
 SETTINGS_FILE="${SETTINGS_FILE:-$CLAUDE_DIR/settings.json}"
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd -P)"
-ROOT_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd -P)"
-GATEWAY_PY="$ROOT_DIR/bridge/gateway.py"
-GATEWAY_URL="${CCP_GATEWAY_URL:-http://127.0.0.1:4000}"
 
 show_help() {
   cat <<'EOF'
 ccp — Claude Code Provider Switcher
 
 Usage:
-  ccp                      List providers (* = active)
-  ccp <name>               Switch provider (backs up ~/.claude/settings.json)
-  ccp use <name>           Same as ccp <name>
-  ccp -c, --current        Active profile + endpoint
-  ccp -r, --rollback [N]   Restore Nth newest settings backup (default 1)
-  ccp -t, --test [name]    claude -p "say pong"
-  ccp gateway start|stop|status
-  ccp -h, --help
+  ccp                      List all available providers (* marks active)
+  ccp <name>               Switch to specified provider (auto-backups current settings)
+  ccp -c, --current        Show currently active provider and endpoint info
+  ccp -r, --rollback [N]   Roll back to the Nth most recent backup (default: 1)
+  ccp -t, --test [name]    Quick test: send a ping through Claude Code
+  ccp -h, --help           Show this help message
 
-Aliases: cmdc → cmdc-deepseek, cline → cline-deepseek, minmax|mm → minimax, ds → deepseek, step → stepfun
-
-Profiles: ~/.claude/providers/*.json
-Active:   ~/.claude/settings.json
-Bridge:   127.0.0.1:4000  (cmdc / cline OpenAI upstreams)
+Directories:
+  Profiles:  ~/.claude/providers/*.json
+  Active:    ~/.claude/settings.json
 EOF
 }
 
-normalize_name() {
-  case "${1:-}" in
-    cmdc|cmdc-deepseek) echo cmdc-deepseek ;;
-    cline|cline-deepseek) echo cline-deepseek ;;
-    minmax|mm|minimax) echo minimax ;;
-    ds|deepseek) echo deepseek ;;
-    step|stepfun) echo stepfun ;;
-    *) echo "${1:-}" ;;
-  esac
-}
-
 get_current_url() {
-  python3 - "$SETTINGS_FILE" <<'PY'
-import json,sys
-from pathlib import Path
-p=Path(sys.argv[1])
-if not p.is_file():
-    print(""); raise SystemExit
-s=json.loads(p.read_text())
-print((s.get("env") or {}).get("ANTHROPIC_BASE_URL",""))
-PY
+  if [ -f "$SETTINGS_FILE" ]; then
+    grep -oE '"ANTHROPIC_BASE_URL"[^,]*' "$SETTINGS_FILE" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/' | head -1
+  fi
 }
 
 get_current_model() {
-  python3 - "$SETTINGS_FILE" <<'PY'
-import json,sys
-from pathlib import Path
-p=Path(sys.argv[1])
-if not p.is_file():
-    print(""); raise SystemExit
-s=json.loads(p.read_text())
-print(s.get("model") or (s.get("env") or {}).get("ANTHROPIC_MODEL",""))
-PY
+  if [ -f "$SETTINGS_FILE" ]; then
+    grep -oE '"ANTHROPIC_MODEL"[^,]*' "$SETTINGS_FILE" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/' | head -1
+  fi
 }
 
 get_active_profile_name() {
-  python3 - "$SETTINGS_FILE" "$PROVIDERS_DIR" <<'PY'
-import json,sys
-from pathlib import Path
-settings_path, prov_dir = Path(sys.argv[1]), Path(sys.argv[2])
-if not settings_path.is_file() or not prov_dir.is_dir():
-    raise SystemExit
-s=json.loads(settings_path.read_text())
-env=s.get("env") or {}
-url, model = env.get("ANTHROPIC_BASE_URL",""), s.get("model") or env.get("ANTHROPIC_MODEL","")
-for p in sorted(prov_dir.glob("*.json")):
-    try:
-        d=json.loads(p.read_text())
-    except Exception:
-        continue
-    e=d.get("env") or {}
-    if e.get("ANTHROPIC_BASE_URL","")==url and (d.get("model") or e.get("ANTHROPIC_MODEL",""))==model:
-        print(p.stem)
-        break
-PY
-}
+  local cur_url cur_model
+  cur_url=$(get_current_url)
+  cur_model=$(get_current_model)
+  if [ -z "$cur_url" ] && [ -z "$cur_model" ]; then
+    return
+  fi
 
-gateway_alive() {
-  python3 -c "from urllib.request import urlopen; urlopen('${GATEWAY_URL}/health', timeout=1.2).read()" 2>/dev/null
-}
-
-cmd_gateway() {
-  local action="${1:-status}"
-  case "$action" in
-    start)
-      if gateway_alive; then
-        echo "ccp gateway: already up ${GATEWAY_URL}"
-        return 0
-      fi
-      if command -v systemctl >/dev/null 2>&1 && systemctl --user start ccp-gateway.service 2>/dev/null; then
-        sleep 0.8
-        if gateway_alive; then
-          echo "ccp gateway: systemd --user ccp-gateway.service"
-          return 0
-        fi
-      fi
-      nohup python3 "$GATEWAY_PY" >/tmp/ccp-gateway.log 2>&1 &
-      sleep 0.8
-      if gateway_alive; then
-        echo "ccp gateway: nohup ${GATEWAY_URL}"
-      else
-        echo "ccp gateway: start failed (see /tmp/ccp-gateway.log)" >&2
-        return 1
-      fi
-      ;;
-    stop)
-      systemctl --user stop ccp-gateway.service 2>/dev/null || true
-      pkill -f "$GATEWAY_PY" 2>/dev/null || true
-      echo "ccp gateway: stopped"
-      ;;
-    status|st)
-      if gateway_alive; then
-        echo "ccp gateway: up ${GATEWAY_URL}"
-      else
-        echo "ccp gateway: down ${GATEWAY_URL}"
-        return 1
-      fi
-      ;;
-    *)
-      echo "ccp gateway: start | stop | status" >&2
-      return 2
-      ;;
-  esac
+  for p in "$PROVIDERS_DIR"/*.json; do
+    [ -r "$p" ] || continue
+    local p_url p_model
+    p_url=$(grep -oE '"ANTHROPIC_BASE_URL"[^,]*' "$p" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/' | head -1)
+    p_model=$(grep -oE '"ANTHROPIC_MODEL"[^,]*' "$p" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/' | head -1)
+    if [ "$p_url" = "$cur_url" ] && [ "$p_model" = "$cur_model" ]; then
+      basename "$p" .json
+      return
+    fi
+  done
 }
 
 list_providers() {
@@ -142,13 +63,15 @@ list_providers() {
     echo "No providers directory found at $PROVIDERS_DIR"
     return 1
   fi
+
   local active
-  active=$(get_active_profile_name || true)
+  active=$(get_active_profile_name)
+
   local found=0
-  local p name
   for p in "$PROVIDERS_DIR"/*.json; do
     [ -r "$p" ] || continue
     found=1
+    local name
     name=$(basename "$p" .json)
     if [ "$name" = "$active" ]; then
       printf " \033[32m* %-22s (active)\033[0m\n" "$name"
@@ -156,27 +79,33 @@ list_providers() {
       printf "   %-22s\n" "$name"
     fi
   done
+
   if [ "$found" -eq 0 ]; then
-    echo "No provider profiles in $PROVIDERS_DIR."
+    echo "No provider profiles found in $PROVIDERS_DIR."
+    echo "Add JSON profile files to $PROVIDERS_DIR/ to get started."
   fi
 }
 
 show_current() {
+  local active url model
+  active=$(get_active_profile_name)
+  url=$(get_current_url)
+  model=$(get_current_model)
+
   echo "Current Claude Code Settings:"
-  echo "  Profile:  $(get_active_profile_name || echo '(custom / unmapped)')"
-  echo "  Base URL: $(get_current_url || echo default)"
-  echo "  Model:    $(get_current_model || echo default)"
-  if gateway_alive; then
-    echo "  Gateway:  up ${GATEWAY_URL}"
+  if [ -n "$active" ]; then
+    echo "  Profile:  $active"
   else
-    echo "  Gateway:  down ${GATEWAY_URL}"
+    echo "  Profile:  (custom / unmapped)"
   fi
+  echo "  Base URL: ${url:-default (Anthropic official)}"
+  echo "  Model:    ${model:-default}"
 }
 
 rollback_backup() {
   local n="${1:-1}"
   local bak
-  bak=$(ls -1t "$SETTINGS_FILE".bak.* 2>/dev/null | sed -n "${n}p" || true)
+  bak=$(ls -1t "$SETTINGS_FILE".bak.* 2>/dev/null | sed -n "${n}p")
   if [ -n "$bak" ]; then
     cp "$bak" "$SETTINGS_FILE"
     echo "Rolled back settings.json to backup: $bak"
@@ -195,12 +124,11 @@ test_provider() {
 }
 
 switch_provider() {
-  local name
-  name=$(normalize_name "$1")
+  local name="$1"
   local src="$PROVIDERS_DIR/$name.json"
 
   if [ ! -r "$src" ]; then
-    echo -e "\033[31mError: unknown provider '$name'\033[0m" >&2
+    echo "\033[31mError: unknown provider '$name'\033[0m" >&2
     echo "Available providers:" >&2
     list_providers >&2
     return 1
@@ -210,14 +138,10 @@ switch_provider() {
   if [ -f "$SETTINGS_FILE" ]; then
     cp "$SETTINGS_FILE" "$SETTINGS_FILE.bak.$(date +%Y%m%d-%H%M%S)"
   fi
+
   cp "$src" "$SETTINGS_FILE"
-
-  if grep -q '127.0.0.1:4000' "$src" 2>/dev/null; then
-    cmd_gateway start || true
-  fi
-
   echo -e "\033[32m✔ Switched to provider: $name\033[0m"
-  echo "Restart any active 'claude' sessions to take effect."
+  echo "Restart any active 'claude' interactive sessions to take effect."
 }
 
 main() {
@@ -228,7 +152,7 @@ main() {
     -h|--help|help)
       show_help
       ;;
-    -c|--current|current|status)
+    -c|--current|current)
       show_current
       ;;
     -r|--rollback|rollback)
@@ -236,18 +160,6 @@ main() {
       ;;
     -t|--test|test)
       test_provider "${2:-}"
-      ;;
-    use)
-      shift
-      if [ -z "${1:-}" ]; then
-        echo "ccp use: need a provider name" >&2
-        return 1
-      fi
-      switch_provider "$1"
-      ;;
-    gateway)
-      shift
-      cmd_gateway "${1:-status}"
       ;;
     *)
       switch_provider "$1"
