@@ -89,6 +89,7 @@ Pre-configured templates in `providers/`:
 - **`longcat.json`**: LongCat 2.5 Preview (`api.longcat.chat/anthropic`)
 - **`unisound.json`**: Unisound u2-flash (`maas-api.unisound.com/anthropic`)
 - **`cmdc-deepseek.json`**: CommandCode DeepSeek via local bridge
+- **`cmdc-space-bunny.json`**: CommandCode Space Bunny (`stealth/space-bunny-alpha`, 1M context) via local bridge
 - **`cline-deepseek.json`**: ClinePass Subscription DeepSeek via local bridge
 
 ---
@@ -129,7 +130,7 @@ This will:
    - **ClinePass token plan compatibility**: Uses `cline-pass/` prefix to correctly draw from flat subscriptions instead of pay-as-you-go balance.
    - **Gateway unwrap patch**: Unwraps non-standard `{"data": {"choices": ...}}` response envelopes.
    - **User header filtering**: Drops custom client headers that cause `400 Bad Request` on strict proxies.
-3. Register and start `systemd --user` service `litellm-cmdc.service` on `127.0.0.1:4000`.
+3. Register `systemd --user` services: LiteLLM on `127.0.0.1:4001`, plus `ccp-sse-watchdog.service` on `127.0.0.1:4000`. The watchdog closes Anthropic SSE as soon as `message_stop` arrives, or after ~12s of keepalive `ping`s with no real content (Claude Code otherwise hangs; native `cmdc` does not use this SSE path).
 
 ---
 

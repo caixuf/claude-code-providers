@@ -16,6 +16,8 @@ model_list:
       model: openai/stealth/space-bunny-alpha
       api_base: https://api.commandcode.ai/provider/v1
       api_key: YOUR_COMMANDCODE_AUTH_TOKEN
+      timeout: 90
+      stream_timeout: 25
 
   # -------------------------------------------------------------
   # 2. Cline Pass (Subscription Token Plan)

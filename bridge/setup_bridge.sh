@@ -82,7 +82,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=$VENV_DIR/bin/litellm --config $CONFIG_DIR/config.yaml --port 4000 --host 127.0.0.1
+ExecStart=$VENV_DIR/bin/litellm --config $CONFIG_DIR/config.yaml --port 4001 --host 127.0.0.1
 Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
@@ -92,10 +92,30 @@ Environment=LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES=true
 WantedBy=default.target
 EOF
 
+cat > "$SERVICE_DIR/ccp-sse-watchdog.service" <<EOF
+[Unit]
+Description=CCP SSE watchdog in front of LiteLLM (close Anthropic streams after message_stop)
+After=network.target litellm-cmdc.service
+Requires=litellm-cmdc.service
+
+[Service]
+Type=simple
+WorkingDirectory=$SCRIPT_DIR
+ExecStart=$VENV_DIR/bin/python3 $SCRIPT_DIR/sse_watchdog.py --host 127.0.0.1 --port 4000 --upstream http://127.0.0.1:4001 --idle-seconds 12
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
+EOF
+
 systemctl --user daemon-reload
-systemctl --user enable litellm-cmdc.service
+systemctl --user enable litellm-cmdc.service ccp-sse-watchdog.service
 systemctl --user restart litellm-cmdc.service
-echo "✔ LiteLLM user service enabled and started on 127.0.0.1:4000"
+sleep 2
+systemctl --user restart ccp-sse-watchdog.service
+echo "✔ LiteLLM on 127.0.0.1:4001 ; SSE watchdog on 127.0.0.1:4000 (Claude Code target)"
 
 echo ""
 echo "=== Setup Complete! ==="

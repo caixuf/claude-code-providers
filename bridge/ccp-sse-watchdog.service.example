@@ -1,0 +1,15 @@
+[Unit]
+Description=CCP SSE watchdog in front of LiteLLM (close Anthropic streams after message_stop)
+After=network.target litellm-cmdc.service
+Requires=litellm-cmdc.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/code/claude-code-providers/bridge
+ExecStart=%h/.local/share/litellm-venv/bin/python3 %h/code/claude-code-providers/bridge/sse_watchdog.py --host 127.0.0.1 --port 4000 --upstream http://127.0.0.1:4001 --idle-seconds 12
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
