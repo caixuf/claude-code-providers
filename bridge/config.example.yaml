@@ -3,12 +3,17 @@
 
 model_list:
   # -------------------------------------------------------------
-  # 1. CommandCode (cmdc) — DeepSeek v4.1 Flash
+  # 1. CommandCode (cmdc) — DeepSeek v4.1 Flash & Space Bunny (Stealth 1M)
   # Get your token from ~/.commandcode/auth.json
   # -------------------------------------------------------------
   - model_name: cmdc-deepseek
     litellm_params:
       model: openai/deepseek/deepseek-v4.1-flash
+      api_base: https://api.commandcode.ai/provider/v1
+      api_key: YOUR_COMMANDCODE_AUTH_TOKEN
+  - model_name: cmdc-space-bunny
+    litellm_params:
+      model: openai/stealth/space-bunny-alpha
       api_base: https://api.commandcode.ai/provider/v1
       api_key: YOUR_COMMANDCODE_AUTH_TOKEN
 
