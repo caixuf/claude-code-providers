@@ -10,15 +10,26 @@ SETTINGS_FILE="${SETTINGS_FILE:-$CLAUDE_DIR/settings.json}"
 
 show_help() {
   cat <<'EOF'
-ccp — Claude Code Provider Switcher
+ccp — Claude Code Provider & Model Switcher
 
 Usage:
-  ccp                      List all available providers (* marks active)
-  ccp <name>               Switch to specified provider (auto-backups current settings)
-  ccp -c, --current        Show currently active provider and endpoint info
-  ccp -r, --rollback [N]   Roll back to the Nth most recent backup (default: 1)
-  ccp -t, --test [name]    Quick test: send a ping through Claude Code
-  ccp -h, --help           Show this help message
+  ccp                        List all available providers (* marks active)
+  ccp <provider> [model]     Switch provider (and optionally override model)
+  ccp -m, --model <model>    Switch model within the current active provider
+  ccp -c, --current          Show currently active provider, model, and endpoints
+  ccp -r, --rollback [N]     Roll back to the Nth most recent backup (default: 1)
+  ccp -t, --test [name]      Quick test: send a ping through Claude Code
+  ccp -h, --help             Show this help message
+
+In-Session Model Hot-Switching:
+  Inside a running Claude Code session, type /model to switch between Opus,
+  Sonnet, and Haiku tiers mapped to your provider's top models!
+
+Examples:
+  ccp cmdc-deepseek          # Switch to CommandCode DeepSeek
+  ccp cmdc-deepseek space-bunny # Switch to CommandCode and set model to space-bunny
+  ccp -m cmdc-space-bunny    # Change active model to space-bunny under current provider
+  ccp cline-deepseek         # Switch to ClinePass Token Plan
 
 Directories:
   Profiles:  ~/.claude/providers/*.json
@@ -51,7 +62,20 @@ get_active_profile_name() {
     local p_url p_model
     p_url=$(grep -oE '"ANTHROPIC_BASE_URL"[^,]*' "$p" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/' | head -1)
     p_model=$(grep -oE '"ANTHROPIC_MODEL"[^,]*' "$p" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/' | head -1)
-    if [ "$p_url" = "$cur_url" ] && [ "$p_model" = "$cur_model" ]; then
+    if [ "$p_url" = "$cur_url" ]; then
+      if [ "$p_model" = "$cur_model" ]; then
+        basename "$p" .json
+        return
+      fi
+    fi
+  done
+
+  # Fallback match by URL only
+  for p in "$PROVIDERS_DIR"/*.json; do
+    [ -r "$p" ] || continue
+    local p_url
+    p_url=$(grep -oE '"ANTHROPIC_BASE_URL"[^,]*' "$p" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/' | head -1)
+    if [ -n "$p_url" ] && [ "$p_url" = "$cur_url" ]; then
       basename "$p" .json
       return
     fi
@@ -64,8 +88,9 @@ list_providers() {
     return 1
   fi
 
-  local active
+  local active cur_model
   active=$(get_active_profile_name)
+  cur_model=$(get_current_model)
 
   local found=0
   for p in "$PROVIDERS_DIR"/*.json; do
@@ -74,7 +99,7 @@ list_providers() {
     local name
     name=$(basename "$p" .json)
     if [ "$name" = "$active" ]; then
-      printf " \033[32m* %-22s (active)\033[0m\n" "$name"
+      printf " \033[32m* %-22s (active: %s)\033[0m\n" "$name" "${cur_model:-default}"
     else
       printf "   %-22s\n" "$name"
     fi
@@ -114,6 +139,34 @@ rollback_backup() {
   fi
 }
 
+set_active_model() {
+  local model="$1"
+  if [ -z "$model" ]; then
+    echo "Error: model name required. Usage: ccp -m <model_name>" >&2
+    return 1
+  fi
+
+  if [ ! -f "$SETTINGS_FILE" ]; then
+    echo "Error: settings file $SETTINGS_FILE not found. Switch to a provider first." >&2
+    return 1
+  fi
+
+  if command -v jq >/dev/null 2>&1; then
+    local tmp
+    tmp=$(mktemp)
+    jq --arg m "$model" '
+      .model = $m |
+      .env.ANTHROPIC_MODEL = $m
+    ' "$SETTINGS_FILE" > "$tmp" && mv "$tmp" "$SETTINGS_FILE"
+  else
+    sed -i -E "s/\"ANTHROPIC_MODEL\": \"[^\"]+\"/\"ANTHROPIC_MODEL\": \"$model\"/" "$SETTINGS_FILE"
+    sed -i -E "s/\"model\": \"[^\"]+\"/\"model\": \"$model\"/" "$SETTINGS_FILE"
+  fi
+
+  echo -e "\033[32m✔ Active model updated to: $model\033[0m"
+  echo "Restart any active 'claude' interactive sessions to take effect."
+}
+
 test_provider() {
   local name="${1:-}"
   if [ -n "$name" ]; then
@@ -125,13 +178,22 @@ test_provider() {
 
 switch_provider() {
   local name="$1"
+  local model_override="${2:-}"
   local src="$PROVIDERS_DIR/$name.json"
 
   if [ ! -r "$src" ]; then
-    echo "\033[31mError: unknown provider '$name'\033[0m" >&2
-    echo "Available providers:" >&2
-    list_providers >&2
-    return 1
+    # Try fuzzy match if user typed 'cmdc' instead of 'cmdc-deepseek'
+    local match
+    match=$(ls "$PROVIDERS_DIR"/$name*.json 2>/dev/null | head -1 || true)
+    if [ -n "$match" ] && [ -r "$match" ]; then
+      src="$match"
+      name=$(basename "$match" .json)
+    else
+      echo -e "\033[31mError: unknown provider '$name'\033[0m" >&2
+      echo "Available providers:" >&2
+      list_providers >&2
+      return 1
+    fi
   fi
 
   mkdir -p "$CLAUDE_DIR"
@@ -140,8 +202,13 @@ switch_provider() {
   fi
 
   cp "$src" "$SETTINGS_FILE"
-  echo -e "\033[32m✔ Switched to provider: $name\033[0m"
-  echo "Restart any active 'claude' interactive sessions to take effect."
+
+  if [ -n "$model_override" ]; then
+    set_active_model "$model_override"
+  else
+    echo -e "\033[32m✔ Switched to provider: $name\033[0m"
+    echo "Restart any active 'claude' interactive sessions to take effect."
+  fi
 }
 
 main() {
@@ -158,11 +225,14 @@ main() {
     -r|--rollback|rollback)
       rollback_backup "${2:-1}"
       ;;
+    -m|--model|model)
+      set_active_model "${2:-}"
+      ;;
     -t|--test|test)
       test_provider "${2:-}"
       ;;
     *)
-      switch_provider "$1"
+      switch_provider "$1" "${2:-}"
       ;;
   esac
 }
