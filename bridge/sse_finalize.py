@@ -1,25 +1,16 @@
-"""Cut Anthropic SSE as soon as the stream is actually done.
+"""Forward Anthropic SSE; stop extra frames after a complete message_stop.
 
-Claude Code (`claude -p`) waits until the HTTP body ends. Some OpenAI
-upstreams (CommandCode Space Bunny / MiniMax via LiteLLM) never send
-`[DONE]`, so LiteLLM keeps the Anthropic SSE socket open with `ping`
-frames. Native `cmdc` does not use this path and exits cleanly.
+Do **not** inject synthetic JSON into a live stream. LiteLLM treats that as
+``JSON error injected into SSE stream`` / MidStreamFallbackError and Claude
+Code retries for many minutes (API_TIMEOUT_MS).
 
-Rules:
-- Close immediately after ``event: message_stop``.
-- After any real event, if we only see pings (or silence) for
-  ``ping_idle_s``, emit a synthetic ``message_stop`` and close.
-- Before the first real event, wait up to ``first_byte_s``.
+Idle cut is disabled by default (``ping_idle_s=0``). Long tool/Explore turns
+can go minutes without a token; a 12s idle inject aborted LiteLLM mid-JSON.
 """
 
 from __future__ import annotations
 
 MESSAGE_STOP_MARK = b"event: message_stop"
-SYNTHETIC_STOP = (
-    b"event: message_stop\n"
-    b'data: {"type":"message_stop"}\n'
-    b"\n"
-)
 
 
 def sse_should_close(buf: bytes) -> bool:
@@ -40,7 +31,7 @@ def event_is_ping(ev: bytes) -> bool:
 
 
 class SseCutState:
-    def __init__(self, *, ping_idle_s: float = 12.0, first_byte_s: float = 90.0) -> None:
+    def __init__(self, *, ping_idle_s: float = 0.0, first_byte_s: float = 90.0) -> None:
         self.ping_idle_s = ping_idle_s
         self.first_byte_s = first_byte_s
         self.saw_real = False
@@ -48,12 +39,16 @@ class SseCutState:
         self.buf = b""
 
     def wait_budget(self) -> float:
-        return self.ping_idle_s if self.saw_real else self.first_byte_s
+        if not self.saw_real:
+            return self.first_byte_s
+        if self.ping_idle_s and self.ping_idle_s > 0:
+            return self.ping_idle_s
+        return 3600.0
 
     def feed(self, chunk: bytes) -> tuple[bytes, bool]:
-        """Return (bytes_to_forward, should_close)."""
+        """Return (bytes_to_forward, should_stop_forwarding)."""
         if not chunk:
-            return (b"" if self.saw_stop else SYNTHETIC_STOP, True)
+            return b"", True
         self.buf += chunk
         events, self.buf = split_complete_events(self.buf)
         out = b""
@@ -67,6 +62,4 @@ class SseCutState:
         return out, False
 
     def idle_timeout(self) -> bytes:
-        if self.saw_stop:
-            return b""
-        return SYNTHETIC_STOP
+        return b""

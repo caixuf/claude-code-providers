@@ -101,7 +101,7 @@ Requires=litellm-cmdc.service
 [Service]
 Type=simple
 WorkingDirectory=$SCRIPT_DIR
-ExecStart=$VENV_DIR/bin/python3 $SCRIPT_DIR/sse_watchdog.py --host 127.0.0.1 --port 4000 --upstream http://127.0.0.1:4001 --idle-seconds 12
+ExecStart=$VENV_DIR/bin/python3 $SCRIPT_DIR/sse_watchdog.py --host 127.0.0.1 --port 4000 --upstream http://127.0.0.1:4001 --idle-seconds 0
 Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1

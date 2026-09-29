@@ -47,6 +47,19 @@ def _fwd_headers(request: Request) -> dict[str, str]:
     return out
 
 
+async def _drain_upstream(aiter, resp: httpx.Response) -> None:
+    try:
+        async for _ in aiter:
+            pass
+    except Exception:
+        pass
+    finally:
+        try:
+            await resp.aclose()
+        except Exception:
+            pass
+
+
 async def _sse_body(
     resp: httpx.Response,
     *,
@@ -55,32 +68,27 @@ async def _sse_body(
 ) -> AsyncIterator[bytes]:
     st = SseCutState(ping_idle_s=ping_idle_s, first_byte_s=first_byte_s)
     aiter = resp.aiter_bytes()
+    handed_off = False
     try:
         while True:
             try:
                 chunk = await asyncio.wait_for(aiter.__anext__(), timeout=st.wait_budget())
             except StopAsyncIteration:
-                leftover, _done = st.feed(b"")
-                if leftover:
-                    yield leftover
                 break
             except asyncio.TimeoutError:
-                extra = st.idle_timeout()
-                if extra:
-                    yield extra
                 break
             if not chunk:
-                leftover, _done = st.feed(b"")
-                if leftover:
-                    yield leftover
                 break
             out, done = st.feed(chunk)
             if out:
                 yield out
             if done:
+                asyncio.create_task(_drain_upstream(aiter, resp))
+                handed_off = True
                 break
     finally:
-        await resp.aclose()
+        if not handed_off:
+            await resp.aclose()
 
 
 async def proxy(request: Request) -> Response:
@@ -147,7 +155,7 @@ def main() -> None:
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=4000)
     p.add_argument("--upstream", default="http://127.0.0.1:4001")
-    p.add_argument("--idle-seconds", type=float, default=12.0, help="close after this many seconds of pings-only")
+    p.add_argument("--idle-seconds", type=float, default=0.0, help="0=never idle-cut (required for long Explore/tool turns)")
     p.add_argument("--first-byte-seconds", type=float, default=90.0)
     args = p.parse_args()
     import uvicorn
