@@ -11,6 +11,11 @@ model_list:
       model: openai/deepseek/deepseek-v4.1-flash
       api_base: https://api.commandcode.ai/provider/v1
       api_key: YOUR_COMMANDCODE_AUTH_TOKEN
+  - model_name: cmdc-deepseek-fast
+    litellm_params:
+      model: openai/deepseek/deepseek-v4.1-flash-fast
+      api_base: https://api.commandcode.ai/provider/v1
+      api_key: YOUR_COMMANDCODE_AUTH_TOKEN
   - model_name: cmdc-space-bunny
     litellm_params:
       model: openai/stealth/space-bunny-alpha

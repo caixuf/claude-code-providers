@@ -89,6 +89,7 @@ Pre-configured templates in `providers/`:
 - **`longcat.json`**: LongCat 2.5 Preview (`api.longcat.chat/anthropic`)
 - **`unisound.json`**: Unisound u2-flash (`maas-api.unisound.com/anthropic`)
 - **`cmdc-deepseek.json`**: CommandCode DeepSeek via local bridge
+- **`cmdc-deepseek-fast.json`**: CommandCode DeepSeek v4.1 Flash Fast (high-throughput low-latency) via local bridge
 - **`cmdc-space-bunny.json`**: CommandCode Space Bunny (`stealth/space-bunny-alpha`, 1M context) via local bridge
 - **`cline-deepseek.json`**: ClinePass Subscription DeepSeek via local bridge
 
