@@ -84,10 +84,10 @@ Example configuration template:
 
 Pre-configured templates in `providers/`:
 - **`deepseek.json`**: Official DeepSeek Anthropic API (`api.deepseek.com/anthropic`)
-- **`minimax.json`**: MiniMax M3 (`api.minimaxi.com/anthropic`)
+- **`minmax.json`**: MiniMax M3 (`api.minimaxi.com/anthropic`)
 - **`stepfun.json`**: StepFun Step-5 / 3.7 (`api.stepfun.com/step_plan`)
 - **`longcat.json`**: LongCat 2.5 Preview (`api.longcat.chat/anthropic`)
-- **`unisound.json`**: Unisound u2-flash (`maas-api.unisound.com/anthropic`)
+- **`u2flash.json`**: Unisound u2-flash (`maas-api.unisound.com/anthropic`)
 - **`cmdc-deepseek.json`**: CommandCode DeepSeek via local bridge
 - **`cmdc-deepseek-fast.json`**: CommandCode DeepSeek v4.1 Flash Fast (high-throughput low-latency) via local bridge
 - **`cmdc-space-bunny.json`**: CommandCode Space Bunny (`stealth/space-bunny-alpha`, 1M context) via local bridge
