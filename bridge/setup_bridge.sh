@@ -4,6 +4,37 @@
 
 set -e
 
+# ── Deployment mode ───────────────────────────────────────────────
+# Provider profiles always connect to 127.0.0.1:4000. What sits behind
+# that port is chosen here:
+#
+#   --no-watchdog   LiteLLM owns :4000 directly. One process, one hop,
+#                  no moving parts. This is the default recommendation.
+#   (no flag)       LiteLLM on :4001 with sse_watchdog on :4000 in front.
+#                  The watchdog closes the Anthropic SSE stream after a
+#                  complete message_stop and drops trailing keepalives --
+#                  only needed if your upstream leaves streams open.
+WITH_WATCHDOG=1
+usage() {
+  sed -n '2,20p' "$0" | sed 's/^# \?//'
+  exit 0
+}
+for arg in "$@"; do
+  case "$arg" in
+    --no-watchdog) WITH_WATCHDOG=0 ;;
+    -h|--help)     usage ;;
+    *) echo "Unknown option: $arg" >&2; usage >&2 ;;
+  esac
+done
+
+if [ "$WITH_WATCHDOG" = 1 ]; then
+  LITELLM_PORT=4001          # watchdog listens on 4000 in front of it
+  echo "Bridge mode: watchdog (LiteLLM :$LITELLM_PORT -> sse_watchdog :4000)"
+else
+  LITELLM_PORT=4000          # LiteLLM takes the Claude Code port directly
+  echo "Bridge mode: single process (LiteLLM :$LITELLM_PORT)"
+fi
+
 VENV_DIR="$HOME/.local/share/litellm-venv"
 CONFIG_DIR="$HOME/.config/litellm"
 SERVICE_DIR="$HOME/.config/systemd/user"
@@ -82,7 +113,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=$VENV_DIR/bin/litellm --config $CONFIG_DIR/config.yaml --port 4001 --host 127.0.0.1
+ExecStart=$VENV_DIR/bin/litellm --config $CONFIG_DIR/config.yaml --port $LITELLM_PORT --host 127.0.0.1
 Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
@@ -92,7 +123,20 @@ Environment=LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES=true
 WantedBy=default.target
 EOF
 
-cat > "$SERVICE_DIR/ccp-sse-watchdog.service" <<EOF
+if [ "$WITH_WATCHDOG" = 0 ]; then
+  # Single-process mode: drop any watchdog left over from a previous setup,
+  # otherwise it would fight LiteLLM for :4000.
+  if systemctl --user list-unit-files ccp-sse-watchdog.service >/dev/null 2>&1; then
+    systemctl --user disable --now ccp-sse-watchdog.service 2>/dev/null || true
+    rm -f "$SERVICE_DIR/ccp-sse-watchdog.service"
+    echo "-- Removed leftover ccp-sse-watchdog.service"
+  fi
+  systemctl --user daemon-reload
+  systemctl --user enable litellm-cmdc.service
+  systemctl --user restart litellm-cmdc.service
+  echo "✔ LiteLLM on 127.0.0.1:$LITELLM_PORT (single process, Claude Code target)"
+else
+  cat > "$SERVICE_DIR/ccp-sse-watchdog.service" <<EOF
 [Unit]
 Description=CCP SSE watchdog in front of LiteLLM (close Anthropic streams after message_stop)
 After=network.target litellm-cmdc.service
@@ -110,12 +154,13 @@ Environment=PYTHONUNBUFFERED=1
 WantedBy=default.target
 EOF
 
-systemctl --user daemon-reload
-systemctl --user enable litellm-cmdc.service ccp-sse-watchdog.service
-systemctl --user restart litellm-cmdc.service
-sleep 2
-systemctl --user restart ccp-sse-watchdog.service
-echo "✔ LiteLLM on 127.0.0.1:4001 ; SSE watchdog on 127.0.0.1:4000 (Claude Code target)"
+  systemctl --user daemon-reload
+  systemctl --user enable litellm-cmdc.service ccp-sse-watchdog.service
+  systemctl --user restart litellm-cmdc.service
+  sleep 2
+  systemctl --user restart ccp-sse-watchdog.service
+  echo "✔ LiteLLM on 127.0.0.1:$LITELLM_PORT ; SSE watchdog on 127.0.0.1:4000 (Claude Code target)"
+fi
 
 echo ""
 echo "=== Setup Complete! ==="
