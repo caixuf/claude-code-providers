@@ -91,6 +91,23 @@ Pre-configured templates in `providers/`:
 - **`cmdc-deepseek.json`**: CommandCode DeepSeek via local bridge
 - **`cmdc-deepseek-fast.json`**: CommandCode DeepSeek v4.1 Flash Fast (high-throughput low-latency) via local bridge
 - **`cmdc-space-bunny.json`**: CommandCode Space Bunny (`stealth/space-bunny-alpha`, 1M context) via local bridge
+
+The three `cmdc-*` profiles are **three entry points onto one model ladder**, not
+three unrelated models. Each pins Claude Code's four tiers to whichever rung
+suits that entry point, so `ccp -m` can move within a provider and
+`ccp <provider>` can move along the ladder:
+
+| Profile | default | opus | sonnet | haiku | context |
+| :--- | :--- | :--- | :--- | :--- | ---: |
+| `cmdc-deepseek` | `deepseek-v4.1-flash` | `cmdc-space-bunny` | `deepseek-v4.1-flash` | `cmdc-deepseek-fast` | 128K |
+| `cmdc-deepseek-fast` | `cmdc-deepseek-fast` | `cmdc-space-bunny` | `deepseek-v4.1-flash` | `cmdc-deepseek-fast` | 128K |
+| `cmdc-space-bunny` | `cmdc-space-bunny` | `cmdc-space-bunny` | `deepseek-v4.1-flash` | `deepseek-v4.1-flash` | **1M** |
+
+Space Bunny (`stealth/space-bunny-alpha`) sits on the heavy rungs because it is
+the only one with a 1M window; the flash model takes the cheap rungs. Only
+`cmdc-space-bunny` advertises the full window, so reach for it explicitly when a
+session needs the long context — the other two cap out at 128K regardless of
+which rung Claude Code picks.
 - **`cline-deepseek.json`**: ClinePass Subscription DeepSeek via local bridge
 
 ---
