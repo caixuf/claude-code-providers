@@ -16,6 +16,8 @@ model_list:
       model: openai/deepseek/deepseek-v4.1-flash-fast
       api_base: https://api.commandcode.ai/provider/v1
       api_key: YOUR_COMMANDCODE_AUTH_TOKEN
+      extra_body:
+        reasoning_effort: "off"  # Disables deep thinking loop for instant low-latency output
   - model_name: cmdc-deepseek-pro
     litellm_params:
       model: openai/deepseek/deepseek-v4-pro

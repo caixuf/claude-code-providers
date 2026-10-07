@@ -97,6 +97,12 @@ async def proxy(request: Request) -> Response:
     if request.url.query:
         url = f"{url}?{request.url.query}"
     body = await request.body()
+    try:
+        import json as _j
+        _b = _j.loads(body) if body else {}
+        print(f"[WATCHDOG] Request: path={request.url.path} model={_b.get('model')} thinking={_b.get('thinking')} max_tokens={_b.get('max_tokens')} body_bytes={len(body)}", flush=True)
+    except Exception:
+        pass
     timeout = httpx.Timeout(connect=10.0, read=None, write=30.0, pool=10.0)
     client: httpx.AsyncClient = request.app.state.client
     req = client.build_request(

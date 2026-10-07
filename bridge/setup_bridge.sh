@@ -118,6 +118,7 @@ ExecStart=$VENV_DIR/bin/litellm --config $CONFIG_DIR/config.yaml --port $LITELLM
     RestartSec=3
     TimeoutStopSec=3
     Environment=PYTHONUNBUFFERED=1
+    Environment=LITELLM_LOCAL_MODEL_COST_MAP=True
     Environment=LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES=true
 
     [Install]
