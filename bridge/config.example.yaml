@@ -16,13 +16,11 @@ model_list:
       model: openai/deepseek/deepseek-v4.1-flash-fast
       api_base: https://api.commandcode.ai/provider/v1
       api_key: YOUR_COMMANDCODE_AUTH_TOKEN
-  - model_name: cmdc-space-bunny
+  - model_name: cmdc-deepseek-pro
     litellm_params:
-      model: openai/stealth/space-bunny-alpha
+      model: openai/deepseek/deepseek-v4-pro
       api_base: https://api.commandcode.ai/provider/v1
       api_key: YOUR_COMMANDCODE_AUTH_TOKEN
-      timeout: 90
-      stream_timeout: 25
 
   # -------------------------------------------------------------
   # 2. Cline Pass (Subscription Token Plan)

@@ -90,7 +90,7 @@ Pre-configured templates in `providers/`:
 - **`u2flash.json`**: Unisound u2-flash (`maas-api.unisound.com/anthropic`)
 - **`cmdc-deepseek.json`**: CommandCode DeepSeek via local bridge
 - **`cmdc-deepseek-fast.json`**: CommandCode DeepSeek v4.1 Flash Fast (high-throughput low-latency) via local bridge
-- **`cmdc-space-bunny.json`**: CommandCode Space Bunny (`stealth/space-bunny-alpha`, 1M context) via local bridge
+- **`cmdc-deepseek-pro.json`**: CommandCode DeepSeek v4 Pro (hybrid-attention long-context reasoning) via local bridge
 
 The three `cmdc-*` profiles are **three entry points onto one model ladder**, not
 three unrelated models. Each pins Claude Code's four tiers to whichever rung
