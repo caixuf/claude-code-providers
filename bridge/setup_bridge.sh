@@ -114,41 +114,23 @@ After=network.target
 [Service]
 Type=simple
 ExecStart=$VENV_DIR/bin/litellm --config $CONFIG_DIR/config.yaml --port $LITELLM_PORT --host 127.0.0.1
-Restart=always
-RestartSec=3
-Environment=PYTHONUNBUFFERED=1
-Environment=LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES=true
+    Restart=always
+    RestartSec=3
+    TimeoutStopSec=3
+    Environment=PYTHONUNBUFFERED=1
+    Environment=LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES=true
 
-[Install]
-WantedBy=default.target
-EOF
+    [Install]
+    WantedBy=default.target
+    EOF
 
-if [ "$WITH_WATCHDOG" = 0 ]; then
-  # Single-process mode: drop any watchdog left over from a previous setup,
-  # otherwise it would fight LiteLLM for :4000.
-  if systemctl --user list-unit-files ccp-sse-watchdog.service >/dev/null 2>&1; then
-    systemctl --user disable --now ccp-sse-watchdog.service 2>/dev/null || true
-    rm -f "$SERVICE_DIR/ccp-sse-watchdog.service"
-    echo "-- Removed leftover ccp-sse-watchdog.service"
-  fi
-  systemctl --user daemon-reload
-  systemctl --user enable litellm-cmdc.service
-  systemctl --user restart litellm-cmdc.service
-  echo "✔ LiteLLM on 127.0.0.1:$LITELLM_PORT (single process, Claude Code target)"
-else
-  cat > "$SERVICE_DIR/ccp-sse-watchdog.service" <<EOF
-[Unit]
-Description=CCP SSE watchdog in front of LiteLLM (close Anthropic streams after message_stop)
-After=network.target litellm-cmdc.service
-Requires=litellm-cmdc.service
-
-[Service]
-Type=simple
-WorkingDirectory=$SCRIPT_DIR
-ExecStart=$VENV_DIR/bin/python3 $SCRIPT_DIR/sse_watchdog.py --host 127.0.0.1 --port 4000 --upstream http://127.0.0.1:4001 --idle-seconds 0
-Restart=always
-RestartSec=3
-Environment=PYTHONUNBUFFERED=1
+      systemctl --user daemon-reload
+      systemctl --user enable litellm-cmdc.service ccp-sse-watchdog.service
+      systemctl --user restart litellm-cmdc.service
+      sleep 2
+      systemctl --user restart ccp-sse-watchdog.service
+      echo "✔ LiteLLM on 127.0.0.1:$LITELLM_PORT ; SSE watchdog on 127.0.0.1:4000 (Claude Code target)"
+    fi
 
 [Install]
 WantedBy=default.target

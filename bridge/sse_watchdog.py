@@ -106,7 +106,15 @@ async def proxy(request: Request) -> Response:
         content=body or None,
         timeout=timeout,
     )
-    r = await client.send(req, stream=True)
+    r = None
+    for attempt in range(4):
+        try:
+            r = await client.send(req, stream=True)
+            break
+        except httpx.ConnectError:
+            if attempt == 3:
+                raise
+            await asyncio.sleep(0.5)
     ctype = (r.headers.get("content-type") or "").lower()
     out_headers = {
         k: v

@@ -19,6 +19,7 @@ Usage:
   ccp -c, --current          Show currently active provider, model, and endpoints
   ccp -r, --rollback [N]     Roll back to the Nth most recent backup (default: 1)
   ccp -t, --test [name]      Quick test: send a ping through Claude Code
+  ccp bridge [action]        Manage local bridge: status, restart, start, stop, logs
   ccp -h, --help             Show this help message
 
 In-Session Model Hot-Switching:
@@ -167,10 +168,95 @@ set_active_model() {
   echo "Restart any active 'claude' interactive sessions to take effect."
 }
 
+check_bridge_port() {
+  local port="$1"
+  timeout 1 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/$port" 2>/dev/null
+}
+
+ensure_bridge_running() {
+  local url="$1"
+  if [[ "$url" =~ (127\.0\.0\.1|localhost):4000 ]]; then
+    local p4000=0 p4001=0
+    check_bridge_port 4000 && p4000=1
+    check_bridge_port 4001 && p4001=1
+
+    if [ "$p4000" -eq 0 ] || [ "$p4001" -eq 0 ]; then
+      echo -e "  \033[33m⚡ Universal Bridge (:4000 -> :4001) not running. Auto-starting...\033[0m"
+      systemctl --user start litellm-cmdc.service ccp-sse-watchdog.service 2>/dev/null || true
+      for _ in {1..10}; do
+        sleep 0.5
+        check_bridge_port 4000 && p4000=1
+        check_bridge_port 4001 && p4001=1
+        [ "$p4000" -eq 1 ] && [ "$p4001" -eq 1 ] && break
+      done
+      if [ "$p4000" -eq 1 ] && [ "$p4001" -eq 1 ]; then
+        echo -e "  \033[32m✔ Universal Bridge active (SSE Watchdog :4000 -> LiteLLM :4001)\033[0m"
+      else
+        echo -e "  \033[31m⚠ Notice: Bridge services could not be reached. Run 'ccp bridge restart'\033[0m"
+      fi
+    else
+      echo -e "  \033[32m✔ Universal Bridge healthy (SSE Watchdog :4000 -> LiteLLM :4001)\033[0m"
+    fi
+  fi
+}
+
+manage_bridge() {
+  local action="${1:-status}"
+  case "$action" in
+    status)
+      echo "Universal Bridge Status:"
+      local p4000=0 p4001=0
+      check_bridge_port 4000 && p4000=1
+      check_bridge_port 4001 && p4001=1
+
+      if [ "$p4000" -eq 1 ]; then
+        echo -e "  Watchdog (:4000):   \033[32mRUNNING\033[0m"
+      else
+        echo -e "  Watchdog (:4000):   \033[31mSTOPPED\033[0m"
+      fi
+
+      if [ "$p4001" -eq 1 ]; then
+        echo -e "  LiteLLM  (:4001):   \033[32mRUNNING\033[0m"
+      else
+        echo -e "  LiteLLM  (:4001):   \033[31mSTOPPED\033[0m"
+      fi
+      ;;
+    restart)
+      echo "Restarting bridge services..."
+      systemctl --user restart litellm-cmdc.service 2>/dev/null || true
+      sleep 1
+      systemctl --user restart ccp-sse-watchdog.service 2>/dev/null || true
+      manage_bridge status
+      ;;
+    start)
+      echo "Starting bridge services..."
+      systemctl --user start litellm-cmdc.service ccp-sse-watchdog.service 2>/dev/null || true
+      sleep 1
+      manage_bridge status
+      ;;
+    stop)
+      echo "Stopping bridge services..."
+      systemctl --user stop ccp-sse-watchdog.service litellm-cmdc.service 2>/dev/null || true
+      manage_bridge status
+      ;;
+    logs)
+      journalctl --user -u ccp-sse-watchdog.service -u litellm-cmdc.service -f -n 50
+      ;;
+    *)
+      echo "Usage: ccp bridge [status|restart|start|stop|logs]"
+      ;;
+  esac
+}
+
 test_provider() {
   local name="${1:-}"
   if [ -n "$name" ]; then
     switch_provider "$name"
+  fi
+  local cur_url
+  cur_url=$(get_current_url)
+  if [[ "$cur_url" =~ (127\.0\.0\.1|localhost):4000 ]]; then
+    ensure_bridge_running "$cur_url"
   fi
   echo "Testing provider with 'claude -p \"say pong\"'..."
   claude -p "say pong"
@@ -203,10 +289,16 @@ switch_provider() {
 
   cp "$src" "$SETTINGS_FILE"
 
+  local target_url
+  target_url=$(grep -oE '"ANTHROPIC_BASE_URL"[^,]*' "$src" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/' | head -1)
+
   if [ -n "$model_override" ]; then
     set_active_model "$model_override"
   else
     echo -e "\033[32m✔ Switched to provider: $name\033[0m"
+    if [ -n "$target_url" ]; then
+      ensure_bridge_running "$target_url"
+    fi
     echo "Restart any active 'claude' interactive sessions to take effect."
   fi
 }
@@ -230,6 +322,9 @@ main() {
       ;;
     -t|--test|test)
       test_provider "${2:-}"
+      ;;
+    bridge)
+      manage_bridge "${2:-status}"
       ;;
     *)
       switch_provider "$1" "${2:-}"

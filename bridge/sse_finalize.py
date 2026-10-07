@@ -19,9 +19,18 @@ def sse_should_close(buf: bytes) -> bool:
 
 def split_complete_events(buf: bytes) -> tuple[list[bytes], bytes]:
     events: list[bytes] = []
-    while b"\n\n" in buf:
-        part, buf = buf.split(b"\n\n", 1)
-        events.append(part + b"\n\n")
+    while True:
+        idx_lf = buf.find(b"\n\n")
+        idx_crlf = buf.find(b"\r\n\r\n")
+        if idx_lf == -1 and idx_crlf == -1:
+            break
+        if idx_crlf != -1 and (idx_lf == -1 or idx_crlf < idx_lf):
+            part = buf[: idx_crlf + 4]
+            buf = buf[idx_crlf + 4 :]
+        else:
+            part = buf[: idx_lf + 2]
+            buf = buf[idx_lf + 2 :]
+        events.append(part)
     return events, buf
 
 
