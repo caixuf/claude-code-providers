@@ -19,6 +19,7 @@ Usage:
   ccp -c, --current          Show currently active provider, model, and endpoints
   ccp -r, --rollback [N]     Roll back to the Nth most recent backup (default: 1)
   ccp -t, --test [name]      Quick test: send a ping through Claude Code
+  ccp sync                   Sync local profiles with repository templates
   ccp bridge [action]        Manage local bridge: status, restart, start, stop, logs
   ccp -h, --help             Show this help message
 
@@ -248,6 +249,54 @@ manage_bridge() {
   esac
 }
 
+sync_providers() {
+  local repo_dir="${CCP_REPO_DIR:-}"
+  if [ -z "$repo_dir" ]; then
+    local candidate
+    for candidate in \
+      "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)" \
+      "$HOME/code/claude-code-providers" \
+      "$HOME/.claude-code-providers" \
+      "$HOME/claude-code-providers"; do
+      if [ -d "$candidate/providers" ]; then
+        repo_dir="$candidate"
+        break
+      fi
+    done
+  fi
+
+  if [ -z "$repo_dir" ] || [ ! -d "$repo_dir/providers" ]; then
+    echo -e "\033[31mError: repo providers directory not found.\033[0m" >&2
+    echo "Set CCP_REPO_DIR or clone repo to ~/code/claude-code-providers or ~/.claude-code-providers" >&2
+    return 1
+  fi
+
+  echo "Synchronizing profiles with repository templates ($repo_dir)..."
+  mkdir -p "$PROVIDERS_DIR"
+  mkdir -p "$CLAUDE_DIR/providers_disabled"
+
+  for obsolete in cmdc-space-bunny.json longcat.json u2flash.json; do
+    if [ -f "$PROVIDERS_DIR/$obsolete" ]; then
+      mv "$PROVIDERS_DIR/$obsolete" "$CLAUDE_DIR/providers_disabled/"
+      echo -e "  \033[33m-- Archived obsolete profile $obsolete to ~/.claude/providers_disabled/\033[0m"
+    fi
+  done
+
+  local added=0
+  for ex in "$repo_dir/providers"/*.json.example; do
+    [ -f "$ex" ] || continue
+    local base="$(basename "$ex" .example)"
+    if [ ! -f "$PROVIDERS_DIR/$base" ]; then
+      cp "$ex" "$PROVIDERS_DIR/$base"
+      echo -e "  \033[32m✔ Added new provider template: $base\033[0m"
+      added=$((added + 1))
+    fi
+  done
+
+  echo -e "\033[32m✔ Sync complete. Active providers in $PROVIDERS_DIR:\033[0m"
+  list_providers
+}
+
 test_provider() {
   local name="${1:-}"
   if [ -n "$name" ]; then
@@ -325,6 +374,9 @@ main() {
       ;;
     bridge)
       manage_bridge "${2:-status}"
+      ;;
+    sync|--sync)
+      sync_providers
       ;;
     *)
       switch_provider "$1" "${2:-}"

@@ -28,6 +28,16 @@ fi
 
 # 3. Initialize ~/.claude/providers directory with example profiles
 mkdir -p "$CLAUDE_PROVIDERS_DIR"
+mkdir -p "$HOME/.claude/providers_disabled"
+
+# Archive obsolete / discontinued profiles
+for obsolete in cmdc-space-bunny.json longcat.json u2flash.json; do
+  if [ -f "$CLAUDE_PROVIDERS_DIR/$obsolete" ]; then
+    mv "$CLAUDE_PROVIDERS_DIR/$obsolete" "$HOME/.claude/providers_disabled/"
+    echo "  -- Archived deprecated profile $obsolete to ~/.claude/providers_disabled/"
+  fi
+done
+
 copied_count=0
 for example in "$SCRIPT_DIR/providers"/*.json.example; do
   [ -f "$example" ] || continue

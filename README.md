@@ -48,6 +48,9 @@ ccp deepseek
 # Check current active profile and endpoints
 ccp --current
 
+# Sync local profiles with repository templates (archives obsolete ones, adds new templates)
+ccp sync
+
 # Quick ping test to verify the provider works
 ccp --test
 
@@ -83,14 +86,14 @@ Example configuration template:
 ```
 
 Pre-configured templates in `providers/`:
-- **`deepseek.json`**: Official DeepSeek Anthropic API (`api.deepseek.com/anthropic`)
-- **`minmax.json`**: MiniMax M3 (`api.minimaxi.com/anthropic`)
-- **`stepfun.json`**: StepFun Step-5 / 3.7 (`api.stepfun.com/step_plan`)
-- **`longcat.json`**: LongCat 2.5 Preview (`api.longcat.chat/anthropic`)
-- **`u2flash.json`**: Unisound u2-flash (`maas-api.unisound.com/anthropic`)
-- **`cmdc-deepseek.json`**: CommandCode DeepSeek via local bridge
 - **`cmdc-deepseek-fast.json`**: CommandCode DeepSeek v4.1 Flash Fast (high-throughput low-latency) via local bridge
 - **`cmdc-deepseek-pro.json`**: CommandCode DeepSeek v4 Pro (hybrid-attention long-context reasoning) via local bridge
+- **`cmdc-deepseek.json`**: CommandCode DeepSeek v4.1 Flash via local bridge
+- **`cline-deepseek.json`**: ClinePass Subscription DeepSeek via local bridge
+- **`stepfun.json`**: StepFun Step-5 / 3.7 (`api.stepfun.com/step_plan`)
+- **`minmax.json`**: MiniMax M3 (`api.minimaxi.com/anthropic`)
+- **`deepseek.json`**: Official DeepSeek Anthropic API (`api.deepseek.com/anthropic`)
+- **`openrouter.json`**: OpenRouter Multi-Model Gateway (`openrouter.ai/api`)
 
 The three `cmdc-*` profiles are **three entry points onto one model ladder**, not
 three unrelated models. Each pins Claude Code's four tiers to whichever rung
@@ -99,16 +102,9 @@ suits that entry point, so `ccp -m` can move within a provider and
 
 | Profile | default | opus | sonnet | haiku | context |
 | :--- | :--- | :--- | :--- | :--- | ---: |
-| `cmdc-deepseek` | `deepseek-v4.1-flash` | `cmdc-space-bunny` | `deepseek-v4.1-flash` | `cmdc-deepseek-fast` | 128K |
-| `cmdc-deepseek-fast` | `cmdc-deepseek-fast` | `cmdc-space-bunny` | `deepseek-v4.1-flash` | `cmdc-deepseek-fast` | 128K |
-| `cmdc-space-bunny` | `cmdc-space-bunny` | `cmdc-space-bunny` | `deepseek-v4.1-flash` | `deepseek-v4.1-flash` | **1M** |
-
-Space Bunny (`stealth/space-bunny-alpha`) sits on the heavy rungs because it is
-the only one with a 1M window; the flash model takes the cheap rungs. Only
-`cmdc-space-bunny` advertises the full window, so reach for it explicitly when a
-session needs the long context — the other two cap out at 128K regardless of
-which rung Claude Code picks.
-- **`cline-deepseek.json`**: ClinePass Subscription DeepSeek via local bridge
+| `cmdc-deepseek-fast` | `cmdc-deepseek-fast` | `cmdc-deepseek-pro` | `deepseek-v4.1-flash` | `cmdc-deepseek-fast` | 128K |
+| `cmdc-deepseek` | `deepseek-v4.1-flash` | `cmdc-deepseek-pro` | `deepseek-v4.1-flash` | `cmdc-deepseek-fast` | 128K |
+| `cmdc-deepseek-pro` | `cmdc-deepseek-pro` | `cmdc-deepseek-pro` | `deepseek-v4.1-flash` | `cmdc-deepseek-fast` | 128K |
 
 ---
 
