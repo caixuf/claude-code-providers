@@ -95,6 +95,30 @@ else:
 PY
 fi
 
+# Patch C: GitHub Copilot non-interactive daemon safety patch
+AUTH_FILE=$("$VENV_DIR/bin/python" -c "import litellm.llms.github_copilot.authenticator as m; print(m.__file__)" 2>/dev/null || true)
+if [ -f "$AUTH_FILE" ]; then
+  echo "Checking Copilot non-interactive daemon patch in $AUTH_FILE..."
+  "$VENV_DIR/bin/python" - <<PY
+with open("$AUTH_FILE", "r") as f:
+    content = f.read()
+
+target = '        for attempt in range(3):'
+guard = '''        import sys
+        if not sys.stdin.isatty() and not os.getenv("GITHUB_COPILOT_FORCE_LOGIN"):
+            raise GetAccessTokenError(message="No existing access token found. Run 'ccp auth copilot' to authenticate.", status_code=401)
+        for attempt in range(3):'''
+
+if 'GITHUB_COPILOT_FORCE_LOGIN' not in content and target in content:
+    content = content.replace(target, guard, 1)
+    with open("$AUTH_FILE", "w") as f:
+        f.write(content)
+    print("✔ Copilot non-interactive daemon patch applied successfully.")
+else:
+    print("✔ Copilot non-interactive daemon patch already in place or not needed.")
+PY
+fi
+
 echo "=== 4. Setting up Configuration ==="
 mkdir -p "$CONFIG_DIR"
 if [ ! -f "$CONFIG_DIR/config.yaml" ]; then

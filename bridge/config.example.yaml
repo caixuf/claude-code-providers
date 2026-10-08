@@ -44,6 +44,49 @@ model_list:
       api_key: YOUR_OPENROUTER_API_KEY
 
   # -------------------------------------------------------------
+  # 4. GitHub Copilot — Claude 3.5 / 3.7 / Haiku / Opus Tier Mapping
+  # Run 'ccp auth copilot' to authenticate via GitHub Device Code flow.
+  # -------------------------------------------------------------
+  - model_name: copilot-sonnet
+    litellm_params:
+      model: github_copilot/claude-3.5-sonnet
+  - model_name: copilot-haiku
+    litellm_params:
+      model: github_copilot/claude-3.5-haiku
+  - model_name: copilot-opus
+    litellm_params:
+      model: github_copilot/claude-3.7-sonnet
+  - model_name: copilot-sonnet-3.7
+    litellm_params:
+      model: github_copilot/claude-3.7-sonnet
+  - model_name: copilot-gpt4o
+    litellm_params:
+      model: github_copilot/gpt-4o
+
+  # Anthropic Direct Aliases for transparent fallback
+  - model_name: claude-3-5-sonnet-20241022
+    litellm_params:
+      model: github_copilot/claude-3.5-sonnet
+  - model_name: claude-3-7-sonnet-20250219
+    litellm_params:
+      model: github_copilot/claude-3.7-sonnet
+  - model_name: claude-3-5-haiku-20241022
+    litellm_params:
+      model: github_copilot/claude-3.5-haiku
+  - model_name: claude-3-opus-20240229
+    litellm_params:
+      model: github_copilot/claude-3.7-sonnet
+  - model_name: claude-sonnet-5-5
+    litellm_params:
+      model: github_copilot/claude-3.5-sonnet
+  - model_name: claude-haiku-5-5
+    litellm_params:
+      model: github_copilot/claude-3.5-haiku
+  - model_name: claude-opus-5-5
+    litellm_params:
+      model: github_copilot/claude-3.7-sonnet
+
+  # -------------------------------------------------------------
   # Wildcard Fallback
   # -------------------------------------------------------------
   - model_name: "*"

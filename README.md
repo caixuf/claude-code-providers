@@ -86,6 +86,7 @@ Example configuration template:
 ```
 
 Pre-configured templates in `providers/`:
+- **`copilot.json`**: GitHub Copilot (Claude 3.5/3.7 Sonnet, Haiku, Opus tiers mapped) via local bridge
 - **`cmdc-deepseek-fast.json`**: CommandCode DeepSeek v4.1 Flash Fast (high-throughput low-latency) via local bridge
 - **`cmdc-deepseek-pro.json`**: CommandCode DeepSeek v4 Pro (hybrid-attention long-context reasoning) via local bridge
 - **`cmdc-deepseek.json`**: CommandCode DeepSeek v4.1 Flash via local bridge
@@ -191,6 +192,34 @@ ss -ltnp | grep 4000
 
 If `:4000` belongs to `litellm` you are on single-process; if it belongs to
 `sse_watchdog.py`, LiteLLM is behind it on `:4001`.
+
+---
+
+## 🐙 Using GitHub Copilot with Claude Code
+
+You can use your active **GitHub Copilot** subscription as the backend provider for Claude Code.
+
+### 1. Authenticate GitHub Copilot
+Run the one-click device authorization flow:
+```bash
+ccp auth copilot
+```
+Follow the prompt to visit `https://github.com/login/device` and enter the code. Once authorized, Copilot tokens are saved to `~/.config/litellm/github_copilot/`.
+
+### 2. Restart Bridge & Switch Profile
+```bash
+# Restart bridge to load credentials
+ccp bridge restart
+
+# Switch to GitHub Copilot
+ccp copilot
+```
+
+### 3. Model Tiers
+Copilot profile perfectly maps Claude Code's model hierarchy:
+- **Default / Sonnet**: `copilot-sonnet` (Claude 3.5 / 3.7 Sonnet)
+- **Haiku / Fast**: `copilot-haiku` (Claude 3.5 Haiku)
+- **Opus**: `copilot-opus` (Claude 3.7 Sonnet / Opus)
 
 ---
 
