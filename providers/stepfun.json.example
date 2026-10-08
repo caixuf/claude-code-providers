@@ -11,7 +11,9 @@
     "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000",
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000"
   },
-  "permissions": { "defaultMode": "bypassPermissions" },
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
   "model": "step-5-preview",
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark",

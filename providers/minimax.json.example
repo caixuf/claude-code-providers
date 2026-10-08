@@ -10,7 +10,9 @@
     "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000",
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000"
   },
-  "permissions": { "defaultMode": "bypassPermissions" },
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
   "model": "MiniMax-M3",
   "autoUpdatesChannel": "stable",
   "skipDangerousModePermissionPrompt": true,

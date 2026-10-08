@@ -8,10 +8,12 @@
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek/deepseek-v4.1-flash",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "cmdc-deepseek-fast",
     "ANTHROPIC_SMALL_FAST_MODEL": "cmdc-deepseek-fast",
-    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "128000",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "128000"
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000"
   },
-  "permissions": { "defaultMode": "bypassPermissions" },
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
   "model": "cmdc-deepseek-pro",
   "autoUpdatesChannel": "stable",
   "skipDangerousModePermissionPrompt": true,
