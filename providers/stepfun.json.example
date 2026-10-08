@@ -1,20 +1,20 @@
 {
   "env": {
-    "ANTHROPIC_AUTH_TOKEN": "YOUR_STEPFUN_API_KEY",
-    "ANTHROPIC_BASE_URL": "https://api.stepfun.com/step_plan",
-    "ANTHROPIC_MODEL": "step-5-preview",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "step-5-preview",
-    "ANTHROPIC_DEFAULT_FABLE_MODEL": "step-5-preview",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "step-3.7-flash",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "step-3.7-flash",
-    "ANTHROPIC_SMALL_FAST_MODEL": "step-3.7-flash",
+    "ANTHROPIC_AUTH_TOKEN": "sk-cmdc-litellm-local",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:4000",
+    "ANTHROPIC_MODEL": "step-5-preview[1m]",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "step-5-preview[1m]",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "step-5-preview[1m]",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "step-3.7-flash[1m]",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "step-3.7-flash[1m]",
+    "ANTHROPIC_SMALL_FAST_MODEL": "step-3.7-flash[1m]",
     "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000",
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000"
   },
   "permissions": {
     "defaultMode": "bypassPermissions"
   },
-  "model": "step-5-preview",
+  "model": "step-5-preview[1m]",
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark",
   "autoUpdatesChannel": "stable"

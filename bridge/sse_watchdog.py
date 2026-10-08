@@ -23,7 +23,7 @@ _BRIDGE_DIR = Path(__file__).resolve().parent
 if str(_BRIDGE_DIR) not in sys.path:
     sys.path.insert(0, str(_BRIDGE_DIR))
 
-from sse_finalize import SseCutState  # noqa: E402
+from sse_finalize import SseCutState, strip_1m_model  # noqa: E402
 
 HOP = {
     "connection",
@@ -91,16 +91,20 @@ async def _sse_body(
             await resp.aclose()
 
 
+
 async def proxy(request: Request) -> Response:
     upstream = request.app.state.upstream
     url = f"{upstream}{request.url.path}"
     if request.url.query:
         url = f"{url}?{request.url.query}"
     body = await request.body()
+    forward_body, stripped_model = strip_1m_model(body)
     try:
         import json as _j
-        _b = _j.loads(body) if body else {}
-        print(f"[WATCHDOG] Request: path={request.url.path} model={_b.get('model')} thinking={_b.get('thinking')} max_tokens={_b.get('max_tokens')} body_bytes={len(body)}", flush=True)
+        _b = _j.loads(forward_body) if forward_body else {}
+        if stripped_model:
+            print(f"[WATCHDOG] Stripped 1M suffix: {stripped_model} -> {_b.get('model')}", flush=True)
+        print(f"[WATCHDOG] Request: path={request.url.path} model={_b.get('model')} thinking={_b.get('thinking')} max_tokens={_b.get('max_tokens')} body_bytes={len(forward_body)}", flush=True)
     except Exception:
         pass
     timeout = httpx.Timeout(connect=10.0, read=None, write=30.0, pool=10.0)
@@ -109,7 +113,7 @@ async def proxy(request: Request) -> Response:
         request.method,
         url,
         headers=_fwd_headers(request),
-        content=body or None,
+        content=forward_body or None,
         timeout=timeout,
     )
     r = None

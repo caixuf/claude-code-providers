@@ -72,3 +72,20 @@ class SseCutState:
 
     def idle_timeout(self) -> bytes:
         return b""
+
+
+def strip_1m_model(body: bytes) -> tuple[bytes, str | None]:
+    """Strip [1m] or [1M] suffix from request body model field for upstream compatibility."""
+    if not body or (b"[1m]" not in body and b"[1M]" not in body):
+        return body, None
+    try:
+        import json as _j
+        _b = _j.loads(body)
+        if isinstance(_b, dict) and isinstance(_b.get("model"), str) and _b["model"].lower().endswith("[1m]"):
+            orig_m = _b["model"]
+            _b["model"] = orig_m[:-4]
+            return _j.dumps(_b).encode("utf-8"), orig_m
+    except Exception:
+        pass
+    return body, None
+

@@ -125,6 +125,26 @@ model_list:
       model: github_copilot/gpt-4o
 
   # -------------------------------------------------------------
+  # 5. StepFun (Step Plan API)
+  # -------------------------------------------------------------
+  - model_name: step-5-preview
+    litellm_params:
+      model: anthropic/step-5-preview
+      api_base: https://api.stepfun.com/step_plan
+      api_key: YOUR_STEPFUN_API_KEY
+      model_info:
+        max_input_tokens: 1000000
+        max_output_tokens: 128000
+  - model_name: step-3.7-flash
+    litellm_params:
+      model: anthropic/step-3.7-flash
+      api_base: https://api.stepfun.com/step_plan
+      api_key: YOUR_STEPFUN_API_KEY
+      model_info:
+        max_input_tokens: 1000000
+        max_output_tokens: 128000
+
+  # -------------------------------------------------------------
   # Wildcard Fallback
   # -------------------------------------------------------------
   - model_name: "*"

@@ -32,3 +32,28 @@ def test_default_idle_does_not_shrink_budget():
 def test_idle_timeout_does_not_inject_json():
     st = SseCutState()
     assert st.idle_timeout() == b""
+
+
+def test_strip_1m_model():
+    from sse_finalize import strip_1m_model
+    import json
+
+    # Strips [1m]
+    raw, stripped = strip_1m_model(b'{"model":"cmdc-deepseek[1m]","messages":[]}')
+    assert stripped == "cmdc-deepseek[1m]"
+    assert json.loads(raw)["model"] == "cmdc-deepseek"
+
+    # Strips uppercase [1M]
+    raw, stripped = strip_1m_model(b'{"model":"claude-sonnet-5.5[1M]"}')
+    assert stripped == "claude-sonnet-5.5[1M]"
+    assert json.loads(raw)["model"] == "claude-sonnet-5.5"
+
+    # Leaves regular models intact
+    raw, stripped = strip_1m_model(b'{"model":"claude-sonnet-5.5"}')
+    assert stripped is None
+    assert json.loads(raw)["model"] == "claude-sonnet-5.5"
+
+    # Handles empty/non-json safely
+    assert strip_1m_model(b"") == (b"", None)
+    assert strip_1m_model(b"not json") == (b"not json", None)
+
