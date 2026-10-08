@@ -34,7 +34,7 @@ Examples:
   ccp -m cmdc-space-bunny    # Change active model to space-bunny under current provider
   ccp cline-deepseek         # Switch to ClinePass Token Plan
   ccp auth copilot           # Authorize GitHub Copilot via device flow
-  ccp copilot                # Switch to GitHub Copilot (Claude 3.5/3.7 Sonnet, Haiku, Opus)
+  ccp copilot                # Switch to GitHub Copilot (Claude Sonnet 5.5, Haiku 5.5, Opus 5.5)
 
 Directories:
   Profiles:  ~/.claude/providers/*.json

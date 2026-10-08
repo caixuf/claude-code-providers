@@ -86,7 +86,7 @@ Example configuration template:
 ```
 
 Pre-configured templates in `providers/`:
-- **`copilot.json`**: GitHub Copilot (Claude 3.5/3.7 Sonnet, Haiku, Opus tiers mapped) via local bridge
+- **`copilot.json`**: GitHub Copilot (Claude Sonnet 5.5, Haiku 5.5, Opus 5.5 tiers mapped) via local bridge
 - **`cmdc-deepseek-fast.json`**: CommandCode DeepSeek v4.1 Flash Fast (high-throughput low-latency) via local bridge
 - **`cmdc-deepseek-pro.json`**: CommandCode DeepSeek v4 Pro (hybrid-attention long-context reasoning) via local bridge
 - **`cmdc-deepseek.json`**: CommandCode DeepSeek v4.1 Flash via local bridge
@@ -215,11 +215,11 @@ ccp bridge restart
 ccp copilot
 ```
 
-### 3. Model Tiers
+### 3. Model Tiers (Claude 5.5 Official Family)
 Copilot profile perfectly maps Claude Code's model hierarchy:
-- **Default / Sonnet**: `copilot-sonnet` (Claude 3.5 / 3.7 Sonnet)
-- **Haiku / Fast**: `copilot-haiku` (Claude 3.5 Haiku)
-- **Opus**: `copilot-opus` (Claude 3.7 Sonnet / Opus)
+- **Default / Active / Sonnet**: `claude-sonnet-5.5` (Claude Sonnet 5.5 — 1M context)
+- **Fast / Background / Haiku**: `claude-haiku-5.5` (Claude Haiku 5.5 — ultra-fast subagents & compact)
+- **Heavy / Architecture / Opus**: `claude-opus-5.5` (Claude Opus 5.5 — maximum reasoning power)
 
 ---
 

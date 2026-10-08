@@ -2,19 +2,19 @@
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "sk-cmdc-litellm-local",
     "ANTHROPIC_BASE_URL": "http://127.0.0.1:4000",
-    "ANTHROPIC_MODEL": "copilot-sonnet",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "copilot-opus",
-    "ANTHROPIC_DEFAULT_FABLE_MODEL": "copilot-opus",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "copilot-sonnet",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "copilot-haiku",
-    "ANTHROPIC_SMALL_FAST_MODEL": "copilot-haiku",
-    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "200000",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200000"
+    "ANTHROPIC_MODEL": "claude-sonnet-5.5",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5.5",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-5.5",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5.5",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-opus-5.5",
+    "ANTHROPIC_SMALL_FAST_MODEL": "claude-haiku-5.5",
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000"
   },
   "permissions": {
     "defaultMode": "bypassPermissions"
   },
-  "model": "copilot-sonnet",
+  "model": "claude-sonnet-5.5",
   "autoUpdatesChannel": "stable",
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark"
