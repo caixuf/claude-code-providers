@@ -89,6 +89,7 @@ Pre-configured templates in `providers/`:
 - **`cmdc-deepseek-fast.json`**: CommandCode DeepSeek v4.1 Flash Fast (high-throughput low-latency) via local bridge
 - **`cmdc-deepseek-pro.json`**: CommandCode DeepSeek v4 Pro (hybrid-attention long-context reasoning) via local bridge
 - **`cmdc-deepseek.json`**: CommandCode DeepSeek v4.1 Flash via local bridge
+- **`cmdc-haiku-5-5.json`**: CommandCode Claude Haiku 5.5 (1M context, high speed & economical) via CommandCode native API
 - **`cline-deepseek.json`**: ClinePass Subscription DeepSeek via local bridge
 - **`stepfun.json`**: StepFun Step-5 / 3.7 (`api.stepfun.com/step_plan`)
 - **`minimax.json`**: MiniMax M3 (`api.minimaxi.com/anthropic`)

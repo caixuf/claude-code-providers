@@ -1,0 +1,20 @@
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "YOUR_COMMANDCODE_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL": "https://api.commandcode.ai/provider/v1",
+    "ANTHROPIC_MODEL": "claude-haiku-5-5",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-haiku-5-5",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-haiku-5-5",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-5-5",
+    "ANTHROPIC_SMALL_FAST_MODEL": "claude-haiku-5-5",
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000"
+  },
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
+  "model": "claude-haiku-5-5",
+  "autoUpdatesChannel": "stable",
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "dark"
+}
