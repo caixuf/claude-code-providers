@@ -11,9 +11,9 @@
 
 ## ✨ Features
 
-- ⚡ **One-command switching**: Switch models in 1 second (`ccp cmdc-deepseek`, `ccp minmax`, `ccp deepseek`).
+- ⚡ **One-command switching**: Switch models in 1 second (`ccp cmdc-deepseek`, `ccp minimax`, `ccp deepseek`).
 - 🛡️ **Safe & non-destructive**: Automatically creates timestamped backups of `~/.claude/settings.json` upon every switch; supports instant rollback with `ccp --rollback`.
-- 🌉 **Universal Protocol Bridge**: Claude Code hardcodes the Anthropic Messages API (`/v1/messages`). `ccp` includes an optional zero-latency local proxy bridge (powered by LiteLLM) that allows Claude Code to access **any OpenAI-compatible gateway** (CommandCode, ClinePass, OpenRouter) with full streaming, tool use, and thinking tokens!
+- 🌉 **Universal Protocol Bridge**: Claude Code hardcodes the Anthropic Messages API (`/v1/messages`). `ccp` includes an optional zero-latency local proxy bridge (powered by LiteLLM) that allows Claude Code to access **any OpenAI-compatible gateway** (CommandCode, ClinePass, self-hosted vLLM) with full streaming, tool use, and thinking tokens!
 - 🎯 **Preserves Full Capabilities**:
   - ✅ Tool calling (File search, editing, bash execution, LSP)
   - ✅ Thinking tokens (Extended reasoning / CoT streaming)
@@ -42,7 +42,7 @@ ccp
 
 # Switch to a provider profile
 ccp cmdc-deepseek
-ccp minmax
+ccp minimax
 ccp deepseek
 
 # Check current active profile and endpoints
@@ -91,9 +91,8 @@ Pre-configured templates in `providers/`:
 - **`cmdc-deepseek.json`**: CommandCode DeepSeek v4.1 Flash via local bridge
 - **`cline-deepseek.json`**: ClinePass Subscription DeepSeek via local bridge
 - **`stepfun.json`**: StepFun Step-5 / 3.7 (`api.stepfun.com/step_plan`)
-- **`minmax.json`**: MiniMax M3 (`api.minimaxi.com/anthropic`)
+- **`minimax.json`**: MiniMax M3 (`api.minimaxi.com/anthropic`)
 - **`deepseek.json`**: Official DeepSeek Anthropic API (`api.deepseek.com/anthropic`)
-- **`openrouter.json`**: OpenRouter Multi-Model Gateway (`openrouter.ai/api`)
 
 The three `cmdc-*` profiles are **three entry points onto one model ladder**, not
 three unrelated models. Each pins Claude Code's four tiers to whichever rung
@@ -204,7 +203,7 @@ In automated multi-turn engineering benchmarks across complex automotive codebas
 | **`claude-deepseek`** | `deepseek-v4-flash` | **12.0 / 12** | **213.6 tok/s** | Blazing-fast raw generation speed |
 | **`claude-cmdc-deepseek`** | `deepseek-v4.1-flash` | **11.8 / 12** | **58.4 tok/s** | Best overall consistency in deep multi-turn sessions |
 | **`claude-cline-deepseek`** | `deepseek-v4.1-flash` | **12.0 / 12** | **69.8 tok/s** | High speed, flat monthly quota |
-| **`claude-minmax-m3`** | `MiniMax-M3` | **10.8 / 12** | **58.9 tok/s** | Lowest latency, concise and direct answers |
+| **`claude-minimax-m3`** | `MiniMax-M3` | **10.8 / 12** | **58.9 tok/s** | Lowest latency, concise and direct answers |
 | **`claude-step5`** | `step-5-preview` | **11.8 / 12** | **56.6 tok/s** | Exceptionally detailed step-by-step reasoning |
 
 ---

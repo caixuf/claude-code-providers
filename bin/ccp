@@ -275,7 +275,7 @@ sync_providers() {
   mkdir -p "$PROVIDERS_DIR"
   mkdir -p "$CLAUDE_DIR/providers_disabled"
 
-  for obsolete in cmdc-space-bunny.json longcat.json u2flash.json; do
+  for obsolete in cmdc-space-bunny.json longcat.json u2flash.json unisound.json openrouter.json minmax.json; do
     if [ -f "$PROVIDERS_DIR/$obsolete" ]; then
       mv "$PROVIDERS_DIR/$obsolete" "$CLAUDE_DIR/providers_disabled/"
       echo -e "  \033[33m-- Archived obsolete profile $obsolete to ~/.claude/providers_disabled/\033[0m"
