@@ -267,7 +267,8 @@ auth_provider() {
         return 1
       fi
 
-      "$py_bin" - <<'PY'
+      export GITHUB_COPILOT_FORCE_LOGIN=1
+      "$py_bin" -c '
 import sys
 from litellm.llms.github_copilot.authenticator import Authenticator
 
@@ -287,7 +288,7 @@ except KeyboardInterrupt:
 except Exception as e:
     print(f"\n\033[31mAuthentication failed: {e}\033[0m", file=sys.stderr)
     sys.exit(1)
-PY
+'
       local ret=$?
       if [ $ret -eq 0 ]; then
         echo ""
