@@ -9,6 +9,7 @@ Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
 Environment=LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES=true
+EnvironmentFile=-%h/.config/litellm/proxy.env
 
 [Install]
 WantedBy=default.target

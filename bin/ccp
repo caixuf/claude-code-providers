@@ -177,9 +177,37 @@ check_bridge_port() {
   timeout 1 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/$port" 2>/dev/null
 }
 
+sync_proxy_env() {
+  local cfg_dir="$HOME/.config/litellm"
+  local env_file="$cfg_dir/proxy.env"
+  local proxy_url="${https_proxy:-${http_proxy:-${HTTPS_PROXY:-${HTTP_PROXY:-}}}}"
+
+  if [ -z "$proxy_url" ]; then
+    for p in 7897 7899 7892; do
+      if timeout 1 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/$p" 2>/dev/null; then
+        proxy_url="http://127.0.0.1:$p"
+        break
+      fi
+    done
+  fi
+
+  if [ -n "$proxy_url" ]; then
+    mkdir -p "$cfg_dir"
+    cat > "$env_file" <<EOF
+http_proxy=$proxy_url
+https_proxy=$proxy_url
+HTTP_PROXY=$proxy_url
+HTTPS_PROXY=$proxy_url
+no_proxy=localhost,127.0.0.1,::1,.local
+NO_PROXY=localhost,127.0.0.1,::1,.local
+EOF
+  fi
+}
+
 ensure_bridge_running() {
   local url="$1"
   if [[ "$url" =~ (127\.0\.0\.1|localhost):4000 ]]; then
+    sync_proxy_env
     local p4000=0 p4001=0
     check_bridge_port 4000 && p4000=1
     check_bridge_port 4001 && p4001=1
@@ -227,6 +255,7 @@ manage_bridge() {
       ;;
     restart)
       echo "Restarting bridge services..."
+      sync_proxy_env
       systemctl --user restart litellm-cmdc.service 2>/dev/null || true
       sleep 1.5
       systemctl --user restart ccp-sse-watchdog.service 2>/dev/null || true
@@ -235,6 +264,7 @@ manage_bridge() {
       ;;
     start)
       echo "Starting bridge services..."
+      sync_proxy_env
       systemctl --user start litellm-cmdc.service ccp-sse-watchdog.service 2>/dev/null || true
       sleep 1
       manage_bridge status
