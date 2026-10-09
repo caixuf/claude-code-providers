@@ -13,6 +13,9 @@ providers/*.json
 # Bridge local configs with secrets
 bridge/config.yaml
 !bridge/config.example.yaml
+# Generated from the registry (recreate with `ccp render`)
+bridge/config.generated.yaml
+bridge/clamp_map.json
 
 # System & Python
 __pycache__/

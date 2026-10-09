@@ -5,17 +5,17 @@
     "ANTHROPIC_MODEL": "step-5-preview[1m]",
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "step-5-preview[1m]",
     "ANTHROPIC_DEFAULT_FABLE_MODEL": "step-5-preview[1m]",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "step-3.7-flash[1m]",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "step-3.7-flash[1m]",
-    "ANTHROPIC_SMALL_FAST_MODEL": "step-3.7-flash[1m]",
-    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000"
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "step-3.7-flash",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "step-3.7-flash",
+    "ANTHROPIC_SMALL_FAST_MODEL": "step-3.7-flash",
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1024000",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1024000"
   },
   "permissions": {
     "defaultMode": "bypassPermissions"
   },
   "model": "step-5-preview[1m]",
+  "autoUpdatesChannel": "stable",
   "skipDangerousModePermissionPrompt": true,
-  "theme": "dark",
-  "autoUpdatesChannel": "stable"
+  "theme": "dark"
 }

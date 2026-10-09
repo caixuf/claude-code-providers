@@ -121,7 +121,66 @@ fi
 
 echo "=== 4. Setting up Configuration ==="
 mkdir -p "$CONFIG_DIR"
-if [ ! -f "$CONFIG_DIR/config.yaml" ]; then
+
+# Migrate any literal api_key values from an existing config.yaml into the
+# secrets env file, so the generated config (which references os.environ/*)
+# keeps working for people upgrading from the old hand-edited config.
+migrate_keys_to_env() {
+  local src="$1" dst="$2"
+  [ -f "$src" ] || return 0
+  "$VENV_DIR/bin/python3" - "$src" "$dst" <<'PY'
+import re, sys, pathlib
+src, dst = sys.argv[1], sys.argv[2]
+text = pathlib.Path(src).read_text()
+# map api_base host -> env var name
+HOSTS = {
+    "api.commandcode.ai": "CMDC_API_KEY",
+    "api.cline.bot": "CLINE_API_KEY",
+    "api.stepfun.com": "STEPFUN_API_KEY",
+}
+lines, cur_host = [], None
+out = {}
+for ln in text.splitlines():
+    for host, var in HOSTS.items():
+        if host in ln:
+            cur_host = var
+    m = re.match(r"\s*api_key:\s*(\S+)\s*$", ln)
+    if m and cur_host:
+        val = m.group(1).strip("'\"")
+        if not val.startswith("os.environ/") and "YOUR_" not in val:
+            out.setdefault(cur_host, val)
+        cur_host = None
+if not out:
+    sys.exit(0)
+existing = ""
+dp = pathlib.Path(dst)
+if dp.is_file():
+    existing = dp.read_text()
+add = [f"{k}={v}" for k, v in out.items() if f"{k}=" not in existing]
+if add:
+    with dp.open("a") as f:
+        if existing and not existing.endswith("\n"):
+            f.write("\n")
+        f.write("\n".join(add) + "\n")
+    print(f"  ✔ Migrated {len(add)} API key(s) into {dst}")
+PY
+}
+
+# Generate config from the registry (single source of truth) when available,
+# else fall back to the checked-in example.
+REGISTRY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/registry"
+if [ -f "$REGISTRY_DIR/models.yaml" ] && [ -f "$SCRIPT_DIR/render_config.py" ]; then
+  "$VENV_DIR/bin/python3" "$SCRIPT_DIR/render_config.py" >/dev/null 2>&1 || true
+fi
+if [ -f "$SCRIPT_DIR/config.generated.yaml" ]; then
+  migrate_keys_to_env "$CONFIG_DIR/config.yaml" "$CONFIG_DIR/proxy.env"
+  if [ -f "$CONFIG_DIR/config.yaml" ]; then
+    cp "$CONFIG_DIR/config.yaml" "$CONFIG_DIR/config.yaml.bak.$(date +%Y%m%d-%H%M%S)"
+  fi
+  cp "$SCRIPT_DIR/config.generated.yaml" "$CONFIG_DIR/config.yaml"
+  # also ship the clamp map next to the watchdog
+  echo "Generated $CONFIG_DIR/config.yaml from registry (keys via proxy.env)"
+elif [ ! -f "$CONFIG_DIR/config.yaml" ]; then
   cp "$SCRIPT_DIR/config.example.yaml" "$CONFIG_DIR/config.yaml"
   echo "Created $CONFIG_DIR/config.yaml from template. Please edit with your API keys!"
 else

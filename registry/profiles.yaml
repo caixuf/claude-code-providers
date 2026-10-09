@@ -1,0 +1,170 @@
+# registry/profiles.yaml — the ONLY hand-authored curation layer.
+#
+# Everything factual about a model (context window, output cap, vision) is
+# auto-discovered into registry/models.yaml by bridge/discover_models.py and
+# must NOT be duplicated here. This file only records *choices*:
+#   - which discovered model each Claude Code tier maps to, per profile
+#   - the short alias the user types (ccp <alias>, /model tier)
+#
+# `ccp render` joins this with registry/models.yaml to emit:
+#   ~/.config/litellm/config.yaml   (model_list + model_info)
+#   bridge/clamp_map.json           (model -> max_output for the proxy)
+#   providers/<profile>.json.example (CLAUDE_CODE_MAX_CONTEXT_TOKENS, tiers)
+#
+# Model names below are the *registry* names (upstream ids). Use the exact
+# string shown by `ccp models <provider>`.
+
+version: 1
+
+# ── Provider entry points ──────────────────────────────────────────────
+# An entry point = one Claude Code profile. `tiers` maps the four Claude Code
+# slots to registry model names. `ctx_from` picks which tier's model defines
+# CLAUDE_CODE_MAX_CONTEXT_TOKENS for the whole profile (Claude Code has one
+# context number per session, so we advertise the slot the user starts on).
+profiles:
+  cmdc-deepseek:
+    provider: cmdc
+    primary_tier: sonnet
+    tiers:
+      default: {model: deepseek/deepseek-v4.1-flash}
+      opus:    {model: deepseek/deepseek-v4-pro}
+      fable:   {model: deepseek/deepseek-v4-pro}
+      sonnet:  {model: deepseek/deepseek-v4.1-flash}
+      haiku:   {model: deepseek/deepseek-v4.1-flash-fast}
+
+  cmdc-deepseek-fast:
+    provider: cmdc
+    primary_tier: default
+    tiers:
+      default: {model: deepseek/deepseek-v4.1-flash-fast}
+      opus:    {model: deepseek/deepseek-v4-pro}
+      fable:   {model: deepseek/deepseek-v4-pro}
+      sonnet:  {model: deepseek/deepseek-v4.1-flash}
+      haiku:   {model: deepseek/deepseek-v4.1-flash-fast}
+
+  cmdc-deepseek-pro:
+    provider: cmdc
+    primary_tier: opus
+    tiers:
+      default: {model: deepseek/deepseek-v4-pro}
+      opus:    {model: deepseek/deepseek-v4-pro}
+      fable:   {model: deepseek/deepseek-v4-pro}
+      sonnet:  {model: deepseek/deepseek-v4.1-flash}
+      haiku:   {model: deepseek/deepseek-v4.1-flash-fast}
+
+  # Multimodal entry point: every tier points at a vision-capable model so
+  # pasting an image "just works". Kept separate from the text profiles so
+  # plain text turns stay on the cheaper/faster pure-text ladder.
+  cmdc-vision:
+    provider: cmdc
+    primary_tier: opus
+    tiers:
+      default: {model: deepseek/deepseek-v4-flash-vision-exp}
+      opus:    {model: deepseek/deepseek-v4-flash-vision-exp}
+      fable:   {model: deepseek/deepseek-v4-flash-vision-exp}
+      sonnet:  {model: deepseek/deepseek-v4-flash-vision-exp}
+      haiku:   {model: deepseek/deepseek-v4.1-flash-fast}
+
+  cline-deepseek:
+    provider: cline
+    primary_tier: default
+    tiers:
+      default: {model: deepseek/deepseek-v4.1-flash}
+      opus:    {model: deepseek/deepseek-v4.1-flash}
+      fable:   {model: deepseek/deepseek-v4.1-flash}
+      sonnet:  {model: deepseek/deepseek-v4.1-flash}
+      haiku:   {model: deepseek/deepseek-v4.1-flash}
+
+  stepfun:
+    provider: stepfun
+    primary_tier: opus
+    tiers:
+      default: {model: step-5-preview}
+      opus:    {model: step-5-preview}
+      fable:   {model: step-5-preview}
+      sonnet:  {model: step-3.7-flash}
+      haiku:   {model: step-3.7-flash}
+
+  # ── Native Anthropic-compatible endpoints (no bridge clamp needed) ──
+  # These talk straight to the provider's /anthropic endpoint; they are
+  # rendered into config.yaml too so `ccp models` can list them, but the
+  # profile JSON points ANTHROPIC_BASE_URL directly (no 127.0.0.1:4000).
+  # Models are auto-discovered (see registry/models.yaml).
+  deepseek:
+    provider: deepseek
+    native: true
+    primary_tier: default
+    tiers:
+      default: {model: deepseek-flash}
+      opus:    {model: deepseek-v4-pro}
+      fable:   {model: deepseek-v4-pro}
+      sonnet:  {model: deepseek-flash}
+      haiku:   {model: deepseek-flash}
+
+  minimax:
+    provider: minimax
+    native: true
+    primary_tier: default
+    tiers:
+      default: {model: MiniMax-M3}
+      opus:    {model: MiniMax-M3}
+      sonnet:  {model: MiniMax-M3}
+      haiku:   {model: MiniMax-M3}
+
+  copilot:
+    provider: copilot
+    native: false
+    primary_tier: sonnet
+    tiers:
+      default: {model: github_copilot/claude-sonnet-5.5}
+      opus:    {model: github_copilot/claude-opus-5.5}
+      fable:   {model: github_copilot/claude-opus-5.5}
+      sonnet:  {model: github_copilot/claude-sonnet-5.5}
+      haiku:   {model: github_copilot/claude-haiku-5.5}
+
+# ── Providers not covered by auto-discovery ────────────────────────────
+# Describes how to render their config entries + model metadata. Keyed by the
+# `provider:` name used in `profiles:` above.
+providers:
+  copilot:
+    endpoint_kind: github_copilot   # no api_base / api_key (token store)
+    model_defaults:                 # substring match -> metadata
+      claude-opus-5.5:  {ctx: 1000000, max_output: 32000, vision: true}
+      claude-sonnet-5.5: {ctx: 1000000, max_output: 32000, vision: true}
+      claude-haiku-5.5: {ctx: 1000000, max_output: 32000, vision: true}
+      claude-opus-5:    {ctx: 200000, max_output: 32000, vision: true}
+      claude-sonnet-5:  {ctx: 200000, max_output: 32000, vision: true}
+      claude-opus-4.5:  {ctx: 200000, max_output: 32000, vision: true}
+      claude-sonnet-4.5: {ctx: 200000, max_output: 32000, vision: true}
+      claude-haiku-4.5: {ctx: 200000, max_output: 32000, vision: true}
+
+# ── Short aliases exposed to LiteLLM (config.yaml model_name) ──────────
+# These are the names Claude Code puts in ANTHROPIC_MODEL. The `[1m]` marker
+# is appended automatically for models whose ctx >= 1000000 (the proxy strips
+# it before forwarding). Add aliases here only when you want a friendly name;
+# the profile tier model above already resolves via its registry name.
+aliases:
+  cmdc-deepseek:      {provider: cmdc, model: deepseek/deepseek-v4.1-flash, ctx: 1000000}
+  cmdc-deepseek-fast: {provider: cmdc, model: deepseek/deepseek-v4.1-flash-fast, ctx: 1000000}
+  cmdc-deepseek-pro:  {provider: cmdc, model: deepseek/deepseek-v4-pro, ctx: 1000000}
+  cmdc-vision:        {provider: cmdc, model: deepseek/deepseek-v4-flash-vision-exp, ctx: 1000000}
+  cline-deepseek:     {provider: cline, model: deepseek/deepseek-v4.1-flash, ctx: 1000000}
+  # Copilot: keep the original short names so existing configs keep working
+  claude-sonnet-5.5:  {provider: copilot, model: github_copilot/claude-sonnet-5.5, ctx: 1000000}
+  claude-opus-5.5:    {provider: copilot, model: github_copilot/claude-opus-5.5, ctx: 1000000}
+  claude-haiku-5.5:   {provider: copilot, model: github_copilot/claude-haiku-5.5, ctx: 1000000}
+
+# ── Models that get individual LiteLLM entries (so `ccp -m <name>` works) ─
+# Everything else is still reachable via the provider's `*`-less explicit
+# fallback only through discovery docs; keep this list short and curated.
+expose_models:
+  - deepseek/deepseek-v4.1-flash
+  - deepseek/deepseek-v4.1-flash-fast
+  - deepseek/deepseek-v4-pro
+  - deepseek/deepseek-v4-flash-vision-exp
+  - moonshotai/Kimi-K3
+  - zai-org/GLM-5.3
+  - MiniMaxAI/MiniMax-M3
+  - Qwen/Qwen3.8-Max
+  - xai/grok-4.7
+  - google/gemini-3.8-flash

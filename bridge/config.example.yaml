@@ -1,5 +1,10 @@
 # LiteLLM Proxy Configuration for Claude Code
 # Converts Claude Code Anthropic Messages API (/v1/messages) to OpenAI/OpenRouter APIs (/chat/completions)
+#
+# NOTE: This hand-edited example is now a FALLBACK. The real config is generated
+# from the model registry — run `ccp discover` then `ccp render`, which writes
+# bridge/config.generated.yaml and copies it to ~/.config/litellm/config.yaml.
+# Only fall back to editing this file if the registry is unavailable.
 
 model_list:
   # -------------------------------------------------------------

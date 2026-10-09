@@ -48,7 +48,17 @@ ccp deepseek
 # Check current active profile and endpoints
 ccp --current
 
-# Sync local profiles with repository templates (archives obsolete ones, adds new templates)
+# List models with auto-discovered context / output cap / vision
+ccp models            # curated view
+ccp models cmdc       # every model a provider exposes
+
+# Refresh model metadata from each provider's official API, then regenerate
+# config + profiles from it (single source of truth)
+ccp discover
+ccp render
+
+# Sync local profiles with repository templates (archives obsolete ones, adds new
+# templates, and reconciles derived context values without touching your keys)
 ccp sync
 
 # Quick ping test to verify the provider works
@@ -56,6 +66,63 @@ ccp --test
 
 # Roll back to the previous settings backup
 ccp --rollback
+```
+
+> **No more hand-filling context/multimodal.** Model capabilities are pulled
+> straight from each provider's `/models` endpoint and LiteLLM's built-in model
+> registry, so adding a model never means hand-typing its context window.
+
+---
+
+## 🧭 Model Registry (single source of truth)
+
+Every fact about a model — its real context window, output cap, and whether it
+accepts images — lives in **one place**, `registry/models.yaml`, and is
+**auto-discovered**, not hand-written:
+
+```bash
+ccp discover        # pull context/vision/output from each provider's /models API
+ccp render          # regenerate config.yaml, clamp_map.json, and profiles from it
+```
+
+Discovery merges three sources, in priority order:
+
+1. **The provider's own `/models` endpoint** (authoritative):
+   - CommandCode → `context_length`, `supported_endpoints` (~87 models)
+   - StepFun → `max_input_tokens`, `enable_vision_input`
+   - Cline → id/name only
+2. **LiteLLM's bundled model registry** (`litellm.model_cost`, ~4500 entries) for
+   `max_input_tokens` / `max_output_tokens` / `supports_vision`.
+3. A tiny defaults table for the few facts neither knows (e.g. every CommandCode
+   model caps its **output** at 393216 — verified by probe).
+
+`registry/profiles.yaml` is the *only* hand-authored file: it records choices
+(which model each Claude Code tier maps to, and the short aliases). `ccp render`
+joins the two into:
+
+| Output | Purpose |
+| :--- | :--- |
+| `~/.config/litellm/config.yaml` | LiteLLM routing + `model_info` limits |
+| `bridge/clamp_map.json` | model → output cap, used by the proxy |
+| `providers/<name>.json.example` | profile with the *correct* `CLAUDE_CODE_MAX_CONTEXT_TOKENS` |
+
+### Why this fixes the `max_tokens` 400
+
+Claude Code sends `max_tokens` equal to the advertised context window (1,000,000
+for a 1M model), but OpenAI-compatible gateways like CommandCode hard-cap output
+at **393216**. The local bridge (`bridge/sse_watchdog.py`) now clamps
+`max_tokens` down to the model's discovered output cap before forwarding — so a
+1M-context model works end-to-end instead of erroring with
+`400 Invalid max_tokens value`.
+
+### Multimodal
+
+Vision-capable models are declared automatically (`supports_vision`), and a
+dedicated `cmdc-vision` profile maps every tier to a vision model, so pasting an
+image just works:
+
+```bash
+ccp cmdc-vision     # all tiers -> deepseek/deepseek-v4-flash-vision-exp
 ```
 
 ---

@@ -23,7 +23,7 @@ _BRIDGE_DIR = Path(__file__).resolve().parent
 if str(_BRIDGE_DIR) not in sys.path:
     sys.path.insert(0, str(_BRIDGE_DIR))
 
-from sse_finalize import SseCutState, strip_1m_model  # noqa: E402
+from sse_finalize import SseCutState, clamp_max_tokens, strip_1m_model  # noqa: E402
 
 HOP = {
     "connection",
@@ -99,11 +99,16 @@ async def proxy(request: Request) -> Response:
         url = f"{url}?{request.url.query}"
     body = await request.body()
     forward_body, stripped_model = strip_1m_model(body)
+    clamp_map = getattr(request.app.state, "clamp_map", {}) or {}
+    clamp_fallback = getattr(request.app.state, "clamp_fallback", None)
+    forward_body, clamped = clamp_max_tokens(forward_body, clamp_map, fallback=clamp_fallback)
     try:
         import json as _j
         _b = _j.loads(forward_body) if forward_body else {}
         if stripped_model:
             print(f"[WATCHDOG] Stripped 1M suffix: {stripped_model} -> {_b.get('model')}", flush=True)
+        if clamped is not None:
+            print(f"[WATCHDOG] Clamped max_tokens -> {clamped} for model={_b.get('model')}", flush=True)
         print(f"[WATCHDOG] Request: path={request.url.path} model={_b.get('model')} thinking={_b.get('thinking')} max_tokens={_b.get('max_tokens')} body_bytes={len(forward_body)}", flush=True)
     except Exception:
         pass
@@ -153,7 +158,44 @@ async def proxy(request: Request) -> Response:
     )
 
 
-def build_app(upstream: str, ping_idle_s: float, first_byte_s: float = 90.0) -> Starlette:
+def load_clamp_map(path: str | None) -> tuple[dict[str, int], int | None]:
+    """Load {model: max_output} from a JSON file. Returns ({}, None) if missing.
+
+    The fallback cap is the minimum across all models, so an unknown model is
+    still clamped to the most conservative known output limit.
+    """
+    import json
+    from pathlib import Path
+
+    candidates = [path] if path else []
+    candidates.append(str(_BRIDGE_DIR / "clamp_map.json"))
+    for cand in candidates:
+        if not cand:
+            continue
+        fp = Path(cand)
+        if not fp.is_file():
+            continue
+        try:
+            raw = json.loads(fp.read_text())
+        except Exception:
+            continue
+        if not isinstance(raw, dict):
+            continue
+        clean = {str(k): int(v) for k, v in raw.items() if isinstance(v, (int, float))}
+        fallback = clean.pop("__fallback__", None)
+        if fallback is None and clean:
+            fallback = min(clean.values())
+        return clean, fallback
+    return {}, None
+
+
+def build_app(
+    upstream: str,
+    ping_idle_s: float,
+    first_byte_s: float = 90.0,
+    clamp_map: dict[str, int] | None = None,
+    clamp_fallback: int | None = None,
+) -> Starlette:
     methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
     app = Starlette(
         routes=[
@@ -164,6 +206,8 @@ def build_app(upstream: str, ping_idle_s: float, first_byte_s: float = 90.0) -> 
     app.state.upstream = upstream.rstrip("/")
     app.state.ping_idle_s = ping_idle_s
     app.state.first_byte_s = first_byte_s
+    app.state.clamp_map = clamp_map or {}
+    app.state.clamp_fallback = clamp_fallback
     app.state.client = httpx.AsyncClient(timeout=None)
     return app
 
@@ -175,11 +219,19 @@ def main() -> None:
     p.add_argument("--upstream", default="http://127.0.0.1:4001")
     p.add_argument("--idle-seconds", type=float, default=0.0, help="0=never idle-cut (required for long Explore/tool turns)")
     p.add_argument("--first-byte-seconds", type=float, default=90.0)
+    p.add_argument("--clamp-map", default=None, help="Path to clamp_map.json (default: bridge/clamp_map.json)")
+    p.add_argument("--no-clamp", action="store_true", help="Disable max_tokens clamping")
     args = p.parse_args()
     import uvicorn
 
+    if args.no_clamp:
+        cmap, cfallback = {}, None
+    else:
+        cmap, cfallback = load_clamp_map(args.clamp_map)
+    print(f"[WATCHDOG] max_tokens clamp: {len(cmap)} models, fallback={cfallback}", flush=True)
+
     uvicorn.run(
-        build_app(args.upstream, args.idle_seconds, args.first_byte_seconds),
+        build_app(args.upstream, args.idle_seconds, args.first_byte_seconds, cmap, cfallback),
         host=args.host,
         port=args.port,
         log_level="warning",

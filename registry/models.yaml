@@ -1,0 +1,4024 @@
+version: 1
+providers:
+  - name: cmdc
+    api_base: https://api.commandcode.ai/provider/v1
+    endpoint_kind: openai
+    auth_env: CMDC_API_KEY
+    models:
+      - name: MiniMaxAI/MiniMax-M2.5
+        ctx: 200000
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: MiniMaxAI/MiniMax-M2.7
+        ctx: 200000
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: MiniMaxAI/MiniMax-M3
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: Qwen/Qwen3.6-Max-Preview
+        ctx: 200000
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: Qwen/Qwen3.6-Plus
+        ctx: 200000
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: Qwen/Qwen3.7-Flash
+        ctx: 1000000
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: Qwen/Qwen3.7-Max
+        ctx: 1000000
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: Qwen/Qwen3.7-Plus
+        ctx: 1000000
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: Qwen/Qwen3.8-27B
+        ctx: 262144
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: Qwen/Qwen3.8-Flash
+        ctx: 1000000
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: Qwen/Qwen3.8-Max
+        ctx: 1000000
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: Qwen/Qwen3.8-Max-0902
+        ctx: 1000000
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: Qwen/Qwen3.8-Omni-Flash
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: claude-fable-5
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: claude-fable-5-1
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: claude-haiku-4-5-20251001
+        ctx: 200000
+        max_output: 393216
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: claude-haiku-5-5
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: claude-opus-4-7
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: claude-opus-4-8
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: claude-opus-5
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: claude-opus-5-5
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: claude-sonnet-4-6
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: claude-sonnet-5
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: claude-sonnet-5-5
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-v4-flash
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-v4-flash-fast
+        ctx: 1000000
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-v4-flash-vision-exp
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-v4-pro
+        ctx: 1000000
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-v4.1-flash
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-v4.1-flash-fast
+        ctx: 1000000
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.1-flash-lite
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.5-flash
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.5-flash-lite
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.6-flash
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.7-flash
+        ctx: 1048576
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.8-flash
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gpt-5.3-codex
+        ctx: 400000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gpt-5.4
+        ctx: 400000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gpt-5.4-mini
+        ctx: 400000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gpt-5.5
+        ctx: 400000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gpt-5.6-luna
+        ctx: 1050000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gpt-5.6-sol
+        ctx: 1050000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gpt-5.6-terra
+        ctx: 1050000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gpt-6-astra
+        ctx: 1050000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gpt-6-luna
+        ctx: 1050000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gpt-6-sol
+        ctx: 1050000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gpt-6.1-sol
+        ctx: 1050000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: inclusionai/ling-3.0-flash-sante:free
+        ctx: 262144
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: inclusionai/ling-3.1-flash:free
+        ctx: 262144
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meituan/LongCat-2.0
+        ctx: 1048576
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta/muse-spark-1.1
+        ctx: 1048576
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta/muse-spark-1.2
+        ctx: 1048576
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta/muse-spark-1.2-contributor
+        ctx: 1048576
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta/muse-spark-1.3
+        ctx: 1048576
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta/muse-spark-1.3-contributor
+        ctx: 1048576
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistral/mistral-large-4
+        ctx: 524288
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: moonshotai/Kimi-K2.5
+        ctx: 256000
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: moonshotai/Kimi-K2.6
+        ctx: 256000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: moonshotai/Kimi-K2.7-Code
+        ctx: 256000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: moonshotai/Kimi-K2.7-Code-Highspeed
+        ctx: 262000
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: moonshotai/Kimi-K3
+        ctx: 1000000
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: nvidia/nemotron-3-ultra-550b-a55b
+        ctx: 1000000
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: poolside/laguna-s-2.1-free
+        ctx: 256000
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: sakana/fugu-ultra
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: stealth/glyph-cluster:free
+        ctx: 256000
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: stepfun/Step-3.5-Flash
+        ctx: 262144
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: stepfun/Step-3.7-Flash
+        ctx: 256000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: stepfun/Step-5-Preview
+        ctx: 1000000
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: tencent/hy3-paid
+        ctx: 262144
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: tencent/hy4-preview
+        ctx: 1048576
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: thinkingmachines/inkling
+        ctx: 256000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: thinkingmachines/inkling-small
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: xai/grok-4.5
+        ctx: 500000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: xai/grok-4.6
+        ctx: 500000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: xai/grok-4.7
+        ctx: 500000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: xiaomi/mimo-v2.5
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: xiaomi/mimo-v2.5-pro
+        ctx: 1000000
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: xiaomi/mimo-v2.6-flash
+        ctx: 1048576
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: xiaomi/mimo-v2.6-pro
+        ctx: 1048576
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: xiaomi/mimo-v2.6-pro-ultraspeed
+        ctx: 1048576
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-5.3-flash
+        ctx: 1048576
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-5.3-flashx
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: zai-org/GLM-5
+        ctx: 200000
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: zai-org/GLM-5.1
+        ctx: 200000
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: zai-org/GLM-5.2
+        ctx: 1000000
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: zai-org/GLM-5.2-Fast
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: zai-org/GLM-5.3
+        ctx: 1000000
+        max_output: 393216
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+  - name: stepfun
+    api_base: https://api.stepfun.com/step_plan
+    endpoint_kind: anthropic
+    auth_env: STEPFUN_API_KEY
+    models:
+      - name: step-3.5-flash
+        ctx: 262144
+        max_output: 128000
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: step-3.5-flash-2603
+        ctx: 262144
+        max_output: 128000
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: step-3.7-flash
+        ctx: 262144
+        max_output: 128000
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: step-5-preview
+        ctx: 1024000
+        max_output: 128000
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: step-router-v1
+        ctx: 262144
+        max_output: 128000
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+  - name: cline
+    api_base: https://api.cline.bot/api/v1
+    endpoint_kind: openai
+    auth_env: CLINE_API_KEY
+    models:
+      - name: aion-labs/aion-2.0
+        ctx: 131072
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: aion-labs/aion-3.0
+        ctx: 131072
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: aion-labs/aion-3.0-mini
+        ctx: 131072
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: aion-labs/aion-3.5
+        ctx: 262144
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: aion-labs/aion-3.5-mini
+        ctx: 262144
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: aion-labs/aion-rp-llama-3.1-8b
+        ctx: 32768
+        max_output: 29491
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: amazon/nova-2-lite-v1
+        ctx: 1000000
+        max_output: 65535
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: amazon/nova-lite-v1
+        ctx: 300000
+        max_output: 5120
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: amazon/nova-micro-v1
+        ctx: 128000
+        max_output: 5120
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: amazon/nova-premier-v1
+        ctx: 1000000
+        max_output: 32000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: amazon/nova-pro-v1
+        ctx: 300000
+        max_output: 5120
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthracite-org/magnum-v4-72b
+        ctx: 32768
+        max_output: 4096
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-fable-5
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-fable-5.1
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-fable-5.1:batch
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-fable-5:batch
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-haiku-4.5
+        ctx: 200000
+        max_output: 64000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-haiku-4.5:batch
+        ctx: 200000
+        max_output: 64000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-haiku-5.5
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-haiku-5.5:batch
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-opus-4.1
+        ctx: 200000
+        max_output: 32000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-opus-4.1:batch
+        ctx: 200000
+        max_output: 32000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-opus-4.5
+        ctx: 409600
+        max_output: 32000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-opus-4.5:batch
+        ctx: 200000
+        max_output: 64000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-opus-4.6
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-opus-4.6:batch
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-opus-4.7
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-opus-4.7:batch
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-opus-4.8
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-opus-4.8:batch
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-opus-5
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-opus-5.5
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-opus-5.5:batch
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-opus-5:batch
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-sonnet-4
+        ctx: 409600
+        max_output: 32000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-sonnet-4.5
+        ctx: 409600
+        max_output: 32000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-sonnet-4.5:batch
+        ctx: 1000000
+        max_output: 64000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-sonnet-4.6
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-sonnet-4.6:batch
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-sonnet-5
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-sonnet-5.5
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-sonnet-5.5:batch
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: anthropic/claude-sonnet-5:batch
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: apodex/apodex-1.1-mini:free
+        ctx: 262144
+        max_output: 235929
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: arcee-ai/trinity-large-thinking
+        ctx: 262144
+        max_output: 80000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: bytedance-seed/seed-1.6
+        ctx: 262144
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: bytedance-seed/seed-1.6-flash
+        ctx: 262144
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: bytedance-seed/seed-2-1-turbo
+        ctx: 262144
+        max_output: 235929
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: bytedance-seed/seed-2.0-code
+        ctx: 262144
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: bytedance-seed/seed-2.0-lite
+        ctx: 262144
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: bytedance-seed/seed-2.0-mini
+        ctx: 262144
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: bytedance/ui-tars-1.5-7b
+        ctx: 128000
+        max_output: 2048
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: cognitivecomputations/dolphin-mistral-24b-venice-edition
+        ctx: 128000
+        max_output: 8192
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: cohere/command-a
+        ctx: 256000
+        max_output: 8000
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: cohere/command-a-plus
+        ctx: 192000
+        max_output: 64000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: cohere/command-r-08-2024
+        ctx: 128000
+        max_output: 4096
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: cohere/command-r-plus-08-2024
+        ctx: 128000
+        max_output: 4096
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: cohere/command-r7b-12-2024
+        ctx: 128000
+        max_output: 4096
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: cohere/north-mini-code:free
+        ctx: 256000
+        max_output: 64000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-chat
+        ctx: 131072
+        max_output: 8192
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-chat-v3-0324
+        ctx: 163840
+        max_output: 115200
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-chat-v3.1
+        ctx: 163840
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-r1
+        ctx: 65536
+        max_output: 8192
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-r1-0528
+        ctx: 163840
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-v3.1-terminus
+        ctx: 131072
+        max_output: 32768
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-v3.2
+        ctx: 163840
+        max_output: 163840
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-v3.2-exp
+        ctx: 163840
+        max_output: 147456
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-v4-flash
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-v4-flash-0731
+        ctx: 1048576
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-v4-flash-vision-exp
+        ctx: 1000000
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-v4-pro
+        ctx: 1000000
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-v4-pro-0813
+        ctx: 1048576
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-v4.1-flash
+        ctx: 1048576
+        max_output: 943718
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek/deepseek-v4.1-flash:batch
+        ctx: 1048576
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: dots-studio/dots-3-note-preview:free
+        ctx: 512000
+        max_output: 460800
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: fireworks/ember-1
+        ctx: 1048576
+        max_output: 943718
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-2.5-flash
+        ctx: 1048576
+        max_output: 65535
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-2.5-flash-image
+        ctx: 32768
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-2.5-flash-lite
+        ctx: 1048576
+        max_output: 65535
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-2.5-flash-lite:batch
+        ctx: 1048576
+        max_output: 65535
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-2.5-flash:batch
+        ctx: 1048576
+        max_output: 65535
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-2.5-pro
+        ctx: 1048576
+        max_output: 65535
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-2.5-pro-preview
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-2.5-pro:batch
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3-flash-preview
+        ctx: 1048576
+        max_output: 65535
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3-flash-preview:batch
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3-pro-image
+        ctx: 65536
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3-pro-image-preview
+        ctx: 65536
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.1-flash-image
+        ctx: 65536
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.1-flash-image-preview
+        ctx: 65536
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.1-flash-lite
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.1-flash-lite-image
+        ctx: 65536
+        max_output: 4096
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.1-flash-lite-preview
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.1-flash-lite:batch
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.1-pro-preview
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.1-pro-preview-customtools
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.1-pro-preview:batch
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.5-flash
+        ctx: 1048576
+        max_output: 65535
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.5-flash-lite
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.5-flash-lite:batch
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.5-flash:batch
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.6-flash
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.6-flash:batch
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.7-flash
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.7-flash:batch
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.8-flash
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-3.8-flash:batch
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemini-nano-banana-2.1
+        ctx: 131072
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemma-2-27b-it
+        ctx: 8192
+        max_output: 2048
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemma-3-12b-it
+        ctx: 131072
+        max_output: 131072
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemma-3-27b-it
+        ctx: 131072
+        max_output: 131072
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemma-3-4b-it
+        ctx: 131072
+        max_output: 131072
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemma-4-26b-a4b-it
+        ctx: 256000
+        max_output: 256000
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemma-4-26b-a4b-it:free
+        ctx: 262144
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemma-4-31b-it
+        ctx: 262144
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/gemma-4-31b-it:free
+        ctx: 262144
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/lyria-3-clip-preview
+        ctx: 131072
+        max_output: 8192
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: google/lyria-3-pro-preview
+        ctx: 131072
+        max_output: 8192
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gryphe/mythomax-l2-13b
+        ctx: 8192
+        max_output: 3686
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ibm-granite/granite-4.0-h-micro
+        ctx: 131000
+        max_output: 131000
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ibm-granite/granite-4.2-8b
+        ctx: 131000
+        max_output: null
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: inception/mercury-2
+        ctx: 128000
+        max_output: 50000
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: inception/mercury-2.5
+        ctx: 260000
+        max_output: 65536
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: inclusionai/ling-3.0-flash
+        ctx: 262144
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: inclusionai/ling-3.0-flash-fin
+        ctx: 262144
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: inclusionai/ling-3.0-flash-sante
+        ctx: 262144
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: inclusionai/ling-3.0-flash-vl
+        ctx: 262144
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: inclusionai/ling-3.1-flash
+        ctx: 262144
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: inference-net/schematron-v2-small
+        ctx: 128000
+        max_output: 4096
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: inference-net/schematron-v2-turbo
+        ctx: 128000
+        max_output: 8192
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: liquid/lfm-2.5-2.6b:free
+        ctx: 65536
+        max_output: 8192
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mancer/weaver
+        ctx: 8000
+        max_output: 6000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meituan/longcat-2.0
+        ctx: 1048756
+        max_output: 262144
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta-llama/llama-3.1-70b-instruct
+        ctx: 131072
+        max_output: 16384
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta-llama/llama-3.1-8b-instruct
+        ctx: 16384
+        max_output: 16384
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta-llama/llama-3.2-1b-instruct
+        ctx: 131000
+        max_output: 32000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta-llama/llama-3.2-3b-instruct
+        ctx: 32768
+        max_output: 32000
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta-llama/llama-3.3-70b-instruct
+        ctx: 12288
+        max_output: 12288
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta-llama/llama-4-maverick
+        ctx: 1048576
+        max_output: 16384
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta-llama/llama-4-scout
+        ctx: 1310720
+        max_output: 16384
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta-llama/llama-guard-4-12b
+        ctx: 163840
+        max_output: 16384
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta/muse-glimmer-30b
+        ctx: 131072
+        max_output: 16384
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta/muse-spark-1.1
+        ctx: 1048576
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta/muse-spark-1.2
+        ctx: 1048576
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta/muse-spark-1.2-contributor
+        ctx: 1048576
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta/muse-spark-1.3
+        ctx: 1048576
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: meta/muse-spark-1.3-contributor
+        ctx: 1048576
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: microsoft/phi-4
+        ctx: 16384
+        max_output: 16384
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: microsoft/wizardlm-2-8x22b
+        ctx: 65535
+        max_output: 8000
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: minimax/minimax-01
+        ctx: 1000192
+        max_output: 900172
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: minimax/minimax-m1
+        ctx: 1000000
+        max_output: 40000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: minimax/minimax-m2
+        ctx: 204800
+        max_output: 176947
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: minimax/minimax-m2-her
+        ctx: 65536
+        max_output: 2048
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: minimax/minimax-m2.1
+        ctx: 204800
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: minimax/minimax-m2.5
+        ctx: 204800
+        max_output: 128000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: minimax/minimax-m2.7
+        ctx: 204800
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: minimax/minimax-m3
+        ctx: 1000000
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/codestral-2508
+        ctx: 256000
+        max_output: 204800
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/codestral-2508:batch
+        ctx: 256000
+        max_output: 204800
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/devstral-2512
+        ctx: 262144
+        max_output: 209715
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/ministral-14b-2512
+        ctx: 262144
+        max_output: 209715
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/ministral-3b-2512
+        ctx: 131072
+        max_output: 104857
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/ministral-8b-2512
+        ctx: 262144
+        max_output: 209715
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/ministral-8b-2512:batch
+        ctx: 262144
+        max_output: 209715
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mistral-large
+        ctx: 128000
+        max_output: 102400
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mistral-large-2407
+        ctx: 131072
+        max_output: 104857
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mistral-large-2512
+        ctx: 262144
+        max_output: 209715
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mistral-large-2512:batch
+        ctx: 262144
+        max_output: 209715
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mistral-large-4-0
+        ctx: 1048576
+        max_output: 262144
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mistral-medium-3
+        ctx: 128000
+        max_output: 8191
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mistral-medium-3-5
+        ctx: 262144
+        max_output: 209715
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mistral-medium-3-5:batch
+        ctx: 262144
+        max_output: 209715
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mistral-medium-3.1
+        ctx: 131072
+        max_output: 104857
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mistral-medium-3.1:batch
+        ctx: 131072
+        max_output: 104857
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mistral-nemo
+        ctx: 60288
+        max_output: 16000
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mistral-saba
+        ctx: 32768
+        max_output: 26214
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mistral-small-24b-instruct-2501
+        ctx: 32768
+        max_output: 16384
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mistral-small-2603
+        ctx: 262144
+        max_output: 209715
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mistral-small-2603:batch
+        ctx: 262144
+        max_output: 209715
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mistral-small-3.1-24b-instruct
+        ctx: 128000
+        max_output: 128000
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mistral-small-3.2-24b-instruct
+        ctx: 256000
+        max_output: 16384
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/mixtral-8x22b-instruct
+        ctx: 65536
+        max_output: 52428
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: mistralai/voxtral-small-24b-2507
+        ctx: 32768
+        max_output: 26214
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: moonshotai/kimi-k2
+        ctx: 131072
+        max_output: 16384
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: moonshotai/kimi-k2-0905
+        ctx: 262144
+        max_output: 100352
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: moonshotai/kimi-k2-thinking
+        ctx: 262144
+        max_output: 100352
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: moonshotai/kimi-k2.5
+        ctx: 262144
+        max_output: 235929
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: moonshotai/kimi-k2.6
+        ctx: 262144
+        max_output: 262144
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: moonshotai/kimi-k2.7-code
+        ctx: 262144
+        max_output: 262144
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: moonshotai/kimi-k3
+        ctx: 1048576
+        max_output: 1048576
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: moonshotai/kimi-k3:batch
+        ctx: 1048576
+        max_output: 16384
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: morph/morph-v3-fast
+        ctx: 16000
+        max_output: 16000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: morph/morph-v3-large
+        ctx: 16000
+        max_output: 16000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: nex-agi/nex-n2.5-mini
+        ctx: 262144
+        max_output: 235929
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: nex-agi/nex-n2.5-pro
+        ctx: 262144
+        max_output: 235929
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: nousresearch/hermes-3-llama-3.1-405b
+        ctx: 131072
+        max_output: 16384
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: nousresearch/hermes-3-llama-3.1-70b
+        ctx: 131072
+        max_output: 16384
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: nousresearch/hermes-4-405b
+        ctx: 131072
+        max_output: 117964
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: nvidia/nemotron-3-nano-30b-a3b
+        ctx: 262144
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+        ctx: 256000
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: nvidia/nemotron-3-super-120b-a12b
+        ctx: 262144
+        max_output: 262144
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: nvidia/nemotron-3-super-120b-a12b:free
+        ctx: 262144
+        max_output: 235929
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: nvidia/nemotron-3-ultra-550b-a55b
+        ctx: 262144
+        max_output: 16384
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: nvidia/nemotron-3-ultra-550b-a55b:free
+        ctx: 1000000
+        max_output: 65536
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: nvidia/nemotron-3.5-content-safety
+        ctx: 131072
+        max_output: 117964
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: nvidia/nemotron-3.5-content-safety:free
+        ctx: 128000
+        max_output: 8192
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: nvidia/nemotron-3.5-lightning
+        ctx: 262144
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: nvidia/nemotron-3.5-lightning:free
+        ctx: 1000000
+        max_output: 65536
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: nvidia/switchyard
+        ctx: null
+        max_output: null
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-3.5-turbo
+        ctx: 16385
+        max_output: 4096
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-3.5-turbo-0613
+        ctx: 4095
+        max_output: 3685
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-3.5-turbo-16k
+        ctx: 16385
+        max_output: 4096
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-3.5-turbo-instruct
+        ctx: 8192
+        max_output: 4096
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-3.5-turbo:batch
+        ctx: 16385
+        max_output: 4096
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-4
+        ctx: 8192
+        max_output: 4096
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-4-turbo
+        ctx: 128000
+        max_output: 4096
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-4-turbo:batch
+        ctx: 128000
+        max_output: 4096
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-4.1
+        ctx: 1047576
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-4.1-mini
+        ctx: 1047576
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-4.1-mini:batch
+        ctx: 1047576
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-4.1-nano
+        ctx: 1047576
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-4.1-nano:batch
+        ctx: 1047576
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-4.1:batch
+        ctx: 1047576
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-4o
+        ctx: 128000
+        max_output: 16384
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-4o-2024-05-13
+        ctx: 128000
+        max_output: 4096
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-4o-2024-08-06
+        ctx: 128000
+        max_output: 16384
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-4o-2024-11-20
+        ctx: 128000
+        max_output: 16384
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-4o-mini
+        ctx: 128000
+        max_output: 16384
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-4o-mini-2024-07-18
+        ctx: 128000
+        max_output: 16384
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-4o-mini:batch
+        ctx: 128000
+        max_output: 16384
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-4o:batch
+        ctx: 128000
+        max_output: 16384
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5
+        ctx: 272000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5-image
+        ctx: 400000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5-image-mini
+        ctx: 400000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5-mini
+        ctx: 272000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5-mini:batch
+        ctx: 400000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5-nano
+        ctx: 272000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5-nano:batch
+        ctx: 400000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5-pro
+        ctx: 400000
+        max_output: 272000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5-pro:batch
+        ctx: 400000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.1
+        ctx: 272000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.1-codex
+        ctx: 400000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.1-codex-max
+        ctx: 400000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.1-codex-mini
+        ctx: 400000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.1:batch
+        ctx: 400000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.2
+        ctx: 272000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.2-chat
+        ctx: 128000
+        max_output: 32000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.2-codex
+        ctx: 272000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.2-pro
+        ctx: 272000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.2-pro:batch
+        ctx: 400000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.2:batch
+        ctx: 400000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.3-codex
+        ctx: 272000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.4
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.4-image-2
+        ctx: 272000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.4-mini
+        ctx: 272000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.4-mini:batch
+        ctx: 400000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.4-nano
+        ctx: 272000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.4-nano:batch
+        ctx: 400000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.4-pro
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.4-pro:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.4:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.5
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.5-pro
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.5-pro:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.5:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.6-luna
+        ctx: 922000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.6-luna-pro
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.6-luna-pro:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.6-luna:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.6-sol
+        ctx: 922000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.6-sol-pro
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.6-sol-pro:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.6-sol:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.6-terra
+        ctx: 922000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.6-terra-pro
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.6-terra-pro:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5.6-terra:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-5:batch
+        ctx: 400000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-6-astra
+        ctx: 922000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-6-astra-pro
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-6-astra-pro:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-6-astra:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-6-luna
+        ctx: 922000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-6-luna-pro
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-6-luna-pro:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-6-luna:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-6-sol
+        ctx: 922000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-6-sol-pro
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-6-sol-pro:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-6-sol:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-6.1-sol
+        ctx: 922000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-6.1-sol-pro
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-6.1-sol-pro:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-6.1-sol:batch
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-audio
+        ctx: 128000
+        max_output: 16384
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-audio-mini
+        ctx: 128000
+        max_output: 16384
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-chat-latest
+        ctx: 400000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-oss-120b
+        ctx: 128000
+        max_output: 128000
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-oss-120b:batch
+        ctx: 131072
+        max_output: 117964
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-oss-20b
+        ctx: 128000
+        max_output: 128000
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-oss-20b:batch
+        ctx: 131072
+        max_output: 117964
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/gpt-oss-safeguard-20b
+        ctx: 131072
+        max_output: 65536
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/o1
+        ctx: 200000
+        max_output: 100000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/o1-pro
+        ctx: 200000
+        max_output: 100000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/o3
+        ctx: 200000
+        max_output: 100000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/o3-mini
+        ctx: 200000
+        max_output: 100000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/o3-mini-high
+        ctx: 200000
+        max_output: 100000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/o3-mini:batch
+        ctx: 200000
+        max_output: 100000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/o3-pro
+        ctx: 200000
+        max_output: 100000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/o3:batch
+        ctx: 200000
+        max_output: 100000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/o4-mini
+        ctx: 200000
+        max_output: 100000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/o4-mini-high
+        ctx: 200000
+        max_output: 100000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openai/o4-mini:batch
+        ctx: 200000
+        max_output: 100000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openrouter/auto
+        ctx: 2000000
+        max_output: 2000000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openrouter/auto-beta
+        ctx: null
+        max_output: null
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openrouter/bodybuilder
+        ctx: 128000
+        max_output: 128000
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openrouter/free
+        ctx: 200000
+        max_output: 200000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openrouter/fusion
+        ctx: null
+        max_output: null
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: openrouter/pareto-code
+        ctx: null
+        max_output: null
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: perceptron/perceptron-mk1
+        ctx: 32768
+        max_output: 8192
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: perceptron/perceptron-mk1.5
+        ctx: 36864
+        max_output: 8192
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: perplexity/sonar
+        ctx: 128000
+        max_output: 128000
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: perplexity/sonar-deep-research
+        ctx: 128000
+        max_output: 128000
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: perplexity/sonar-pro
+        ctx: 200000
+        max_output: 8000
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: perplexity/sonar-pro-search
+        ctx: 200000
+        max_output: 8000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: perplexity/sonar-reasoning-pro
+        ctx: 128000
+        max_output: 128000
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: poolside/laguna-s-2.1
+        ctx: 1048576
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: poolside/laguna-s-2.1:free
+        ctx: 262144
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: poolside/laguna-xs-2.1
+        ctx: 262144
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: poolside/laguna-xs-2.1:free
+        ctx: 262144
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: prism-ml/ternary-bonsai-2-27b
+        ctx: 262144
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen-2.5-72b-instruct
+        ctx: 32000
+        max_output: 8192
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen-2.5-7b-instruct
+        ctx: 32768
+        max_output: 29491
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen-2.5-coder-32b-instruct
+        ctx: 32768
+        max_output: 29491
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen-plus
+        ctx: 1000000
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen-plus-2025-07-28
+        ctx: 1000000
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen2.5-vl-72b-instruct
+        ctx: 32768
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-14b
+        ctx: 131072
+        max_output: 16384
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-235b-a22b
+        ctx: 131072
+        max_output: 8192
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-235b-a22b-2507
+        ctx: 262144
+        max_output: 16384
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-235b-a22b-thinking-2507
+        ctx: 131072
+        max_output: 117964
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-30b-a3b
+        ctx: 131072
+        max_output: 16384
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-30b-a3b-instruct-2507
+        ctx: 262144
+        max_output: 235929
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-30b-a3b-thinking-2507
+        ctx: 81920
+        max_output: 32768
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-32b
+        ctx: 131072
+        max_output: 16384
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-8b
+        ctx: 131072
+        max_output: 8192
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-coder
+        ctx: 262144
+        max_output: 65536
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-coder-30b-a3b-instruct
+        ctx: 128000
+        max_output: 32768
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-coder-flash
+        ctx: 1000000
+        max_output: 65536
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-coder-next
+        ctx: 262144
+        max_output: 65536
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-coder-plus
+        ctx: 1000000
+        max_output: 65536
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-max
+        ctx: 262144
+        max_output: 65536
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-max-thinking
+        ctx: 262144
+        max_output: 65536
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-next-80b-a3b-instruct
+        ctx: 131072
+        max_output: 32768
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-next-80b-a3b-thinking
+        ctx: 131072
+        max_output: 32768
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-vl-235b-a22b-instruct
+        ctx: 131072
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-vl-235b-a22b-thinking
+        ctx: 131072
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-vl-30b-a3b-instruct
+        ctx: 131072
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-vl-30b-a3b-thinking
+        ctx: 131072
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-vl-32b-instruct
+        ctx: 131072
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-vl-8b-instruct
+        ctx: 131072
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3-vl-8b-thinking
+        ctx: 131072
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.5-122b-a10b
+        ctx: 262144
+        max_output: 235929
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.5-27b
+        ctx: 262144
+        max_output: 81920
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.5-35b-a3b
+        ctx: 262144
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.5-397b-a17b
+        ctx: 262144
+        max_output: 235929
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.5-9b
+        ctx: 262144
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.5-flash-02-23
+        ctx: 1000000
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.5-plus-02-15
+        ctx: 1000000
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.5-plus-20260420
+        ctx: 1000000
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.6-27b
+        ctx: 262144
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.6-35b-a3b
+        ctx: 256000
+        max_output: 16384
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.6-flash
+        ctx: 1000000
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.6-max-preview
+        ctx: 262144
+        max_output: 65536
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.6-plus
+        ctx: 1000000
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.7-flash
+        ctx: 1000000
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.7-max
+        ctx: 1000000
+        max_output: 65536
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.7-plus
+        ctx: 1000000
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.8-2.4t-a95b
+        ctx: 1048576
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.8-27b
+        ctx: 131072
+        max_output: 16384
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.8-flash
+        ctx: 1000000
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.8-max-0902
+        ctx: 1000000
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.8-max-prime
+        ctx: 1000000
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: qwen/qwen3.8-omni-flash
+        ctx: 1000000
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: rekaai/reka-edge
+        ctx: 16384
+        max_output: 14745
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: rekaai/reka-flash-3
+        ctx: 65536
+        max_output: 58982
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: relace/relace-apply-3
+        ctx: 256000
+        max_output: 128000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: relace/relace-search
+        ctx: 256000
+        max_output: 128000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: sakana/fugu-max
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: sakana/fugu-ultra
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: sakana/fugu-ultra-v2
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: sakana/sakana-namazu
+        ctx: 262144
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: sao10k/l3-lunaris-8b
+        ctx: 8192
+        max_output: 7372
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: sao10k/l3.1-euryale-70b
+        ctx: 131072
+        max_output: 16384
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: sao10k/l3.3-euryale-70b
+        ctx: 131072
+        max_output: 16384
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: stepfun/step-3.5-flash
+        ctx: 262144
+        max_output: 65536
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: stepfun/step-3.7-flash
+        ctx: 262144
+        max_output: 256000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: stepfun/step-5-preview
+        ctx: 1000000
+        max_output: 64000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: tencent/hunyuan-a13b-instruct
+        ctx: 131072
+        max_output: 117964
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: tencent/hy-mt2-1.8b
+        ctx: 8192
+        max_output: 4096
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: tencent/hy-mt2-30b-a3b
+        ctx: 8192
+        max_output: 4096
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: tencent/hy-mt2-7b
+        ctx: 8192
+        max_output: 4096
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: tencent/hy3
+        ctx: 262144
+        max_output: 262144
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: tencent/hy3-preview
+        ctx: 262144
+        max_output: 235929
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: tencent/hy4-preview
+        ctx: 1048576
+        max_output: 64000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: thedrummer/cydonia-24b-v4.1
+        ctx: 131072
+        max_output: 117964
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: thedrummer/skyfall-36b-v2
+        ctx: 32768
+        max_output: 29491
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: thedrummer/unslopnemo-12b
+        ctx: 1024000
+        max_output: 819200
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: thinkingmachines/inkling
+        ctx: 524288
+        max_output: 471859
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: thinkingmachines/inkling-small
+        ctx: 524288
+        max_output: 262144
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: thinkingmachines/inkling-small:free
+        ctx: 1048576
+        max_output: 262144
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: thinkingmachines/inkling:free
+        ctx: 1048576
+        max_output: 262144
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: typesafe/jev-router
+        ctx: 1000000
+        max_output: 1000000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: unbiased/pareto
+        ctx: 262144
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: unbiased/pareto-26.10-preview
+        ctx: 1048576
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: undi95/remm-slerp-l2-13b
+        ctx: 6144
+        max_output: 5529
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: upstage/solar-mini4
+        ctx: 524288
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: upstage/solar-pro-3
+        ctx: 131072
+        max_output: 117964
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: upstage/solar-pro4
+        ctx: 524288
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: writer/palmyra-x5
+        ctx: 1040000
+        max_output: 8192
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: x-ai/grok-4.20
+        ctx: 2000000
+        max_output: 1800000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: x-ai/grok-4.20-multi-agent
+        ctx: 2000000
+        max_output: 1800000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: x-ai/grok-4.3
+        ctx: 1000000
+        max_output: 900000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: x-ai/grok-4.3:batch
+        ctx: 1000000
+        max_output: 900000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: x-ai/grok-4.5
+        ctx: 500000
+        max_output: 450000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: x-ai/grok-4.6
+        ctx: 500000
+        max_output: 450000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: x-ai/grok-4.7
+        ctx: 500000
+        max_output: 450000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: x-ai/grok-build-0.1
+        ctx: 256000
+        max_output: 230400
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: xiaomi/mimo-v2.5
+        ctx: 1050000
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: xiaomi/mimo-v2.5-pro
+        ctx: 1050000
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: xiaomi/mimo-v2.6-flash
+        ctx: 1048576
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: xiaomi/mimo-v2.6-pro
+        ctx: 1048576
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: xiaomi/mimo-v2.6-pro-ultraspeed
+        ctx: 1048576
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-4.5
+        ctx: 131072
+        max_output: 98304
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-4.5-air
+        ctx: 131072
+        max_output: 98304
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-4.5v
+        ctx: 65536
+        max_output: 16384
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-4.6
+        ctx: 204800
+        max_output: 16384
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-4.6v
+        ctx: 131072
+        max_output: 32768
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-4.7
+        ctx: 204800
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-4.7-flash
+        ctx: 200000
+        max_output: 117964
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-5
+        ctx: 204800
+        max_output: 128000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-5-turbo
+        ctx: 202752
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-5.1
+        ctx: 204800
+        max_output: 128000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-5.2
+        ctx: 1048576
+        max_output: 943718
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-5.3
+        ctx: 1048576
+        max_output: 943718
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-5.3-flash
+        ctx: 1310720
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-5.3-flash:batch
+        ctx: 1048576
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-5.3-flashx
+        ctx: 1048576
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-5.3-prime
+        ctx: 1000000
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-5.3:batch
+        ctx: 1048576
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: z-ai/glm-5v-turbo
+        ctx: 202752
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~anthropic/claude-fable-latest
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~anthropic/claude-haiku-latest
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~anthropic/claude-opus-latest
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~anthropic/claude-sonnet-latest
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~deepseek/deepseek-flash-latest
+        ctx: 1048576
+        max_output: 943718
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~deepseek/deepseek-pro-latest
+        ctx: 1048576
+        max_output: 384000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~deepseek/deepseek-v4-flash-latest
+        ctx: 1310720
+        max_output: 943718
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~google/gemini-flash-latest
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~google/gemini-pro-latest
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~moonshotai/kimi-latest
+        ctx: 1048576
+        max_output: 943718
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~openai/gpt-astra-latest
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~openai/gpt-luna-latest
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~openai/gpt-mini-latest
+        ctx: 400000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~openai/gpt-sol-latest
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~openai/gpt-terra-latest
+        ctx: 1050000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~x-ai/grok-latest
+        ctx: 500000
+        max_output: 450000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~z-ai/glm-flash-latest
+        ctx: 1310720
+        max_output: 943718
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: ~z-ai/glm-latest
+        ctx: 1310720
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+  - name: deepseek
+    api_base: https://api.deepseek.com/anthropic
+    endpoint_kind: anthropic
+    auth_env: DEEPSEEK_API_KEY
+    models:
+      - name: deepseek-flash
+        ctx: 1048576
+        max_output: 393216
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: deepseek-v4-pro
+        ctx: 1048576
+        max_output: 393216
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+  - name: minimax
+    api_base: https://api.minimaxi.com/anthropic
+    endpoint_kind: anthropic
+    auth_env: MINIMAX_API_KEY
+    models:
+      - name: MiniMax-M2
+        ctx: 200000
+        max_output: 8192
+        vision: null
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: MiniMax-M2.1
+        ctx: 196608
+        max_output: 16384
+        vision: null
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: MiniMax-M2.1-highspeed
+        ctx: 196608
+        max_output: 16384
+        vision: null
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: MiniMax-M2.5
+        ctx: 196608
+        max_output: 196608
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: MiniMax-M2.5-highspeed
+        ctx: 196608
+        max_output: 196608
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: MiniMax-M2.7
+        ctx: 196608
+        max_output: 131072
+        vision: null
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: MiniMax-M2.7-highspeed
+        ctx: 196608
+        max_output: 131072
+        vision: null
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: MiniMax-M3
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []

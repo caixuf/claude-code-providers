@@ -8,6 +8,30 @@ CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
 PROVIDERS_DIR="${PROVIDERS_DIR:-$CLAUDE_DIR/providers}"
 SETTINGS_FILE="${SETTINGS_FILE:-$CLAUDE_DIR/settings.json}"
 
+# Resolve the repo checkout that holds registry/ and bridge/.
+ccp_repo_dir() {
+  if [ -n "${CCP_REPO_DIR:-}" ] && [ -d "$CCP_REPO_DIR/bridge" ]; then
+    echo "$CCP_REPO_DIR"; return
+  fi
+  local c
+  for c in \
+    "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)" \
+    "$HOME/code/claude-code-providers" \
+    "$HOME/.claude-code-providers" \
+    "$HOME/claude-code-providers"; do
+    if [ -d "$c/bridge" ]; then echo "$c"; return; fi
+  done
+}
+
+# Prefer the litellm venv python (has pyyaml + litellm); fall back to python3.
+ccp_python() {
+  if [ -x "$HOME/.local/share/litellm-venv/bin/python3" ]; then
+    echo "$HOME/.local/share/litellm-venv/bin/python3"
+  else
+    command -v python3
+  fi
+}
+
 show_help() {
   cat <<'EOF'
 ccp — Claude Code Provider & Model Switcher
@@ -19,6 +43,9 @@ Usage:
   ccp -c, --current          Show currently active provider, model, and endpoints
   ccp -r, --rollback [N]     Roll back to the Nth most recent backup (default: 1)
   ccp -t, --test [name]      Quick test: send a ping through Claude Code
+  ccp models [provider]      List models with context / output cap / vision
+  ccp render                 Regenerate config + profiles from the registry
+  ccp discover [provider]    Refresh model metadata from provider APIs
   ccp sync                   Sync local profiles with repository templates
   ccp bridge [action]        Manage local bridge: status, restart, start, stop, logs
   ccp auth [copilot]         Authenticate provider (e.g. GitHub Copilot device flow)
@@ -191,9 +218,21 @@ sync_proxy_env() {
     done
   fi
 
-  if [ -n "$proxy_url" ]; then
+  # render_config.py emits `api_key: os.environ/<PROVIDER>_API_KEY`, so the
+  # credential lines in proxy.env are load-bearing. Only (re)write the proxy
+  # vars here and carry every other line over verbatim — a plain `cat >` used
+  # to truncate the file and silently wipe every *_API_KEY on each run.
+  local keep=""
+  if [ -f "$env_file" ]; then
+    keep=$(grep -viE '^[[:space:]]*(https?_proxy|no_proxy)[[:space:]]*=' "$env_file" || true)
+  fi
+
+  if [ -n "$proxy_url" ] || [ -n "$keep" ]; then
     mkdir -p "$cfg_dir"
-    cat > "$env_file" <<EOF
+    local tmp
+    tmp=$(mktemp)
+    if [ -n "$proxy_url" ]; then
+      cat >> "$tmp" <<EOF
 http_proxy=$proxy_url
 https_proxy=$proxy_url
 HTTP_PROXY=$proxy_url
@@ -201,6 +240,9 @@ HTTPS_PROXY=$proxy_url
 no_proxy=localhost,127.0.0.1,::1,.local
 NO_PROXY=localhost,127.0.0.1,::1,.local
 EOF
+    fi
+    [ -n "$keep" ] && printf '%s\n' "$keep" >> "$tmp"
+    mv "$tmp" "$env_file"
   fi
 }
 
@@ -335,21 +377,88 @@ except Exception as e:
   esac
 }
 
-sync_providers() {
-  local repo_dir="${CCP_REPO_DIR:-}"
+render_registry() {
+  local repo_dir
+  repo_dir=$(ccp_repo_dir)
   if [ -z "$repo_dir" ]; then
-    local candidate
-    for candidate in \
-      "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)" \
-      "$HOME/code/claude-code-providers" \
-      "$HOME/.claude-code-providers" \
-      "$HOME/claude-code-providers"; do
-      if [ -d "$candidate/providers" ]; then
-        repo_dir="$candidate"
-        break
-      fi
-    done
+    echo -e "\033[31mError: repo checkout not found (need registry/ and bridge/).\033[0m" >&2
+    echo "Set CCP_REPO_DIR or clone to ~/code/claude-code-providers" >&2
+    return 1
   fi
+  local py
+  py=$(ccp_python)
+  "$py" "$repo_dir/bridge/render_config.py" "$@"
+}
+
+discover_models() {
+  local repo_dir
+  repo_dir=$(ccp_repo_dir)
+  if [ -z "$repo_dir" ]; then
+    echo -e "\033[31mError: repo checkout not found.\033[0m" >&2
+    return 1
+  fi
+  local py
+  py=$(ccp_python)
+  echo "Refreshing model metadata from provider APIs..."
+  "$py" "$repo_dir/bridge/discover_models.py" "$@"
+}
+
+show_models() {
+  local filter="${1:-}"
+  local repo_dir
+  repo_dir=$(ccp_repo_dir)
+  if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/registry/models.yaml" ]; then
+    echo -e "\033[31mError: registry/models.yaml not found. Run 'ccp discover' first.\033[0m" >&2
+    return 1
+  fi
+  local py
+  py=$(ccp_python)
+  local active_model
+  active_model=$(get_current_model)
+  "$py" - "$repo_dir/registry/models.yaml" "$repo_dir/registry/profiles.yaml" "$filter" "$active_model" <<'PY'
+import sys, yaml
+models_path, profiles_path, filt, active = sys.argv[1:5]
+doc = yaml.safe_load(open(models_path)) or {}
+try:
+    prof = yaml.safe_load(open(profiles_path)) or {}
+except Exception:
+    prof = {}
+# alias index: (provider, model) -> alias
+aliases = {}
+for a, s in (prof.get("aliases") or {}).items():
+    aliases[(s["provider"], s["model"])] = a
+exposed = set(prof.get("expose_models") or [])
+PROV_ORDER = [p["name"] for p in doc.get("providers", [])]
+def fmt_ctx(c):
+    if not c: return "?"
+    return f"{c//1000}k" if c < 1_000_000 else f"{c/1_000_000:.0f}M".replace(".0M","M")
+for p in doc.get("providers", []):
+    if filt and filt != p["name"]:
+        continue
+    # show every model for small providers, or when the user asked for one
+    show_all = bool(filt) or len(p["models"]) <= 12
+    print(f"\n\033[36m{p['name']}\033[0m ({p.get('endpoint_kind')}, {len(p['models'])} models)  {p.get('api_base','')}")
+    print(f"  {'alias / model':40s} {'ctx':>6}  {'out':>7}  vis")
+    for m in p["models"]:
+        a = aliases.get((p["name"], m["name"]))
+        name = a if a else m["name"]
+        star = "\033[32m*\033[0m" if active and (active == name or active.split('[')[0] == name) else " "
+        # only show curated/exposed models in the compact summary view
+        if not show_all and not a and m["name"] not in exposed:
+            continue
+        vis = "yes" if m.get("vision") is True else ("no" if m.get("vision") is False else "-")
+        out = m.get("max_output")
+        print(f"{star} {name:40s} {fmt_ctx(m.get('ctx')):>6}  {str(out or '?'):>7}  {vis}")
+    if not show_all:
+        shown = sum(1 for m in p["models"] if aliases.get((p["name"],m["name"])) or m["name"] in exposed)
+        if shown < len(p["models"]):
+            print(f"    … {len(p['models']) - shown} more — run 'ccp models {p['name']}' to list all")
+PY
+}
+
+sync_providers() {
+  local repo_dir
+  repo_dir=$(ccp_repo_dir)
 
   if [ -z "$repo_dir" ] || [ ! -d "$repo_dir/providers" ]; then
     echo -e "\033[31mError: repo providers directory not found.\033[0m" >&2
@@ -368,19 +477,60 @@ sync_providers() {
     fi
   done
 
-  local added=0
+  local added=0 reconciled=0
   for ex in "$repo_dir/providers"/*.json.example; do
     [ -f "$ex" ] || continue
-    local base="$(basename "$ex" .example)"
+    local base="$(basename "$ex" .example)"      # e.g. cmdc-vision.json
+    local name="${base%.json}"                  # e.g. cmdc-vision
     if [ ! -f "$PROVIDERS_DIR/$base" ]; then
       cp "$ex" "$PROVIDERS_DIR/$base"
       echo -e "  \033[32m✔ Added new provider template: $base\033[0m"
       added=$((added + 1))
+    else
+      # Reconcile: refresh only the registry-derived context fields, keep
+      # the user's own keys (tokens, extra settings) intact.
+      reconcile_profile "$base" "$name" "$ex" && reconciled=$((reconciled + 1))
     fi
   done
 
-  echo -e "\033[32m✔ Sync complete. Active providers in $PROVIDERS_DIR:\033[0m"
+  echo -e "\033[32m✔ Sync complete (added $added, reconciled $reconciled). Active providers:\033[0m"
   list_providers
+}
+
+# Merge registry-derived context fields from a template into a live profile,
+# preserving the user's secrets and custom keys. Backs up before writing.
+reconcile_profile() {
+  local base="$1" name="$2" template="$3"
+  local live="$PROVIDERS_DIR/$base"
+  [ -f "$live" ] || return 1
+
+  if ! command -v jq >/dev/null 2>&1; then
+    return 1
+  fi
+
+  # Only proceed if a derived field actually changed.
+  local new_ctx new_model cur_ctx cur_model
+  new_ctx=$(jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS // empty' "$template")
+  new_model=$(jq -r '.env.ANTHROPIC_MODEL // empty' "$template")
+  cur_ctx=$(jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS // empty' "$live")
+  cur_model=$(jq -r '.env.ANTHROPIC_MODEL // empty' "$live")
+  if [ "$new_ctx" = "$cur_ctx" ] && [ "$new_model" = "$cur_model" ]; then
+    return 1
+  fi
+
+  cp "$live" "$live.bak.$(date +%Y%m%d-%H%M%S)"
+  local tmp
+  tmp=$(mktemp)
+  # take template, then re-apply any user credential overrides
+  # (match credential keys exactly: AUTH_TOKEN / API_KEY — NOT *_TOKENS counts)
+  if jq -s '.[0] * {env: (.[0].env * (.[1].env | with_entries(select(.key|test("AUTH_TOKEN$|_API_KEY$")))))}' \
+       "$template" "$live" > "$tmp" 2>/dev/null && mv "$tmp" "$live"; then
+    echo -e "  \033[33m~ Reconciled $name (ctx $cur_ctx -> $new_ctx)\033[0m"
+    return 0
+  fi
+  rm -f "$tmp"
+  echo -e "  \033[31m! Failed to reconcile $name (jq error)\033[0m" >&2
+  return 1
 }
 
 test_provider() {
@@ -463,6 +613,15 @@ main() {
       ;;
     auth)
       auth_provider "${2:-copilot}"
+      ;;
+    models|--models)
+      show_models "${2:-}"
+      ;;
+    render|--render)
+      render_registry "${@:2}"
+      ;;
+    discover|--discover)
+      discover_models "${@:2}"
       ;;
     sync|--sync)
       sync_providers
