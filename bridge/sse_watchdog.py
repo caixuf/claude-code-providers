@@ -23,7 +23,7 @@ _BRIDGE_DIR = Path(__file__).resolve().parent
 if str(_BRIDGE_DIR) not in sys.path:
     sys.path.insert(0, str(_BRIDGE_DIR))
 
-from sse_finalize import SseCutState, clamp_max_tokens, strip_1m_model  # noqa: E402
+from sse_finalize import SseCutState, clamp_max_tokens, strip_1m_beta, strip_1m_model  # noqa: E402
 
 HOP = {
     "connection",
@@ -42,8 +42,17 @@ HOP = {
 def _fwd_headers(request: Request) -> dict[str, str]:
     out = {}
     for k, v in request.headers.items():
-        if k.lower() not in HOP:
-            out[k] = v
+        if k.lower() in HOP:
+            continue
+        # Drop the 1M-context beta token: [1m] markers add it, but the
+        # OpenAI-protocol gateways behind the bridge don't understand it and
+        # a strict one can 400. The 1M window is a property of the model here,
+        # not of this Anthropic beta.
+        if k.lower() == "anthropic-beta":
+            v = strip_1m_beta(v)
+            if not v:
+                continue
+        out[k] = v
     return out
 
 

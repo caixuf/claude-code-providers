@@ -1,4 +1,4 @@
-from sse_finalize import SseCutState, clamp_max_tokens, event_is_ping, resolve_max_output, sse_should_close, split_complete_events
+from sse_finalize import SseCutState, clamp_max_tokens, event_is_ping, resolve_max_output, sse_should_close, split_complete_events, strip_1m_beta
 
 
 def test_close_after_message_stop():
@@ -126,3 +126,21 @@ def test_strip_then_clamp_combined():
     assert doc["max_tokens"] == 393216
     assert clamped == 393216
 
+
+
+def test_strip_1m_beta():
+    from sse_finalize import strip_1m_beta
+
+    # removes the token but keeps the other betas, order-preserving
+    assert strip_1m_beta("a,context-1m-2025-08-07,b") == "a,b"
+    # removes it wherever it sits, incl. leading/trailing
+    assert strip_1m_beta("context-1m-2025-08-07") == ""
+    assert strip_1m_beta("context-1m-2025-08-07,oauth-2025-04-20") == "oauth-2025-04-20"
+    # case-insensitive, whitespace-tolerant
+    assert strip_1m_beta("OAUTH-2025-04-20, Context-1M-2025-08-07 ") == "OAUTH-2025-04-20"
+    # leaves unrelated betas untouched
+    assert strip_1m_beta("oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14") == (
+        "oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14"
+    )
+    # empty in -> empty out
+    assert strip_1m_beta("") == ""

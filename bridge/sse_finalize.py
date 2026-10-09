@@ -90,6 +90,28 @@ def strip_1m_model(body: bytes) -> tuple[bytes, str | None]:
     return body, None
 
 
+ONE_M_BETA = "context-1m-2025-08-07"
+
+
+def strip_1m_beta(header_value: str) -> str:
+    """Remove the 1M-context beta token from an ``anthropic-beta`` header value.
+
+    Claude Code adds ``context-1m-2025-08-07`` whenever a model carries the
+    ``[1m]`` marker. That beta is meaningful only to Anthropic's own API; the
+    OpenAI-compatible gateways behind the bridge ignore it, and a strict
+    gateway can 400 on an unknown beta. Dropping it makes 1M models just work.
+    Returns the remaining comma-separated tokens ('' if none left).
+    """
+    if not header_value:
+        return header_value
+    keep = [
+        p.strip()
+        for p in header_value.split(",")
+        if p.strip() and p.strip().lower() != ONE_M_BETA
+    ]
+    return ",".join(keep)
+
+
 def _norm_model(name: str) -> str:
     """Normalize a model name for clamp-map lookup: strip any [..] tier suffix, lower-case."""
     if not isinstance(name, str):
