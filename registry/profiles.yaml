@@ -75,16 +75,6 @@ profiles:
       sonnet:  {model: deepseek/deepseek-v4.1-flash}
       haiku:   {model: deepseek/deepseek-v4.1-flash}
 
-  stepfun:
-    provider: stepfun
-    primary_tier: opus
-    tiers:
-      default: {model: step-5-preview}
-      opus:    {model: step-5-preview}
-      fable:   {model: step-5-preview}
-      sonnet:  {model: step-3.7-flash}
-      haiku:   {model: step-3.7-flash}
-
   # ── Native Anthropic-compatible endpoints (no bridge clamp needed) ──
   # These talk straight to the provider's /anthropic endpoint; they are
   # rendered into config.yaml too so `ccp models` can list them, but the

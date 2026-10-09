@@ -40,7 +40,7 @@ def test_models_yaml_has_no_duplicate_names():
 def test_every_discovered_model_has_context():
     """Context must be auto-filled for the vast majority of models.
 
-    Providers whose /models endpoint exposes metadata (cmdc, stepfun, deepseek)
+    Providers whose /models endpoint exposes metadata (cmdc, deepseek)
     are near-complete; providers that only return ids (cline, minimax) are
     filled from LiteLLM's map and may have a small unfilled tail. Either way
     every provider must clear 0.9 — no per-provider escape hatch, so a genuine

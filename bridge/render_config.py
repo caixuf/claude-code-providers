@@ -144,8 +144,8 @@ def render_config(models: dict, providers: dict, profiles_doc: dict) -> str:
             emit(f"'{raw}'", pname, upstream, meta)
         alias_models[alias] = clamp_value(meta) or 0
 
-    # 1b. every model referenced by a profile's tiers (so stepfun/copilot,
-    #     whose providers aren't auto-discovered, still get config entries).
+    # 1b. every model referenced by a profile's tiers (so copilot, whose
+    #     provider isn't auto-discovered, still gets config entries).
     for profile, spec in (profiles_doc.get("profiles") or {}).items():
         pname = spec["provider"]
         for tier, tspec in (spec.get("tiers") or {}).items():

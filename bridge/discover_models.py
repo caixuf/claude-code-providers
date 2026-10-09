@@ -6,7 +6,6 @@ this pulls them from, in priority order:
 
   1. The provider's own ``GET .../models`` endpoint (authoritative when present):
        - CommandCode : context_length, supported_endpoints   (~87 models)
-       - StepFun     : max_input_tokens, enable_vision_input  (rich!)
        - Cline       : id/name only
        - MiniMax / DeepSeek : standard OpenAI /v1/models shape
   2. LiteLLM's bundled cost map (``litellm.model_cost``, ~4500 entries) for
@@ -52,16 +51,6 @@ PROVIDERS = {
         "auth_file": "~/.config/litellm/config.yaml",
         "auth_grep": "api.commandcode.ai",
         "max_output_default": CMDC_MAX_OUTPUT,
-    },
-    "stepfun": {
-        "models_url": "https://api.stepfun.com/step_plan/v1/models",
-        "api_base": "https://api.stepfun.com/step_plan",
-        "endpoint_kind": "anthropic",
-        "litellm_prefix": "anthropic/",
-        "auth_env": "STEPFUN_API_KEY",
-        "auth_file": "~/.config/litellm/config.yaml",
-        "auth_grep": "api.stepfun.com",
-        "max_output_default": 128000,
     },
     "cline": {
         "models_url": "https://api.cline.bot/api/v1/models",
@@ -227,22 +216,6 @@ def norm_cmdc(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) 
     }
 
 
-def norm_stepfun(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
-    mid = entry.get("id", "")
-    if entry.get("model_type") and entry["model_type"] not in ("大语言模型",):
-        return {}  # skip tts/asr/audio
-    info = cost_lookup(cmap, [mid, f"anthropic/{mid}"], idx)
-    return {
-        "name": mid,
-        "ctx": entry.get("max_input_tokens") or info.get("ctx"),
-        "max_output": provider["max_output_default"],
-        "vision": bool(entry.get("enable_vision_input"))
-        if "enable_vision_input" in entry
-        else info.get("vision"),
-        "endpoint_kind": "anthropic",
-    }
-
-
 def norm_deepseek(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
     """Official DeepSeek exposes context_window / max_output_tokens /
     input_modalities (["text","image"] -> vision)."""
@@ -280,7 +253,6 @@ def _guess_vision(mid: str) -> bool | None:
 
 NORMALIZERS = {
     "cmdc": norm_cmdc,
-    "stepfun": norm_stepfun,
     "cline": norm_generic,
     "deepseek": norm_deepseek,
     "minimax": norm_generic,

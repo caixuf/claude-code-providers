@@ -614,46 +614,6 @@ providers:
         endpoint_kind: openai
         aliases: []
         tiers: []
-  - name: stepfun
-    api_base: https://api.stepfun.com/step_plan
-    endpoint_kind: anthropic
-    auth_env: STEPFUN_API_KEY
-    models:
-      - name: step-3.5-flash
-        ctx: 262144
-        max_output: 128000
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: step-3.5-flash-2603
-        ctx: 262144
-        max_output: 128000
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: step-3.7-flash
-        ctx: 262144
-        max_output: 128000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: step-5-preview
-        ctx: 1024000
-        max_output: 128000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: step-router-v1
-        ctx: 262144
-        max_output: 128000
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
   - name: cline
     api_base: https://api.cline.bot/api/v1
     endpoint_kind: openai

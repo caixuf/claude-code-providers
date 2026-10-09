@@ -5,7 +5,7 @@
 [![Tested on: Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-purple.svg)]()
 
 > **Seamlessly switch LLM providers & models in Anthropic Claude Code CLI (`claude`).**  
-> Supports both native Anthropic-compatible endpoints and OpenAI/OpenRouter-compatible providers (DeepSeek, CommandCode, ClinePass, MiniMax, StepFun, Unisound, etc.).
+> Supports both native Anthropic-compatible endpoints and OpenAI/OpenRouter-compatible providers (DeepSeek, CommandCode, ClinePass, MiniMax, Unisound, etc.).
 
 ---
 
@@ -89,7 +89,6 @@ Discovery merges three sources, in priority order:
 
 1. **The provider's own `/models` endpoint** (authoritative):
    - CommandCode → `context_length`, `supported_endpoints` (~87 models)
-   - StepFun → `max_input_tokens`, `enable_vision_input`
    - Cline → id/name only
 2. **LiteLLM's bundled model registry** (`litellm.model_cost`, ~4500 entries) for
    `max_input_tokens` / `max_output_tokens` / `supports_vision`.
@@ -158,7 +157,6 @@ Pre-configured templates in `providers/`:
 - **`cmdc-deepseek-pro.json`**: CommandCode DeepSeek v4 Pro (hybrid-attention long-context reasoning) via local bridge
 - **`cmdc-deepseek.json`**: CommandCode DeepSeek v4.1 Flash via local bridge
 - **`cline-deepseek.json`**: ClinePass Subscription DeepSeek via local bridge
-- **`stepfun.json`**: StepFun Step-5 / 3.7 (`api.stepfun.com/step_plan`)
 - **`minimax.json`**: MiniMax M3 (`api.minimaxi.com/anthropic`)
 - **`deepseek.json`**: Official DeepSeek Anthropic API (`api.deepseek.com/anthropic`)
 
@@ -300,7 +298,6 @@ In automated multi-turn engineering benchmarks across complex automotive codebas
 | **`claude-cmdc-deepseek`** | `deepseek-v4.1-flash` | **11.8 / 12** | **58.4 tok/s** | Best overall consistency in deep multi-turn sessions |
 | **`claude-cline-deepseek`** | `deepseek-v4.1-flash` | **12.0 / 12** | **69.8 tok/s** | High speed, flat monthly quota |
 | **`claude-minimax-m3`** | `MiniMax-M3` | **10.8 / 12** | **58.9 tok/s** | Lowest latency, concise and direct answers |
-| **`claude-step5`** | `step-5-preview` | **11.8 / 12** | **56.6 tok/s** | Exceptionally detailed step-by-step reasoning |
 
 ---
 
