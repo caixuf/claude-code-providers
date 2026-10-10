@@ -144,13 +144,14 @@ def resolve_max_output(
 def clamp_max_tokens(
     body: bytes, clamp_map: dict[str, int], *, fallback: int | None = None
 ) -> tuple[bytes, int | None]:
-    """Clamp ``max_tokens`` in an Anthropic /v1/messages body to the upstream cap.
+    """Clamp the output-token cap in a request body to the upstream limit.
 
-    Returns ``(body, new_max_tokens)``. ``new_max_tokens`` is ``None`` when the
-    body was left untouched (non-JSON, no ``max_tokens``, or already <= cap).
-    This prevents ``400 Invalid max_tokens value`` from providers whose output
-    cap (e.g. CommandCode's 393216) is below the context window Claude Code
-    sends (1,000,000).
+    Handles the three field names clients use: ``max_tokens`` (Anthropic
+    /v1/messages and legacy chat), ``max_completion_tokens`` (OpenAI chat) and
+    ``max_output_tokens`` (OpenAI Responses API). Returns ``(body, new_cap)``;
+    ``new_cap`` is ``None`` when nothing was clamped. This prevents upstream
+    ``400 ... exceeds maximum`` errors from providers whose output cap (e.g.
+    CommandCode's 393216) is below what the client asks for.
     """
     if not body or not clamp_map:
         return body, None
@@ -161,12 +162,16 @@ def clamp_max_tokens(
         return body, None
     if not isinstance(_b, dict):
         return body, None
-    cur = _b.get("max_tokens")
-    if not isinstance(cur, int) or isinstance(cur, bool):
-        return body, None
     cap = resolve_max_output(_b.get("model", ""), clamp_map, fallback=fallback)
-    if cap is None or cur <= cap:
+    if cap is None:
         return body, None
-    _b["max_tokens"] = cap
-    return _j.dumps(_b).encode("utf-8"), cap
+    changed: int | None = None
+    for key in ("max_tokens", "max_completion_tokens", "max_output_tokens"):
+        cur = _b.get(key)
+        if isinstance(cur, int) and not isinstance(cur, bool) and cur > cap:
+            _b[key] = cap
+            changed = cap
+    if changed is None:
+        return body, None
+    return _j.dumps(_b).encode("utf-8"), changed
 
