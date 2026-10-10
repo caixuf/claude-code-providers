@@ -2,21 +2,27 @@
 # setup_bridge.sh — Set up the local LiteLLM proxy bridge for Claude Code
 # Converts Anthropic /v1/messages calls to OpenAI/OpenRouter /chat/completions
 
-set -e
-
 # ── Deployment mode ───────────────────────────────────────────────
 # Provider profiles always connect to 127.0.0.1:4000. What sits behind
-# that port is chosen here:
+# that port is chosen here -- and the two shapes are NOT equivalent:
 #
-#   --no-watchdog   LiteLLM owns :4000 directly. One process, one hop,
-#                  no moving parts. This is the default recommendation.
-#   (no flag)       LiteLLM on :4001 with sse_watchdog on :4000 in front.
-#                  The watchdog closes the Anthropic SSE stream after a
-#                  complete message_stop and drops trailing keepalives --
-#                  only needed if your upstream leaves streams open.
+#   (no flag)       LiteLLM on :4001, sse_watchdog on :4000 in front.
+#                  DEFAULT. The watchdog owns the [1m] suffix strip, the
+#                  anthropic-beta strip and max_tokens clamping, and closes
+#                  the SSE stream after message_stop.
+#   --no-watchdog   LiteLLM owns :4000 directly. One hop, but LOSSY: all
+#                  three rewrites above disappear and real 1M requests 400.
+
+set -e
+
 WITH_WATCHDOG=1
 usage() {
-  sed -n '2,20p' "$0" | sed 's/^# \?//'
+  # Print the leading comment block only (stop at the first line of real code).
+  awk 'NR>1 {
+         if (/^#/)            { sub(/^# ?/, ""); print; next }
+         if ($0 ~ /^[[:space:]]*$/) { print; next }
+         exit
+       }' "$0"
   exit 0
 }
 for arg in "$@"; do
@@ -32,7 +38,11 @@ if [ "$WITH_WATCHDOG" = 1 ]; then
   echo "Bridge mode: watchdog (LiteLLM :$LITELLM_PORT -> sse_watchdog :4000)"
 else
   LITELLM_PORT=4000          # LiteLLM takes the Claude Code port directly
-  echo "Bridge mode: single process (LiteLLM :$LITELLM_PORT)"
+  echo "Bridge mode: single process (LiteLLM :$LITELLM_PORT) -- LOSSY, not equivalent to watchdog"
+  echo "  WARNING: this shape has no [1m] suffix strip, no anthropic-beta strip and"
+  echo "           no max_tokens clamp -- all three live only in sse_watchdog.py."
+  echo "           Real Claude Code traffic on a 1M model will 400 upstream."
+  echo "           See README \"Deployment modes\" before relying on it."
 fi
 
 VENV_DIR="$HOME/.local/share/litellm-venv"
@@ -239,7 +249,7 @@ if [ "$WITH_WATCHDOG" = 0 ]; then
   systemctl --user daemon-reload
   systemctl --user enable litellm-cmdc.service
   systemctl --user restart litellm-cmdc.service
-  echo "✔ LiteLLM on 127.0.0.1:$LITELLM_PORT (single process, Claude Code target)"
+  echo "✔ LiteLLM on 127.0.0.1:$LITELLM_PORT (single process, LOSSY -- see warning above)"
 else
   cat > "$SERVICE_DIR/ccp-sse-watchdog.service" <<EOF
 [Unit]

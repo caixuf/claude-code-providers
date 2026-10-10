@@ -114,6 +114,10 @@ at **393216**. The local bridge (`bridge/sse_watchdog.py`) now clamps
 1M-context model works end-to-end instead of erroring with
 `400 Invalid max_tokens value`.
 
+> This clamp lives **only in watchdog mode**. In the single-process shape nothing
+> rewrites the request, so the `400` comes straight back. See
+> [Deployment modes](#deployment-modes) before choosing a shape.
+
 ### Multimodal
 
 Vision-capable models are declared automatically (`supports_vision`), and a
@@ -209,28 +213,19 @@ This will:
    - **ClinePass token plan compatibility**: Uses `cline-pass/` prefix to correctly draw from flat subscriptions instead of pay-as-you-go balance.
    - **Gateway unwrap patch**: Unwraps non-standard `{"data": {"choices": ...}}` response envelopes.
    - **User header filtering**: Drops custom client headers that cause `400 Bad Request` on strict proxies.
-3. Register a `systemd --user` service for LiteLLM on `127.0.0.1:4000`.
-   Pass `--no-watchdog` for the single-process shape; without it the installer also adds
-   `ccp-sse-watchdog.service` on `:4000` in front of LiteLLM on `:4001`. See below.
+3. Register a `systemd --user` service for LiteLLM. The **default** install puts
+   `ccp-sse-watchdog.service` on `127.0.0.1:4000` with LiteLLM behind it on `:4001`.
+   `--no-watchdog` installs the single-process shape instead, which is **lossy and
+   not equivalent** — read [Deployment modes](#deployment-modes) before using it.
 
 ### Deployment modes
 
-Every provider profile connects to `127.0.0.1:4000`. What sits behind that port
-is your choice — both shapes below are supported and self-consistent.
+Every provider profile connects to `127.0.0.1:4000`. Two shapes can sit behind that
+port, and **they are not equivalent.** The watchdog is not just an SSE stream
+cleaner — it is the only place the request-rewriting layer is implemented, so the
+single-process shape silently drops it.
 
-**Single process (recommended)** — LiteLLM owns `:4000` directly:
-
-    claude ──> :4000 LiteLLM ──> upstream
-
-```bash
-bash bridge/setup_bridge.sh --no-watchdog
-```
-
-One process, one hop, nothing to keep in sync. Re-running it also removes a
-`ccp-sse-watchdog.service` left behind by an earlier watchdog install, which
-would otherwise fight LiteLLM for the port.
-
-**With watchdog** — LiteLLM on `:4001`, `sse_watchdog` on `:4000` in front:
+**With watchdog (default, complete)** — LiteLLM on `:4001`, `sse_watchdog` on `:4000` in front:
 
     claude ──> :4000 sse_watchdog ──> :4001 LiteLLM ──> upstream
 
@@ -238,15 +233,46 @@ would otherwise fight LiteLLM for the port.
 bash bridge/setup_bridge.sh          # default
 ```
 
-The watchdog closes the Anthropic SSE stream after a complete `message_stop`
-and drops trailing keepalives. Reach for it only if your upstream leaves streams
-open after a completed message — otherwise it is an extra hop for no benefit.
+`sse_watchdog.py` owns three rewrites. They are implemented in `bridge/sse_finalize.py`
+and called from **nowhere else** in the repository:
+
+| Rewrite | Why it is needed |
+| :--- | :--- |
+| `strip_1m_model` | Removes the `[1m]` suffix carried by the registry model names, which strict upstream gateways reject |
+| `strip_1m_beta` | Drops the `anthropic-beta` 1M-context token that otherwise triggers `400` on strict proxies |
+| `clamp_max_tokens` | Caps `max_tokens` at the discovered output limit (393216), fixing `400 Invalid max_tokens value` |
+
+It also closes the Anthropic SSE stream after a complete `message_stop` and drops
+trailing keepalives.
+
+**⚠️ Single process (lossy — not equivalent)** — LiteLLM owns `:4000` directly:
+
+    claude ──> :4000 LiteLLM ──> upstream
+
+```bash
+bash bridge/setup_bridge.sh --no-watchdog
+```
+
+One process, one hop, nothing to keep in sync — but LiteLLM performs **none** of the
+three rewrites above. `config.yaml` declares `model_info` limits but has no callbacks,
+hooks, `drop_params` or output-cap enforcement, so nothing rewrites the request. A real
+Claude Code client on a 1M-context model sends all three problematic things at once
+(`max_tokens: 1000000`, a model name ending in `[1m]`, and the 1M beta header) and
+upstream answers `400`.
+
+This is why local `curl` smoke tests look fine and the client still fails: a hand-written
+request does not carry those three attributes. The single-process shape is only viable if
+your upstream already tolerates raw 1M requests.
+
+Re-running it also removes a `ccp-sse-watchdog.service` left behind by an earlier
+watchdog install, which would otherwise fight LiteLLM for the port.
 
 > **History worth knowing.** An earlier idle-injection bug in the watchdog
 > spliced synthetic JSON into a live stream. LiteLLM rejected that as
 > `MidStreamFallbackError` and Claude Code then retried for roughly ten minutes.
 > That path is gone — idle injection is disabled by default and the injector was
-> removed — but it is the reason single-process is the mode to reach for first.
+> removed. Do **not** "fix" it by switching to single-process: that trades one
+> already-fixed bug for three missing rewrites.
 
 Check which one you are on:
 
@@ -255,8 +281,9 @@ systemctl --user status litellm-cmdc ccp-sse-watchdog
 ss -ltnp | grep 4000
 ```
 
-If `:4000` belongs to `litellm` you are on single-process; if it belongs to
-`sse_watchdog.py`, LiteLLM is behind it on `:4001`.
+If `:4000` belongs to `litellm` you are on the lossy single-process shape; if it
+belongs to `sse_watchdog.py`, LiteLLM is behind it on `:4001` and you are on the
+complete path.
 
 ---
 
