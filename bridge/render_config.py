@@ -108,12 +108,37 @@ def render_config(
     ]
 
     emitted: set[str] = set()
+    # (model_name, upstream) pairs already written for a routing group. A group
+    # is *supposed* to repeat one model_name across several upstreams — that is
+    # what makes LiteLLM load-balance and cool down a member that 429s — so the
+    # single-name guard above cannot apply to pool members.
+    pool_pairs: set[tuple[str, str, str | None]] = set()
+    # LiteLLM load-balances across deployments that share a model_name, so an
+    # account suffix produces a *pool* for free — no custom router needed.
+    # {provider -> {suffix: {auth_env: ...}}}
+    accounts = profiles_doc.get("accounts") or {}
 
-    def emit(model_name: str, provider: str, upstream: str, meta: dict) -> None:
+    def emit(
+        model_name: str,
+        provider: str,
+        upstream: str,
+        meta: dict,
+        api_key_env: str | None = None,
+        allow_duplicate: bool = False,
+    ) -> None:
         key = model_name.strip().strip("'")
-        if key in emitted:
+        if not allow_duplicate:
+            if key in emitted:
+                return
+            emitted.add(key)
+        elif (key, upstream, api_key_env) in pool_pairs:
+            # A pool member may repeat the model_name (that is what makes
+            # LiteLLM load-balance), but the same *deployment* twice is noise.
+            # The credential is part of the identity: two accounts of one model
+            # are two deployments, not one.
             return
-        emitted.add(key)
+        else:
+            pool_pairs.add((key, upstream, api_key_env))
         if emitted_names is not None:
             emitted_names.setdefault(provider, set()).add(key)
         lines.append(f"  - model_name: {model_name}")
@@ -124,8 +149,9 @@ def render_config(
             lines.append(f"      api_base: {pmeta['api_base']}")
         # key from env (proxy.env supplies it) — never inline secrets.
         # Copilot authenticates via its own token store, so no api_key.
-        if pmeta.get("auth_env") and provider != "copilot":
-            lines.append(f"      api_key: os.environ/{pmeta['auth_env']}")
+        auth_env = api_key_env or pmeta.get("auth_env")
+        if auth_env and provider != "copilot":
+            lines.append(f"      api_key: os.environ/{auth_env}")
         info = []
         if isinstance(meta.get("ctx"), (int, float)):
             info.append(f"        max_input_tokens: {int(meta['ctx'])}")
@@ -139,6 +165,48 @@ def render_config(
             lines.extend(info)
         lines.append("")
 
+    def emit_family(base: str, provider: str, upstream: str, meta: dict) -> None:
+        """Emit one model name in every spelling the client may send.
+
+        Both the bare name and the ``[1m]``-bracketed form are emitted, because
+        ``ccp -m <name>`` sends the bare one while Claude Code appends ``[1m]``
+        to a 1M-context model (the proxy strips it before forwarding).
+
+        Every account of the provider becomes another deployment of the *same*
+        names, differing only in the credential env var. That is what makes a
+        pool: LiteLLM spreads load across them and cools down one that answers
+        429, so an exhausted account is skipped without the client knowing it
+        exists. Suffixing the name instead (``codebuddy-a2``) would produce no
+        failover at all — the client would have to know which to try.
+        """
+        bracketed = (meta.get("ctx") or 0) >= 1_000_000
+        pacc = accounts.get(provider) or {}
+        envs: list[str | None] = [None]
+        if isinstance(pacc, dict):
+            for spec in pacc.values():
+                if isinstance(spec, dict) and spec.get("auth_env"):
+                    envs.append(spec["auth_env"])
+        for env in envs:
+            emit(base, provider, upstream, meta, env, allow_duplicate=True)
+            if bracketed:
+                emit(f"'{base}[1m]'", provider, upstream, meta, env, allow_duplicate=True)
+
+    def emit_pool(group: str, provider: str, upstream: str, meta: dict, suffix: str = "") -> None:
+        """One deployment of a routing group, under the group's model_name.
+
+        The account ``suffix`` selects a credential and must NOT change the
+        model_name: every (member, account) pair is one deployment of the same
+        group, which is what lets LiteLLM spread load over the whole matrix.
+        Duplicate model_names are intentional here, so these bypass the
+        single-name guard.
+        """
+        pacc = accounts.get(provider) or {}
+        env = None
+        if suffix and isinstance(pacc, dict):
+            spec = pacc.get(suffix) or {}
+            env = spec.get("auth_env")
+        emit(group, provider, upstream, meta, env, allow_duplicate=True)
+
     # 1. curated aliases
     alias_models: dict[str, int] = {}
     for alias, spec in (profiles_doc.get("aliases") or {}).items():
@@ -151,11 +219,7 @@ def render_config(
                 print(f"  ! alias {alias}: model {mname} not in registry", file=sys.stderr)
                 continue
         upstream = litellm_model_string(pname, mname, meta)
-        raw = alias + ("[1m]" if (meta.get("ctx") or 0) >= 1_000_000 else "")
-        emit(alias, pname, upstream, meta)
-        # the bracketed variant Claude Code actually sends
-        if raw != alias:
-            emit(f"'{raw}'", pname, upstream, meta)
+        emit_family(alias, pname, upstream, meta)
         alias_models[alias] = clamp_value(meta) or 0
 
     # 1b. every model referenced by a profile's tiers (so copilot, whose
@@ -175,11 +239,7 @@ def render_config(
                 if s["provider"] == pname and s["model"] == mname:
                     key = a
                     break
-            key = key or mname
-            raw = key + ("[1m]" if (meta.get("ctx") or 0) >= 1_000_000 else "")
-            emit(key, pname, upstream, meta)
-            if raw != key:
-                emit(f"'{raw}'", pname, upstream, meta)
+            emit_family(key or mname, pname, upstream, meta)
 
     # 2. individually exposed models (reachable via `ccp -m <name>`)
     for mname in profiles_doc.get("expose_models") or []:
@@ -188,12 +248,35 @@ def render_config(
             print(f"  ! expose_models: {mname} not discovered", file=sys.stderr)
             continue
         pname, _ = hit
-        meta = models[hit]
-        upstream = litellm_model_string(pname, mname, meta)
-        raw = mname + ("[1m]" if (meta.get("ctx") or 0) >= 1_000_000 else "")
-        emit(mname, pname, upstream, meta)
-        if raw != mname:
-            emit(f"'{raw}'", pname, upstream, meta)
+        emit_family(mname, pname, litellm_model_string(pname, mname, models[hit]), models[hit])
+
+    # 3. Routing groups. A group is ONE model_name with one deployment per
+    #    (member, account) pair. That is what lets LiteLLM spread load across
+    #    the whole matrix and cool down whichever member or account answers
+    #    429 — the client only ever names the group. Members are NOT split into
+    #    per-account names here: a `daily-a2` the client must know to try would
+    #    defeat the point.
+    for gname, gspec in (profiles_doc.get("groups") or {}).items():
+        members = [m for m in (gspec.get("members") or []) if m]
+        if not members:
+            print(f"  ! group {gname}: no members", file=sys.stderr)
+            continue
+        for gmember in members:
+            gprov, gmodel = _split_member(profiles_doc, models, gmember)
+            if gprov is None:
+                print(f"  ! group {gname}: cannot resolve member {gmember}", file=sys.stderr)
+                continue
+            gmeta = models.get((gprov, gmodel)) or synth_meta(profiles_doc, gprov, gmodel)
+            gup = litellm_model_string(gprov, gmodel, gmeta)
+            emit_pool(gname, gprov, gup, gmeta)
+            # every account of the member joins the same pool
+            pacc = accounts.get(gprov) or {}
+            if isinstance(pacc, dict):
+                for suffix in pacc:
+                    emit_pool(gname, gprov, gup, gmeta, suffix)
+
+    # 4. router_settings: per-group strategies + cross-name fallbacks
+    lines += render_router_settings(profiles_doc)
 
     lines += [
         "",
@@ -201,6 +284,70 @@ def render_config(
         "  master_key: sk-cmdc-litellm-local",
     ]
     return "\n".join(lines) + "\n"
+
+
+def _split_member(profiles_doc: dict, models: dict, member: str) -> tuple[str | None, str]:
+    """Resolve a group member to (provider, model).
+
+    A member may be written as an alias, as a bare registry model id, or as
+    ``provider/model``. Returns ``(None, member)`` when nothing resolves, so the
+    caller reports it instead of emitting a deployment that 404s.
+    """
+    alias = (profiles_doc.get("aliases") or {}).get(member)
+    if alias:
+        return alias["provider"], alias["model"]
+    for (pname, mname) in models:
+        if mname == member:
+            return pname, mname
+    if "/" in member:
+        pname, mname = member.split("/", 1)
+        return pname, mname
+    return None, member
+
+
+def render_router_settings(profiles_doc: dict) -> list[str]:
+    """Emit LiteLLM ``router_settings`` for the curated groups.
+
+    ``routing_groups`` gives a group name its own routing strategy (the group
+    itself is just several deployments sharing that name, emitted above).
+    ``fallbacks`` chains a name to the next one once every deployment in it has
+    failed or is cooling down. Both are native LiteLLM; ccp adds no router.
+    """
+    groups = profiles_doc.get("groups") or {}
+    rg: list[str] = []
+    fb: list[str] = []
+    for gname, gspec in groups.items():
+        if not (gspec.get("members") or []):
+            continue
+        strategy = gspec.get("routing_strategy")
+        if strategy:
+            rg.append(f"  - group_name: {gname}")
+            # The group's deployments all share the group name, so the group
+            # claims exactly that one model_name.
+            rg.append("    models:")
+            rg.append(f"      - {gname}")
+            rg.append(f"    routing_strategy: {strategy}")
+            args = gspec.get("routing_strategy_args")
+            if isinstance(args, dict) and args:
+                rg.append("    routing_strategy_args:")
+                for k, v in args.items():
+                    rg.append(f"      {k}: {v}")
+        for target in gspec.get("fallback") or []:
+            fb.append(f"  - {gname}: [{target}]")
+
+    out: list[str] = []
+    if fb:
+        out.append("")
+        out.append("router_settings:")
+        out.append("  fallbacks:")
+        out.extend(fb)
+    if rg:
+        if not out:
+            out.append("")
+            out.append("router_settings:")
+        out.append("  routing_groups:")
+        out.extend(rg)
+    return out
 
 
 def render_clamp(models: dict, providers: dict, profiles_doc: dict) -> dict:

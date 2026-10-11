@@ -172,6 +172,48 @@ aliases:
   codebuddy-gemini:   {provider: codebuddy, model: gemini-3.5-flash, ctx: 1000000}
   codebuddy-hunyuan:  {provider: codebuddy, model: hy4-preview, ctx: 1000000}
 
+# ── Accounts: several logins for one provider ──────────────────────────
+# Each extra account becomes its own LiteLLM deployment named
+# `<model>-<suffix>`, with its own key env var. LiteLLM load-balances across
+# deployments that share a model_name and cools one down when it answers 429,
+# so a pool needs no router of its own — this table only says what the extra
+# accounts are called and where their credentials live.
+#
+# Credentials go in ~/.config/litellm/proxy.env as `<auth_env>=<token>`
+# (never in this file). Populate them with `ccp accounts add codebuddy <suffix>`,
+# which imports the login exactly like `ccp auth codebuddy` does.
+#
+# The bare model name always exists and always uses the provider's primary
+# auth_env, so removing every account here restores the single-account
+# behaviour with no other change.
+accounts: {}
+# Example — two CodeBuddy logins behind one pool:
+#   accounts:
+#     codebuddy:
+#       a2: {auth_env: CODEBUDDY_API_KEY_2, label: "second account"}
+
+# ── Routing groups: one name, several models ───────────────────────────
+# A group is a LiteLLM model_name shared by several deployments. `members`
+# are aliases or registry model ids; every member must be emitted, which
+# `ccp render` takes care of. The group name is what you put in
+# ANTHROPIC_MODEL (`ccp -m group/...`), and it fails over between members
+# natively: a member answering 429 is cooled down and the next is tried.
+#
+#   routing_strategy: simple-shuffle (default) | least-busy |
+#                     latency-based-routing | usage-based-routing-v2 |
+#                     cost-based-routing
+#   fallback: the name to fall back to once every member is exhausted.
+#
+# NOTE: LiteLLM allows a model in at most one group, so keep membership
+# disjoint. A member that is also an alias keeps its own entry.
+groups: {}
+# Example — cheap-first, escalating to a different vendor when both are out:
+#   groups:
+#     daily:
+#       members: [codebuddy, codebuddy-fast, cmdc-deepseek-fast]
+#       routing_strategy: usage-based-routing-v2
+#       fallback: cmdc-deepseek-pro
+
 # ── Per-provider request rewrites (bridge/sse_watchdog.py) ─────────────
 # Expanded by `ccp render` into bridge/request_rules.json, which maps each rule
 # onto the concrete model names the client sends. Keep the lists here — they

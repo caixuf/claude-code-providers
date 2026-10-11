@@ -52,6 +52,11 @@ Usage:
   ccp auth [copilot|codebuddy]
                              Authenticate a provider (Copilot device flow, or
                              import the local CodeBuddy Code login token)
+  ccp accounts [action]      Several logins for one provider, and routing groups:
+                             list | add <provider> <suffix> | remove <provider> <suffix>
+                             | group add <name> <member...> | group remove <name>
+                             (a pool fails over natively when a quota runs out)
+  ccp quota [provider]       What is left on each plan (CodeBuddy credits, …)
   ccp -h, --help             Show this help message
 
 In-Session Model Hot-Switching:
@@ -67,6 +72,9 @@ Examples:
   ccp copilot                # Switch to GitHub Copilot (Claude Sonnet 5.5, Haiku 5.5, Opus 5.5)
   ccp auth codebuddy         # Import the CodeBuddy Code login token into the bridge
   ccp codebuddy              # Switch to CodeBuddy (DeepSeek v4.1 Flash / GLM-5.3 / GLM-5.3-Flash)
+  ccp accounts add codebuddy a2   # Name a second login, then `ccp render`
+  ccp accounts group add daily codebuddy cmdc-deepseek-fast
+  ccp -m group/daily         # One name over several models; fails over when one runs out
 
 Directories:
   Profiles:  ~/.claude/providers/*.json
@@ -708,6 +716,26 @@ main() {
       # Forward every argument: `ccp auth codebuddy --status` must reach the
       # helper, not be trimmed to the provider name.
       auth_provider "${@:2}"
+      ;;
+    accounts|account)
+      local repo_dir py_bin
+      repo_dir=$(ccp_repo_dir)
+      if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/ccp_accounts.py" ]; then
+        echo -e "\033[31mError: repo checkout not found (need bridge/ccp_accounts.py).\033[0m" >&2
+        return 1
+      fi
+      py_bin=$(ccp_python)
+      "$py_bin" "$repo_dir/bridge/ccp_accounts.py" "${@:2}"
+      ;;
+    quota|--quota)
+      local repo_dir py_bin
+      repo_dir=$(ccp_repo_dir)
+      if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/ccp_quota.py" ]; then
+        echo -e "\033[31mError: repo checkout not found (need bridge/ccp_quota.py).\033[0m" >&2
+        return 1
+      fi
+      py_bin=$(ccp_python)
+      "$py_bin" "$repo_dir/bridge/ccp_quota.py" "${@:2}"
       ;;
     models|--models)
       show_models "${2:-}"

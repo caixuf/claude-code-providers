@@ -435,6 +435,89 @@ there.
 
 ---
 
+## 🔀 Accounts, pools and routing groups
+
+These three exist so a plan running out is not your problem. All of it is
+**native LiteLLM** — ccp only writes the config that turns it on, and adds no
+router of its own.
+
+### Several accounts for one provider
+
+An account is another deployment of the *same* model name, differing only in
+which credential it uses. LiteLLM load-balances across them, and when one
+answers 401/429 it is cooled down and skipped — so an exhausted or expired
+login stops being used without the client knowing it exists.
+
+```bash
+ccp accounts add codebuddy a2       # import the CLI's login under a new name
+ccp accounts add cmdc work --token user_xxx
+ccp accounts list                   # what is configured, and whether each key is set
+ccp accounts remove codebuddy a2
+ccp render && ccp bridge restart
+```
+
+Credentials go to `~/.config/litellm/proxy.env` (0600) as
+`<PROVIDER>_API_KEY_<SUFFIX>`; only the *name* of that variable is recorded in
+`registry/profiles.yaml`, which is committed. Removing an account leaves the
+secret alone — ccp does not delete a credential you may still need.
+
+> Verified against the live gateway: with a second CodeBuddy account holding an
+> invalid token, 8/8 requests still succeeded, and the bad deployment was tried
+> exactly once before being cooled down.
+
+### Routing groups: one name, several models
+
+A group is one model name with a deployment per `(member, account)` pair, so a
+group is also a pool. Use it as the model and failover happens underneath.
+
+```bash
+ccp accounts group add daily codebuddy codebuddy-fast cmdc-deepseek-fast \
+    --strategy usage-based-routing-v2 --fallback cmdc-deepseek-pro
+ccp -m group/daily
+```
+
+| `--strategy` | Behaviour |
+| :--- | :--- |
+| `simple-shuffle` (default) | random, weighted |
+| `usage-based-routing-v2` | send to whoever has used least of its limit |
+| `least-busy` | fewest in-flight requests |
+| `latency-based-routing` | fastest responding member |
+| `cost-based-routing` | cheapest member |
+
+`--fallback` names what to use once every member is exhausted. Members may be
+aliases (`codebuddy`), registry ids (`glm-5.3`) or `provider/model`.
+
+### Quota
+
+```bash
+ccp quota              # every provider that publishes a usage API
+ccp quota codebuddy    # just one
+```
+
+```
+codebuddy  (CODEBUDDY_API_KEY)
+  Bonus Pack                   █████████████████░░░░░░░  75.9 left of 250 credit
+                               resets 2026-10-24 08:59:35
+  Free Plan Subscription       ░░░░░░░░░░░░░░░░░░░░░░░░  100.0 left of 100 credits
+                               resets 2026-10-31 23:59:59
+```
+
+Only providers with a real usage endpoint are listed — CodeBuddy's
+`/v2/billing/meter/get-user-resource` today. ccp does not invent numbers for
+providers that publish none, and readings are cached for two minutes because
+these endpoints are rate limited.
+
+### What this deliberately does not do
+
+magpie's pools also *switch the agent's own login* and track per-account quota
+to pick which to use. ccp does neither: it never refreshes or rotates a
+credential it does not own (see [How ccp handles credentials](#how-ccp-handles-credentials)),
+and it lets LiteLLM's cooldown decide which account is out rather than
+predicting it from quota. That keeps the "one holder per refresh token" rule
+intact and needs no background job.
+
+---
+
 ## 📊 Benchmark & Performance Insights
 
 In automated multi-turn engineering benchmarks across complex automotive codebases, all supported models achieved stellar performance under Claude Code:
