@@ -362,7 +362,7 @@ ccp auth codebuddy # import the token + verify it against the gateway
 
     ~/.local/share/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info
 
-and appends `CODEBUDDY_API_KEY=<access-token>` to
+and writes `CODEBUDDY_API_KEY=<access-token>` to
 `~/.config/litellm/proxy.env` (which the systemd unit loads and the generated
 config references as `os.environ/CODEBUDDY_API_KEY`). It then streams one tiny
 completion to prove the token really works. Override the search with
@@ -372,7 +372,29 @@ completion to prove the token really works. Override the search with
 > The **desktop** CodeBuddy client (≥ 5.6.0) seals its token in an AES-GCM
 > envelope only that binary can open. Import from the **CLI** login instead —
 > it stores the session in the clear, and the command says so if it finds an
-> encrypted file.
+> encrypted file. `codebuddy_auth.py` reports *which* candidate it rejected and
+> why (missing / not JSON / no `auth` / sealed), so a failure is never just
+> "not logged in".
+
+### How ccp handles credentials
+
+Credential handling here follows the rules in magpie's
+[`docs/subsystems/providers-accounts.md`](https://github.com/yetone/magpie/blob/main/docs/subsystems/providers-accounts.md),
+restricted to the parts that apply to a tool which does **not** own the account:
+
+| Rule | Why, and what it means here |
+| :--- | :--- |
+| **Read, never refresh** | CodeBuddy rotates the refresh token on every refresh, and the CLI is its single holder — refreshing here would rotate it out from under the CLI and sign it out. `ccp` only ever reads. When the access token lapses, `ccp` says so and tells you to run `codebuddy` once, which renews its own session in place. |
+| **Adopt a rotated token automatically** | `ccp bridge restart` / `start` re-reads the source of truth, so a session the CLI renewed is picked up instead of silently going stale in `proxy.env`. Silent when CodeBuddy is not in use. `ccp auth codebuddy --status` reports in-sync / out-of-sync / expiry without changing anything. |
+| **An unreadable store is an error, never an empty one** | `proxy.env` holds every provider's key. If it exists but cannot be read, the import fails loudly rather than rewriting it from an empty read and dropping the rest. |
+| **Durable, atomic writes** | Temp file in the same directory, `flush` + `fsync`, then `os.replace`, mode `0600`. magpie learned this the hard way — a crash left its state files at full length with every byte zero. A zeroed `proxy.env` would take down every provider at once. |
+| **Secrets are never resurrected from a backup** | No `.bak` is kept for `proxy.env` (magpie refuses to read its key store from one: "a key revoked in the last write would come back"). The config backups `ccp bridge deploy` makes are safe to keep, because the generated config references `os.environ/…` and holds no key. |
+| **Say when a credential cannot renew itself** | A session with no `refreshToken` is reported rather than silently used — it cannot outlive its access token. |
+
+Deliberately **not** adopted: magpie's account pools, quota tracking and
+routing groups. Those exist because magpie owns and switches accounts across
+many agents; `ccp` switches providers for one agent, and taking ownership would
+mean becoming the CLI's sign-in holder — the thing the first rule forbids.
 
 ### 2. Restart the bridge & switch
 
