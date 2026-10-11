@@ -16,6 +16,7 @@ bridge/config.yaml
 # Generated from the registry (recreate with `ccp render`)
 bridge/config.generated.yaml
 bridge/clamp_map.json
+bridge/request_rules.json
 
 # System & Python
 __pycache__/

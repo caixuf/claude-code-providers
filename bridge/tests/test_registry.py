@@ -117,3 +117,88 @@ def test_render_check_passes():
         text=True,
     )
     assert r.returncode == 0, f"rendered outputs are stale:\n{r.stdout}\n{r.stderr}"
+
+
+# ── CodeBuddy wiring ──────────────────────────────────────────────────────
+# These pin the three things that are invisible in the YAML but decide whether
+# a CodeBuddy request reaches the gateway at all.
+
+
+def test_codebuddy_routes_through_chat_completions_prefix():
+    """CodeBuddy 404s /v1/* and /responses; only /v2/chat/completions exists.
+
+    LiteLLM sends every ``openai/`` deployment reached via Anthropic
+    /v1/messages to the Responses API, so this prefix is load-bearing. If it
+    ever reverts to ``openai/`` the bridge silently starts POSTing
+    /v2/responses and every CodeBuddy turn 404s.
+    """
+    assert render_config.litellm_model_string_override("codebuddy", "glm-5.3") == (
+        "hosted_vllm/glm-5.3"
+    )
+    # the api_base must carry /v2 for LiteLLM to append /chat/completions to it
+    doc, _ = _load()
+    _, providers = render_config.index_models(doc)
+    assert providers["codebuddy"]["api_base"].endswith("/v2")
+    assert providers["codebuddy"]["auth_env"] == "CODEBUDDY_API_KEY"
+
+
+def _emitted_and_rules():
+    """Render, then report (provider -> emitted names, expanded request rules)."""
+    doc, profiles = _load()
+    models, providers = render_config.index_models(doc)
+    emitted: dict[str, set[str]] = {}
+    render_config.render_config(models, providers, profiles, emitted)
+    return models, profiles, emitted, render_config.render_request_rules(profiles, emitted)
+
+
+def test_request_rules_cover_every_reachable_codebuddy_name():
+    """The proxy matches rules on the model name the client sent, which is one
+    of the names LiteLLM actually exposes for codebuddy — plus a ``[1m]``
+    bracket the proxy strips before lookup. Every spelling must resolve.
+    """
+    from sse_finalize import norm_model_key
+
+    models, profiles, emitted, rules = _emitted_and_rules()
+    assert "strip_billing_header" in rules
+    listed = {norm_model_key(n) for n in rules["strip_billing_header"]}
+
+    cb_names = emitted.get("codebuddy") or set()
+    assert cb_names, "no codebuddy entries were emitted"
+    for name in cb_names:
+        assert norm_model_key(name) in listed, f"{name} would not be sanitised"
+    # the profile's tiers must all be reachable and therefore sanitised
+    spec = profiles["profiles"]["codebuddy"]
+    for tier, tspec in spec["tiers"].items():
+        meta = models.get(("codebuddy", tspec["model"]))
+        assert meta, f"tier {tier} -> {tspec['model']} not in registry"
+        for alias, aspec in (profiles["aliases"] or {}).items():
+            if aspec["provider"] == "codebuddy" and aspec["model"] == tspec["model"]:
+                assert norm_model_key(alias) in listed
+
+
+def test_request_rules_exclude_other_providers():
+    """The billing header is Anthropic's; stripping it elsewhere would be a
+    silent prompt mutation for providers that never asked for it — including
+    for ids that two providers happen to share (cmdc and codebuddy both list
+    gpt-5.3-codex, but only one of them wins the LiteLLM entry)."""
+    models, profiles, emitted, rules = _emitted_and_rules()
+    listed = set(rules["strip_billing_header"])
+    for pname, names in emitted.items():
+        if pname == "codebuddy":
+            continue
+        for name in names:
+            assert name not in listed, f"{pname}/{name} must not be sanitised"
+    assert "cmdc-deepseek[1m]" not in listed
+    assert "cline-deepseek" not in listed
+
+
+def test_codebuddy_profile_tiers_are_all_one_million_context():
+    """Claude Code compacts through the haiku tier while advertising the primary
+    tier's window, so every CodeBuddy tier must carry the same 1M context."""
+    doc, profiles = _load()
+    models, _ = render_config.index_models(doc)
+    spec = profiles["profiles"]["codebuddy"]
+    for tier, tspec in spec["tiers"].items():
+        meta = models.get(("codebuddy", tspec["model"]))
+        assert meta, f"tier {tier} -> {tspec['model']} not in registry"
+        assert meta["ctx"] == 1000000, f"tier {tier} ctx is {meta['ctx']}, not 1M"

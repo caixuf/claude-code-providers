@@ -146,6 +146,8 @@ text = pathlib.Path(src).read_text()
 HOSTS = {
     "api.commandcode.ai": "CMDC_API_KEY",
     "api.cline.bot": "CLINE_API_KEY",
+    "www.codebuddy.ai": "CODEBUDDY_API_KEY",
+    "copilot.tencent.com": "CODEBUDDY_API_KEY",
 }
 lines, cur_host = [], None
 out = {}

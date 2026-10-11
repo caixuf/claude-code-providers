@@ -144,3 +144,87 @@ def test_strip_1m_beta():
     )
     # empty in -> empty out
     assert strip_1m_beta("") == ""
+
+
+# ── billing-header sanitisation (CodeBuddy channel check) ──────────────────
+
+BILLING = "x-anthropic-billing-header: cc_version=2.1.287.95e; cc_entrypoint=sdk-cli;"
+
+
+def test_strip_billing_header_from_system_blocks():
+    """The real Claude Code shape: marker in its own first system text block."""
+    import json
+
+    from sse_finalize import strip_billing_header
+
+    body = json.dumps(
+        {
+            "model": "codebuddy[1m]",
+            "system": [
+                {"type": "text", "text": BILLING},
+                {"type": "text", "text": "You are a helpful coding agent."},
+            ],
+            "messages": [{"role": "user", "content": "hi"}],
+        }
+    ).encode()
+    out, changed = strip_billing_header(body)
+    assert changed is True
+    doc = json.loads(out)
+    # the marker-only block is dropped entirely, the real prompt survives
+    assert doc["system"] == [{"type": "text", "text": "You are a helpful coding agent."}]
+
+
+def test_strip_billing_header_keeps_other_text_in_shared_block():
+    import json
+
+    from sse_finalize import strip_billing_header
+
+    body = json.dumps(
+        {
+            "system": [{"type": "text", "text": BILLING + "\nReal instructions."}],
+            "messages": [],
+        }
+    ).encode()
+    out, changed = strip_billing_header(body)
+    assert changed is True
+    assert json.loads(out)["system"] == [{"type": "text", "text": "Real instructions."}]
+
+
+def test_strip_billing_header_handles_string_system_and_messages():
+    import json
+
+    from sse_finalize import strip_billing_header
+
+    body = json.dumps(
+        {
+            "system": "Line one.\n" + BILLING + "\nLine two.",
+            "messages": [{"role": "user", "content": [{"type": "text", "text": BILLING}]}],
+        }
+    ).encode()
+    out, changed = strip_billing_header(body)
+    assert changed is True
+    doc = json.loads(out)
+    assert doc["system"] == "Line one.\nLine two."
+    assert doc["messages"][0]["content"] == []
+
+
+def test_strip_billing_header_noop_otherwise():
+    from sse_finalize import strip_billing_header
+
+    # marker absent -> untouched, and cheap early-out keeps other providers intact
+    clean = b'{"system":[{"type":"text","text":"hello"}],"messages":[]}'
+    assert strip_billing_header(clean) == (clean, False)
+    assert strip_billing_header(b"") == (b"", False)
+    assert strip_billing_header(b"not json") == (b"not json", False)
+    # marker present but only in a field we do not walk -> still a no-op
+    stray = b'{"system":"ok","metadata":{"x":"x-anthropic-billing-header:"}}'
+    assert strip_billing_header(stray) == (stray, False)
+
+
+def test_norm_model_key_matches_rules_to_sent_spelling():
+    from sse_finalize import norm_model_key
+
+    assert norm_model_key("codebuddy[1m]") == "codebuddy"
+    assert norm_model_key("CODEBUDDY-GLM[1M]") == "codebuddy-glm"
+    assert norm_model_key("glm-5.3") == "glm-5.3"
+    assert norm_model_key(None) == ""

@@ -3902,6 +3902,165 @@ providers:
         endpoint_kind: openai
         aliases: []
         tiers: []
+  - name: codebuddy
+    api_base: https://www.codebuddy.ai/v2
+    endpoint_kind: openai
+    auth_env: CODEBUDDY_API_KEY
+    models:
+      - name: balanced-model
+        ctx: 256000
+        max_output: 32000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deep-model
+        ctx: 176000
+        max_output: 24000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek-v4.1-flash
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek-v4.1-flash-sg
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: default-model
+        ctx: 176000
+        max_output: 24000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: fast-model
+        ctx: 200000
+        max_output: 32000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gemini-3.5-flash
+        ctx: 1000000
+        max_output: 65536
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: glm-5.2
+        ctx: 1000000
+        max_output: 48000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: glm-5.3
+        ctx: 1000000
+        max_output: 48000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: glm-5.3-flash
+        ctx: 1000000
+        max_output: 32000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gpt-5.3-codex
+        ctx: 272000
+        max_output: 72000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gpt-5.4
+        ctx: 272000
+        max_output: 72000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gpt-5.5
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gpt-5.6-luna
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gpt-5.6-sol
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: gpt-5.6-terra
+        ctx: 1000000
+        max_output: 128000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: hy3
+        ctx: 192000
+        max_output: 64000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: hy4-preview
+        ctx: 1000000
+        max_output: 64000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: kimi-k2.6
+        ctx: 256000
+        max_output: 32000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: kimi-k2.8-preview
+        ctx: 1000000
+        max_output: 32000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: kimi-k3
+        ctx: 1000000
+        max_output: 32000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: primary-model
+        ctx: 272000
+        max_output: 72000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
   - name: deepseek
     api_base: https://api.deepseek.com/anthropic
     endpoint_kind: anthropic

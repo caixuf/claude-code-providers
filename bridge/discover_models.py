@@ -6,12 +6,16 @@ this pulls them from, in priority order:
 
   1. The provider's own ``GET .../models`` endpoint (authoritative when present):
        - CommandCode : context_length, supported_endpoints   (~87 models)
+       - CodeBuddy   : maxInputTokens / maxOutputTokens / supportsImages, via the
+                       account-scoped ``/v2/enterprises/personal/models`` REST
+                       envelope (run ``ccp auth codebuddy`` first for the token)
        - Cline       : id/name only
        - MiniMax / DeepSeek : standard OpenAI /v1/models shape
   2. LiteLLM's bundled cost map (``litellm.model_cost``, ~4500 entries) for
      max_input_tokens / max_output_tokens / supports_vision.
   3. A tiny built-in defaults table for the few facts neither source knows
-     (e.g. every CommandCode model caps output at 393216 — verified by probe).
+     (e.g. every CommandCode model caps output at 393216 — verified by probe, and
+     the CodeBuddy ids the gateway routes but a plan's catalogue omits).
 
 Output is a *generated but committed* ``registry/models.yaml`` that a human can
 still hand-edit; re-running merges (never clobbers manual ``aliases``/``tiers``).
@@ -60,6 +64,37 @@ PROVIDERS = {
         "auth_env": "CLINE_API_KEY",
         "auth_file": "~/.config/litellm/config.yaml",
         "auth_grep": "api.cline.bot",
+        "max_output_default": None,
+    },
+    # CodeBuddy (Tencent coding-copilot) subscription gateway, authenticated by
+    # the access token the CodeBuddy Code CLI already keeps on disk — run
+    # `ccp auth codebuddy` to copy it into ~/.config/litellm/proxy.env.
+    #
+    # The catalogue endpoint answers with a REST envelope
+    # ({code, msg, data: {models: [...]}}) instead of a bare OpenAI /models
+    # list, hence ``models_json_path``. It is also *account-scoped*: it lists
+    # what your plan exposes (18 ids on the INTL personal plan), so ids that a
+    # given plan omits but that the gateway still routes are re-added from
+    # ``extra_models``.
+    "codebuddy": {
+        "models_url": "https://www.codebuddy.ai/v2/enterprises/personal/models",
+        # LiteLLM appends /chat/completions, and CodeBuddy only serves that
+        # under /v2 — there is no /v1/* upstream at all.
+        "api_base": "https://www.codebuddy.ai/v2",
+        "endpoint_kind": "openai",
+        # See litellm_model_string_override in render_config.py: `openai/` would
+        # be routed to the Responses API (/v2/responses → 404 upstream).
+        "litellm_prefix": "hosted_vllm/",
+        "auth_env": "CODEBUDDY_API_KEY",
+        "models_json_path": ("data", "models"),
+        # Routable-but-unlisted ids, verified by direct probe. ctx / max_output
+        # / vision come from the CLI's own product.json, which does list them.
+        "extra_models": [
+            {"name": "deepseek-v4.1-flash", "ctx": 1000000, "max_output": 128000, "vision": True},
+            {"name": "deepseek-v4.1-flash-sg", "ctx": 1000000, "max_output": 128000, "vision": True},
+            {"name": "glm-5.3-flash", "ctx": 1000000, "max_output": 32000, "vision": True},
+            {"name": "kimi-k2.8-preview", "ctx": 1000000, "max_output": 32000, "vision": True},
+        ],
         "max_output_default": None,
     },
     # Native Anthropic-compatible endpoints (no bridge). Rich metadata where
@@ -133,7 +168,7 @@ def read_token(provider: dict) -> str | None:
     return None
 
 
-def fetch_models(url: str, token: str | None) -> list[dict]:
+def fetch_models(url: str, token: str | None, json_path: tuple[str, ...] | None = None) -> list[dict]:
     req = urllib.request.Request(url)
     if token:
         req.add_header("Authorization", f"Bearer {token}")
@@ -143,6 +178,14 @@ def fetch_models(url: str, token: str | None) -> list[dict]:
     req.add_header("User-Agent", "ccp-discover/1.0 (+https://github.com/caixuf/claude-code-providers)")
     with urllib.request.urlopen(req, timeout=20) as resp:
         data = json.loads(resp.read().decode("utf-8"))
+    if json_path:
+        # REST-envelope providers (CodeBuddy): {"data": {"models": [...]}}
+        cur = data
+        for key in json_path:
+            if not isinstance(cur, dict) or key not in cur:
+                return []
+            cur = cur[key]
+        return cur if isinstance(cur, list) else []
     if isinstance(data, dict) and "data" in data:
         return data["data"]
     if isinstance(data, list):
@@ -244,6 +287,27 @@ def norm_generic(entry: dict, provider: dict, cmap: dict, idx: dict | None = Non
     }
 
 
+def norm_codebuddy(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
+    """CodeBuddy's catalogue is richer than a /models list: every entry carries
+    maxInputTokens / maxOutputTokens / supportsImages / supportsToolCall, so no
+    cost-map cross-check is needed (these ids are gateway-private anyway).
+
+    Also accepts an already-normalized entry (``name`` / ``ctx`` / ``max_output``
+    / ``vision``), which is the shape PROVIDERS[...]["extra_models"] uses for the
+    ids the gateway routes but this account's catalogue does not list.
+    """
+    vision = entry.get("supportsImages")
+    if vision is None:
+        vision = entry.get("vision")
+    return {
+        "name": entry.get("id") or entry.get("name") or "",
+        "ctx": entry.get("maxInputTokens") or entry.get("ctx"),
+        "max_output": entry.get("maxOutputTokens") or entry.get("max_output"),
+        "vision": vision,
+        "endpoint_kind": provider["endpoint_kind"],
+    }
+
+
 def _guess_vision(mid: str) -> bool | None:
     m = mid.lower()
     if any(w in m for w in ("vision", "-vl", "omni", "gemini", "gpt-4o", "gpt-5", "claude-", "grok")):
@@ -254,6 +318,7 @@ def _guess_vision(mid: str) -> bool | None:
 NORMALIZERS = {
     "cmdc": norm_cmdc,
     "cline": norm_generic,
+    "codebuddy": norm_codebuddy,
     "deepseek": norm_deepseek,
     "minimax": norm_generic,
 }
@@ -352,7 +417,7 @@ def build(only: str | None) -> dict:
         token = read_token(pdef)
         raw = None
         try:
-            raw = fetch_models(pdef["models_url"], token)
+            raw = fetch_models(pdef["models_url"], token, pdef.get("models_json_path"))
         except Exception as e:
             print(f"  ! {pname}: fetch failed ({e}); keeping existing entries", file=sys.stderr)
         if raw is None:
@@ -361,11 +426,15 @@ def build(only: str | None) -> dict:
             prior_models = existing_by_prov.get(pname) or []
             by_prov[pname] = provider_block(pname, pdef, prior_models)
             continue
+        # ids the gateway routes but this account's catalogue omits
+        raw = list(raw) + list(pdef.get("extra_models") or [])
         models = []
+        seen: set[str] = set()
         for entry in raw:
             norm = NORMALIZERS[pname](entry, pdef, cmap, cidx)
-            if not norm or not norm.get("name"):
+            if not norm or not norm.get("name") or norm["name"] in seen:
                 continue
+            seen.add(norm["name"])
             prior = existing.get((pname, norm["name"]), {})
             # preserve human edits
             norm["aliases"] = prior.get("aliases", [])

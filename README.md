@@ -13,12 +13,13 @@
 
 - ⚡ **One-command switching**: Switch models in 1 second (`ccp cmdc-deepseek`, `ccp minimax`, `ccp deepseek`).
 - 🛡️ **Safe & non-destructive**: Automatically creates timestamped backups of `~/.claude/settings.json` upon every switch; supports instant rollback with `ccp --rollback`.
-- 🌉 **Universal Protocol Bridge**: Claude Code hardcodes the Anthropic Messages API (`/v1/messages`). `ccp` includes an optional zero-latency local proxy bridge (powered by LiteLLM) that allows Claude Code to access **any OpenAI-compatible gateway** (CommandCode, ClinePass, self-hosted vLLM) with full streaming, tool use, and thinking tokens!
+- 🌉 **Universal Protocol Bridge**: Claude Code hardcodes the Anthropic Messages API (`/v1/messages`). `ccp` includes an optional zero-latency local proxy bridge (powered by LiteLLM) that allows Claude Code to access **any OpenAI-compatible gateway** (CommandCode, ClinePass, CodeBuddy, self-hosted vLLM) with full streaming, tool use, and thinking tokens!
 - 🎯 **Preserves Full Capabilities**:
   - ✅ Tool calling (File search, editing, bash execution, LSP)
   - ✅ Thinking tokens (Extended reasoning / CoT streaming)
   - ✅ Stream-json / verbose output
 - 🧪 **Battle-Tested**: Validated by rigorous automated 6-axis code generation benchmarks on complex real-world codebases.
+- 🐧 **CodeBuddy subscriptions**: Turn a CodeBuddy (Tencent coding-copilot) plan into a Claude Code backend — the CLI's existing login is imported with `ccp auth codebuddy`, and the model fleet is discovered from your account.
 
 ---
 
@@ -44,6 +45,7 @@ ccp
 ccp cmdc-deepseek
 ccp minimax
 ccp deepseek
+ccp codebuddy          # after: ccp auth codebuddy
 
 # Check current active profile and endpoints
 ccp --current
@@ -89,20 +91,24 @@ Discovery merges three sources, in priority order:
 
 1. **The provider's own `/models` endpoint** (authoritative):
    - CommandCode → `context_length`, `supported_endpoints` (~87 models)
+   - CodeBuddy → `maxInputTokens`, `maxOutputTokens`, `supportsImages`, from
+     `GET /v2/enterprises/personal/models` (account-scoped, ~18–31 models)
    - Cline → id/name only
 2. **LiteLLM's bundled model registry** (`litellm.model_cost`, ~4500 entries) for
    `max_input_tokens` / `max_output_tokens` / `supports_vision`.
 3. A tiny defaults table for the few facts neither knows (e.g. every CommandCode
-   model caps its **output** at 393216 — verified by probe).
+   model caps its **output** at 393216 — verified by probe, and the CodeBuddy ids
+   the gateway routes but the INTL catalogue omits).
 
 `registry/profiles.yaml` is the *only* hand-authored file: it records choices
-(which model each Claude Code tier maps to, and the short aliases). `ccp render`
-joins the two into:
+(which model each Claude Code tier maps to, the short aliases, and which
+per-provider request rewrites the proxy applies). `ccp render` joins the two into:
 
 | Output | Purpose |
 | :--- | :--- |
 | `~/.config/litellm/config.yaml` | LiteLLM routing + `model_info` limits |
 | `bridge/clamp_map.json` | model → output cap, used by the proxy |
+| `bridge/request_rules.json` | model → request rewrites, used by the proxy |
 | `providers/<name>.json.example` | profile with the *correct* `CLAUDE_CODE_MAX_CONTEXT_TOKENS` |
 
 ### Why this fixes the `max_tokens` 400
@@ -157,6 +163,7 @@ Example configuration template:
 
 Pre-configured templates in `providers/`:
 - **`copilot.json`**: GitHub Copilot (Claude Sonnet 5.5, Haiku 5.5, Opus 5.5 tiers mapped) via local bridge
+- **`codebuddy.json`**: CodeBuddy / 腾讯 coding-copilot subscription (DeepSeek v4.1 Flash, GLM-5.3, GLM-5.3-Flash) via local bridge
 - **`cmdc-deepseek-fast.json`**: CommandCode DeepSeek v4.1 Flash Fast (high-throughput low-latency) via local bridge
 - **`cmdc-deepseek-pro.json`**: CommandCode DeepSeek v4 Pro (hybrid-attention long-context reasoning) via local bridge
 - **`cmdc-deepseek.json`**: CommandCode DeepSeek v4.1 Flash via local bridge
@@ -175,6 +182,26 @@ suits that entry point, so `ccp -m` can move within a provider and
 | `cmdc-deepseek` | `deepseek-v4.1-flash` | `cmdc-deepseek-pro` | `deepseek-v4.1-flash` | `cmdc-deepseek-fast` | **1M** |
 | `cmdc-deepseek-pro` | `cmdc-deepseek-pro` | `cmdc-deepseek-pro` | `deepseek-v4.1-flash` | `cmdc-deepseek-fast` | **1M** |
 
+`codebuddy` is the same idea across *different vendors*, because no single one
+covers all four tiers well. Every tier is 1M-context on purpose: Claude Code
+advertises one window per session but compacts through the haiku tier, so a
+smaller haiku model would break compaction on a long session.
+
+| Profile | default | opus / fable | sonnet | haiku | context |
+| :--- | :--- | :--- | :--- | :--- | ---: |
+| `codebuddy` | `codebuddy` (DeepSeek v4.1 Flash, free) | `codebuddy-glm` (GLM-5.3) | `codebuddy` | `codebuddy-fast` (GLM-5.3-Flash) | **1M** |
+
+Hot-swap to another vendor in the same subscription with `ccp -m`:
+
+```bash
+ccp -m codebuddy-glm       # GLM-5.3
+ccp -m codebuddy-kimi      # Kimi-K3
+ccp -m codebuddy-gpt       # GPT-5.5
+ccp -m codebuddy-gemini    # Gemini-3.5-Flash
+ccp -m codebuddy-hunyuan   # Hy4-Preview (free)
+ccp models codebuddy       # everything the plan exposes (discovered live)
+```
+
 ---
 
 ## 🌉 Universal Bridge (LiteLLM Local Gateway)
@@ -191,13 +218,13 @@ Claude Code strictly issues requests in Anthropic Messages format (`/v1/messages
                  ▼
 ┌─────────────────────────────────┐
 │  Local Bridge (127.0.0.1:4000)  │  <-- Zero-buffer loopback proxy (<0.2ms overhead)
-└───────┬─────────────────┬───────┘
-        │                 │
-        ▼                 ▼ OpenAI /chat/completions
-┌────────────────┐ ┌────────────────┐
-│  CommandCode   │ │   ClinePass    │
-│  (DeepSeek)    │ │ (Token Plan)   │
-└────────────────┘ └────────────────┘
+└───┬──────────────┬──────────┬───┘
+    │              │          │
+    ▼              ▼          ▼ OpenAI /chat/completions
+┌────────────┐ ┌──────────┐ ┌────────────┐
+│ CommandCode│ │ ClinePass│ │ CodeBuddy  │
+│ (DeepSeek) │ │(Token Pl)│ │ (multi-LLM)│
+└────────────┘ └──────────┘ └────────────┘
 ```
 
 ### Enabling the Bridge
@@ -233,7 +260,7 @@ single-process shape silently drops it.
 bash bridge/setup_bridge.sh          # default
 ```
 
-`sse_watchdog.py` owns three rewrites. They are implemented in `bridge/sse_finalize.py`
+`sse_watchdog.py` owns four rewrites. They are implemented in `bridge/sse_finalize.py`
 and called from **nowhere else** in the repository:
 
 | Rewrite | Why it is needed |
@@ -241,6 +268,7 @@ and called from **nowhere else** in the repository:
 | `strip_1m_model` | Removes the `[1m]` suffix carried by the registry model names, which strict upstream gateways reject |
 | `strip_1m_beta` | Drops the `anthropic-beta` 1M-context token that otherwise triggers `400` on strict proxies |
 | `clamp_max_tokens` | Caps `max_tokens` at the discovered output limit (393216), fixing `400 Invalid max_tokens value` |
+| `strip_billing_header` | Removes Claude Code's `x-anthropic-billing-header` system block. CodeBuddy's gateway reads it as "unapproved client" and rejects the whole request. Driven by `bridge/request_rules.json`, so it applies **only** to providers listed under `request_rules:` in `registry/profiles.yaml` — Anthropic's own API still gets the header |
 
 It also closes the Anthropic SSE stream after a complete `message_stop` and drops
 trailing keepalives.
@@ -254,7 +282,7 @@ bash bridge/setup_bridge.sh --no-watchdog
 ```
 
 One process, one hop, nothing to keep in sync — but LiteLLM performs **none** of the
-three rewrites above. `config.yaml` declares `model_info` limits but has no callbacks,
+four rewrites above. `config.yaml` declares `model_info` limits but has no callbacks,
 hooks, `drop_params` or output-cap enforcement, so nothing rewrites the request. A real
 Claude Code client on a 1M-context model sends all three problematic things at once
 (`max_tokens: 1000000`, a model name ending in `[1m]`, and the 1M beta header) and
@@ -312,6 +340,69 @@ Copilot profile perfectly maps Claude Code's model hierarchy:
 - **Default / Active / Sonnet**: `claude-sonnet-5.5` (Claude Sonnet 5.5 — 1M context)
 - **Fast / Background / Haiku**: `claude-haiku-5.5` (Claude Haiku 5.5 — ultra-fast subagents & compact)
 - **Heavy / Architecture / Opus**: `claude-opus-5.5` (Claude Opus 5.5 — maximum reasoning power)
+
+---
+
+## 🐧 Using CodeBuddy with Claude Code
+
+[CodeBuddy](https://www.codebuddy.ai/cli) (Tencent coding-copilot) is a flat
+subscription that fronts a whole fleet of third-party models — DeepSeek, GLM,
+Kimi, GPT, Gemini, Hunyuan. It has **no API-key product**: the gateway
+authenticates the session the CodeBuddy Code CLI already holds, so `ccp`
+imports that session.
+
+### 1. Import the local CodeBuddy login
+
+```bash
+codebuddy          # log in once with the CodeBuddy CLI, if you have not
+ccp auth codebuddy # import the token + verify it against the gateway
+```
+
+`ccp auth codebuddy` reads the plaintext session file the CLI writes
+
+    ~/.local/share/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info
+
+and appends `CODEBUDDY_API_KEY=<access-token>` to
+`~/.config/litellm/proxy.env` (which the systemd unit loads and the generated
+config references as `os.environ/CODEBUDDY_API_KEY`). It then streams one tiny
+completion to prove the token really works. Override the search with
+`--auth-file PATH`, or point discovery at a specific file with
+`CODEBUDDY_AUTH_FILE` / `CODEBUDDY_API_KEY`.
+
+> The **desktop** CodeBuddy client (≥ 5.6.0) seals its token in an AES-GCM
+> envelope only that binary can open. Import from the **CLI** login instead —
+> it stores the session in the clear, and the command says so if it finds an
+> encrypted file.
+
+### 2. Restart the bridge & switch
+
+```bash
+ccp discover codebuddy   # pull the model catalogue your plan exposes
+ccp render               # regenerate config + profiles + clamp/rule maps
+ccp bridge restart       # load CODEBUDDY_API_KEY
+ccp codebuddy            # switch
+```
+
+### 3. Why CodeBuddy needs more than a base URL
+
+Three things about this gateway are not obvious, and all three are handled
+declaratively so nothing is hard-coded in the proxy:
+
+| Constraint | How `ccp` handles it |
+| :--- | :--- |
+| Only `/v2/chat/completions` exists — `/v1/*` and the OpenAI **Responses API** 404 | The deployment uses LiteLLM's `hosted_vllm/` prefix instead of `openai/`. LiteLLM 1.103 sends every `openai/` deployment reached through `/v1/messages` to the Responses API, which would POST `/v2/responses` and 404. The global opt-out (`LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES`) would re-route every *other* provider too, so the prefix is fixed per deployment in `render_config.py` |
+| Requests carrying Claude Code's `x-anthropic-billing-header:` block are rejected with `400 {"code":11128,"msg":"Illegal API invocation from an unapproved channel"}` | The watchdog strips that system block for CodeBuddy models only, via `request_rules.strip_billing_header` in `registry/profiles.yaml` → `bridge/request_rules.json`. Anthropic's own API still receives the header |
+| Streaming is mandatory (non-stream → `400 11101`) | Claude Code always streams, and the bridge is a streaming proxy, so nothing extra is needed — but a plain `curl` against the upstream without `"stream": true` will fail |
+
+Model metadata (context window, output cap, vision) is discovered from
+`GET /v2/enterprises/personal/models`, which is **account-scoped**: `ccp models
+codebuddy` shows exactly what your plan exposes. `discover_models.py` re-adds a
+few ids the gateway routes but the INTL catalogue omits (notably
+`deepseek-v4.1-flash`, the free 1M multimodal one that the default tier uses).
+
+The CN deployment (`copilot.tencent.com`) works the same way; change
+`models_url`/`api_base` in `bridge/discover_models.py` if your account lives
+there.
 
 ---
 

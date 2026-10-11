@@ -23,7 +23,14 @@ _BRIDGE_DIR = Path(__file__).resolve().parent
 if str(_BRIDGE_DIR) not in sys.path:
     sys.path.insert(0, str(_BRIDGE_DIR))
 
-from sse_finalize import SseCutState, clamp_max_tokens, strip_1m_beta, strip_1m_model  # noqa: E402
+from sse_finalize import (  # noqa: E402
+    SseCutState,
+    clamp_max_tokens,
+    norm_model_key,
+    strip_1m_beta,
+    strip_1m_model,
+    strip_billing_header,
+)
 
 HOP = {
     "connection",
@@ -110,12 +117,24 @@ async def proxy(request: Request) -> Response:
     forward_body, stripped_model = strip_1m_model(body)
     clamp_map = getattr(request.app.state, "clamp_map", {}) or {}
     clamp_fallback = getattr(request.app.state, "clamp_fallback", None)
+    rules = getattr(request.app.state, "request_rules", None) or {}
+    strip_header_models = rules.get("strip_billing_header") or frozenset()
+    try:
+        import json as _j
+        _sent_model = (_j.loads(forward_body) or {}).get("model", "") if forward_body else ""
+    except Exception:
+        _sent_model = ""
+    stripped_header = False
+    if strip_header_models and norm_model_key(_sent_model) in strip_header_models:
+        forward_body, stripped_header = strip_billing_header(forward_body)
     forward_body, clamped = clamp_max_tokens(forward_body, clamp_map, fallback=clamp_fallback)
     try:
         import json as _j
         _b = _j.loads(forward_body) if forward_body else {}
         if stripped_model:
             print(f"[WATCHDOG] Stripped 1M suffix: {stripped_model} -> {_b.get('model')}", flush=True)
+        if stripped_header:
+            print(f"[WATCHDOG] Stripped x-anthropic-billing-header for model={_b.get('model')}", flush=True)
         if clamped is not None:
             print(f"[WATCHDOG] Clamped max_tokens -> {clamped} for model={_b.get('model')}", flush=True)
         print(f"[WATCHDOG] Request: path={request.url.path} model={_b.get('model')} thinking={_b.get('thinking')} max_tokens={_b.get('max_tokens')} body_bytes={len(forward_body)}", flush=True)
@@ -167,6 +186,40 @@ async def proxy(request: Request) -> Response:
     )
 
 
+def load_request_rules(path: str | None) -> dict[str, set[str]]:
+    """Load per-model request rewrites from ``bridge/request_rules.json``.
+
+    Shape: ``{"strip_billing_header": ["codebuddy", "codebuddy-glm", ...]}``.
+    Model names are normalized (``[1m]`` stripped, lower-cased) on both sides so
+    a rule written once covers the bracketed spelling the client actually sends.
+    A missing or malformed file yields ``{}`` — rules are an optimisation for
+    picky gateways, never a precondition for proxying.
+    """
+    import json
+    from pathlib import Path
+
+    candidates = [path] if path else []
+    candidates.append(str(_BRIDGE_DIR / "request_rules.json"))
+    for cand in candidates:
+        if not cand:
+            continue
+        fp = Path(cand)
+        if not fp.is_file():
+            continue
+        try:
+            raw = json.loads(fp.read_text())
+        except Exception:
+            continue
+        if not isinstance(raw, dict):
+            continue
+        out: dict[str, set[str]] = {}
+        for rule, names in raw.items():
+            if isinstance(names, list):
+                out[str(rule)] = {norm_model_key(n) for n in names if isinstance(n, str)}
+        return out
+    return {}
+
+
 def load_clamp_map(path: str | None) -> tuple[dict[str, int], int | None]:
     """Load {model: max_output} from a JSON file. Returns ({}, None) if missing.
 
@@ -204,6 +257,7 @@ def build_app(
     first_byte_s: float = 90.0,
     clamp_map: dict[str, int] | None = None,
     clamp_fallback: int | None = None,
+    request_rules: dict[str, set[str]] | None = None,
 ) -> Starlette:
     methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
     app = Starlette(
@@ -217,6 +271,7 @@ def build_app(
     app.state.first_byte_s = first_byte_s
     app.state.clamp_map = clamp_map or {}
     app.state.clamp_fallback = clamp_fallback
+    app.state.request_rules = request_rules or {}
     app.state.client = httpx.AsyncClient(timeout=None)
     return app
 
@@ -229,6 +284,7 @@ def main() -> None:
     p.add_argument("--idle-seconds", type=float, default=0.0, help="0=never idle-cut (required for long Explore/tool turns)")
     p.add_argument("--first-byte-seconds", type=float, default=90.0)
     p.add_argument("--clamp-map", default=None, help="Path to clamp_map.json (default: bridge/clamp_map.json)")
+    p.add_argument("--request-rules", default=None, help="Path to request_rules.json (default: bridge/request_rules.json)")
     p.add_argument("--no-clamp", action="store_true", help="Disable max_tokens clamping")
     args = p.parse_args()
     import uvicorn
@@ -237,10 +293,16 @@ def main() -> None:
         cmap, cfallback = {}, None
     else:
         cmap, cfallback = load_clamp_map(args.clamp_map)
+    rules = load_request_rules(args.request_rules)
     print(f"[WATCHDOG] max_tokens clamp: {len(cmap)} models, fallback={cfallback}", flush=True)
+    print(
+        "[WATCHDOG] request rules: "
+        + (", ".join(f"{k}={len(v)} models" for k, v in sorted(rules.items())) or "none"),
+        flush=True,
+    )
 
     uvicorn.run(
-        build_app(args.upstream, args.idle_seconds, args.first_byte_seconds, cmap, cfallback),
+        build_app(args.upstream, args.idle_seconds, args.first_byte_seconds, cmap, cfallback, rules),
         host=args.host,
         port=args.port,
         log_level="warning",

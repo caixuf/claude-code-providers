@@ -48,7 +48,9 @@ Usage:
   ccp discover [provider]    Refresh model metadata from provider APIs
   ccp sync                   Sync local profiles with repository templates
   ccp bridge [action]        Manage local bridge: status, restart, start, stop, logs
-  ccp auth [copilot]         Authenticate provider (e.g. GitHub Copilot device flow)
+  ccp auth [copilot|codebuddy]
+                             Authenticate a provider (Copilot device flow, or
+                             import the local CodeBuddy Code login token)
   ccp -h, --help             Show this help message
 
 In-Session Model Hot-Switching:
@@ -62,6 +64,8 @@ Examples:
   ccp cline-deepseek         # Switch to ClinePass Token Plan
   ccp auth copilot           # Authorize GitHub Copilot via device flow
   ccp copilot                # Switch to GitHub Copilot (Claude Sonnet 5.5, Haiku 5.5, Opus 5.5)
+  ccp auth codebuddy         # Import the CodeBuddy Code login token into the bridge
+  ccp codebuddy              # Switch to CodeBuddy (DeepSeek v4.1 Flash / GLM-5.3 / GLM-5.3-Flash)
 
 Directories:
   Profiles:  ~/.claude/providers/*.json
@@ -370,8 +374,28 @@ except Exception as e:
       fi
       return $ret
       ;;
+    codebuddy|cb)
+      echo -e "\033[36m=== CodeBuddy Authentication (import local CLI login) ===\033[0m"
+      local repo_dir py_bin
+      repo_dir=$(ccp_repo_dir)
+      if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/codebuddy_auth.py" ]; then
+        echo -e "\033[31mError: repo checkout not found (need bridge/codebuddy_auth.py).\033[0m" >&2
+        return 1
+      fi
+      py_bin=$(ccp_python)
+      # Import first (no network), then prove the token actually streams.
+      "$py_bin" "$repo_dir/bridge/codebuddy_auth.py" --verify "${@:2}"
+      local ret=$?
+      if [ $ret -eq 0 ]; then
+        echo ""
+        echo -e "\033[32m✔ CodeBuddy credentials ready!\033[0m"
+        echo "Restart bridge:  ccp bridge restart"
+        echo "Switch profile:  ccp codebuddy"
+      fi
+      return $ret
+      ;;
     *)
-      echo "Usage: ccp auth copilot" >&2
+      echo "Usage: ccp auth [copilot|codebuddy]" >&2
       return 1
       ;;
   esac

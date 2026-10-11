@@ -112,6 +112,26 @@ profiles:
       sonnet:  {model: github_copilot/claude-sonnet-5.5}
       haiku:   {model: github_copilot/claude-haiku-5.5}
 
+  # ── CodeBuddy (Tencent coding-copilot subscription) ────────────────────
+  # One entry point onto the CodeBuddy model fleet; the ladder mixes vendors
+  # because no single vendor covers all four tiers well. Every model listed
+  # here is 1M-context, so Claude Code's auto-compact window can stay at 1M
+  # whichever tier is active (compaction itself runs on the haiku tier).
+  #   default/sonnet : DeepSeek v4.1 Flash — free (0 credits), 1M, multimodal
+  #   opus/fable     : GLM-5.3 — strongest tool-call reliability in the fleet
+  #   haiku          : GLM-5.3-Flash — cheap, fast, still 1M
+  # Switch within the provider with `ccp -m codebuddy-glm` etc. (see aliases).
+  codebuddy:
+    provider: codebuddy
+    native: false
+    primary_tier: default
+    tiers:
+      default: {model: deepseek-v4.1-flash}
+      opus:    {model: glm-5.3}
+      fable:   {model: glm-5.3}
+      sonnet:  {model: deepseek-v4.1-flash}
+      haiku:   {model: glm-5.3-flash}
+
 # ── Providers not covered by auto-discovery ────────────────────────────
 # Describes how to render their config entries + model metadata. Keyed by the
 # `provider:` name used in `profiles:` above.
@@ -143,6 +163,28 @@ aliases:
   claude-sonnet-5.5:  {provider: copilot, model: github_copilot/claude-sonnet-5.5, ctx: 1000000}
   claude-opus-5.5:    {provider: copilot, model: github_copilot/claude-opus-5.5, ctx: 1000000}
   claude-haiku-5.5:   {provider: copilot, model: github_copilot/claude-haiku-5.5, ctx: 1000000}
+  # CodeBuddy: one alias per vendor worth hot-switching to via `ccp -m`
+  codebuddy:          {provider: codebuddy, model: deepseek-v4.1-flash, ctx: 1000000}
+  codebuddy-glm:      {provider: codebuddy, model: glm-5.3, ctx: 1000000}
+  codebuddy-fast:     {provider: codebuddy, model: glm-5.3-flash, ctx: 1000000}
+  codebuddy-kimi:     {provider: codebuddy, model: kimi-k3, ctx: 1000000}
+  codebuddy-gpt:      {provider: codebuddy, model: gpt-5.5, ctx: 1000000}
+  codebuddy-gemini:   {provider: codebuddy, model: gemini-3.5-flash, ctx: 1000000}
+  codebuddy-hunyuan:  {provider: codebuddy, model: hy4-preview, ctx: 1000000}
+
+# ── Per-provider request rewrites (bridge/sse_watchdog.py) ─────────────
+# Expanded by `ccp render` into bridge/request_rules.json, which maps each rule
+# onto the concrete model names the client sends. Keep the lists here — they
+# are curation choices, not discovered facts.
+#
+#   strip_billing_header: remove the `x-anthropic-billing-header: ...` system
+#     block Claude Code injects. CodeBuddy's gateway answers 400
+#     {"code":11128,"msg":"Illegal API invocation from an unapproved channel"}
+#     for any request carrying it. Anthropic's own API wants the header, so this
+#     must stay scoped to providers that reject it.
+request_rules:
+  strip_billing_header:
+    - codebuddy
 
 # ── Models that get individual LiteLLM entries (so `ccp -m <name>` works) ─
 # Everything else is still reachable via the provider's `*`-less explicit
@@ -158,3 +200,8 @@ expose_models:
   - Qwen/Qwen3.8-Max
   - xai/grok-4.7
   - google/gemini-3.8-flash
+  # CodeBuddy (unaliased picks)
+  - gpt-5.6-sol
+  - gpt-5.6-luna
+  - kimi-k2.6
+  - hy3
