@@ -159,8 +159,8 @@ def test_request_rules_cover_every_reachable_codebuddy_name():
     from sse_finalize import norm_model_key
 
     models, profiles, emitted, rules = _emitted_and_rules()
-    assert "strip_billing_header" in rules
-    listed = {norm_model_key(n) for n in rules["strip_billing_header"]}
+    assert "sanitize_channel" in rules
+    listed = {norm_model_key(n) for n in rules["sanitize_channel"]}
 
     cb_names = emitted.get("codebuddy") or set()
     assert cb_names, "no codebuddy entries were emitted"
@@ -182,7 +182,7 @@ def test_request_rules_exclude_other_providers():
     for ids that two providers happen to share (cmdc and codebuddy both list
     gpt-5.3-codex, but only one of them wins the LiteLLM entry)."""
     models, profiles, emitted, rules = _emitted_and_rules()
-    listed = set(rules["strip_billing_header"])
+    listed = set(rules["sanitize_channel"])
     for pname, names in emitted.items():
         if pname == "codebuddy":
             continue

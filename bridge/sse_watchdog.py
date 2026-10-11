@@ -27,9 +27,9 @@ from sse_finalize import (  # noqa: E402
     SseCutState,
     clamp_max_tokens,
     norm_model_key,
+    sanitize_channel_markers,
     strip_1m_beta,
     strip_1m_model,
-    strip_billing_header,
 )
 
 HOP = {
@@ -118,23 +118,23 @@ async def proxy(request: Request) -> Response:
     clamp_map = getattr(request.app.state, "clamp_map", {}) or {}
     clamp_fallback = getattr(request.app.state, "clamp_fallback", None)
     rules = getattr(request.app.state, "request_rules", None) or {}
-    strip_header_models = rules.get("strip_billing_header") or frozenset()
+    sanitize_models = rules.get("sanitize_channel") or frozenset()
     try:
         import json as _j
         _sent_model = (_j.loads(forward_body) or {}).get("model", "") if forward_body else ""
     except Exception:
         _sent_model = ""
-    stripped_header = False
-    if strip_header_models and norm_model_key(_sent_model) in strip_header_models:
-        forward_body, stripped_header = strip_billing_header(forward_body)
+    channel_rewrites: list[str] = []
+    if sanitize_models and norm_model_key(_sent_model) in sanitize_models:
+        forward_body, channel_rewrites = sanitize_channel_markers(forward_body)
     forward_body, clamped = clamp_max_tokens(forward_body, clamp_map, fallback=clamp_fallback)
     try:
         import json as _j
         _b = _j.loads(forward_body) if forward_body else {}
         if stripped_model:
             print(f"[WATCHDOG] Stripped 1M suffix: {stripped_model} -> {_b.get('model')}", flush=True)
-        if stripped_header:
-            print(f"[WATCHDOG] Stripped x-anthropic-billing-header for model={_b.get('model')}", flush=True)
+        if channel_rewrites:
+            print(f"[WATCHDOG] Channel rewrites ({', '.join(channel_rewrites)}) for model={_b.get('model')}", flush=True)
         if clamped is not None:
             print(f"[WATCHDOG] Clamped max_tokens -> {clamped} for model={_b.get('model')}", flush=True)
         print(f"[WATCHDOG] Request: path={request.url.path} model={_b.get('model')} thinking={_b.get('thinking')} max_tokens={_b.get('max_tokens')} body_bytes={len(forward_body)}", flush=True)
@@ -189,7 +189,7 @@ async def proxy(request: Request) -> Response:
 def load_request_rules(path: str | None) -> dict[str, set[str]]:
     """Load per-model request rewrites from ``bridge/request_rules.json``.
 
-    Shape: ``{"strip_billing_header": ["codebuddy", "codebuddy-glm", ...]}``.
+    Shape: ``{"sanitize_channel": ["codebuddy", "codebuddy-glm", ...]}``.
     Model names are normalized (``[1m]`` stripped, lower-cased) on both sides so
     a rule written once covers the bracketed spelling the client actually sends.
     A missing or malformed file yields ``{}`` — rules are an optimisation for

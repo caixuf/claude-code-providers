@@ -124,18 +124,48 @@ def norm_model_key(name: str) -> str:
 _norm_model = norm_model_key
 
 
-# Claude Code injects a client-attribution block as the first system block:
+# Tencent's CodeBuddy / WorkBuddy gateway runs a *channel check* on a chat and
+# answers ``400 {"code":11128,"msg":"Illegal API invocation from an unapproved
+# channel"}`` — not an auth failure, and the whole request dies. It rejects two
+# openings:
 #
-#   x-anthropic-billing-header: cc_version=2.1.287.95e; cc_entrypoint=sdk-cli;
+#   1. an attribution block Claude Code puts first in its system prompt
+#        x-anthropic-billing-header: cc_version=2.1.287.95e; cc_entrypoint=sdk-cli;
+#   2. Claude Code's own identity line, when the first system message *opens*
+#      with it:
+#        You are Claude Code, Anthropic's official CLI for Claude.
+#        You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.
 #
-# Tencent's CodeBuddy gateway rejects any request carrying that marker with
-# ``400 {"code":11128,"msg":"Illegal API invocation from an unapproved channel"}``
-# — it is a channel check, not an auth failure, and the whole request dies
-# (verified against the live gateway: the identical 71 KB tool-calling payload
-# passes once this one line is removed). Anthropic's own API needs the header,
-# so the rewrite is applied per-model via ``bridge/request_rules.json`` and
-# never to the native Anthropic profiles.
+# Both rewrites are applied per-model via ``bridge/request_rules.json`` and never
+# to the native Anthropic profiles, which expect the header.
 BILLING_HEADER_MARKER = "x-anthropic-billing-header:"
+
+# Claude Code 2.1.287 picks one of three identity lines (see yqn() in the
+# bundle):
+#   interactive                -> "You are Claude Code, Anthropic's official CLI for Claude."
+#   -p, plain                  -> "You are a Claude agent, built on Anthropic's Claude Agent SDK."
+#   -p, --append-system-prompt -> "… for Claude, running within the Claude Agent SDK."
+# The interactive TUI — how this is normally used — and `--append-system-prompt`
+# both send a refused line, so the check has to be neutralised, not just the
+# billing block removed.
+#
+# The measured boundary (magpie's issue #232, re-confirmed here):
+#   * only the very start of the first system message is inspected, and
+#     case-insensitively;
+#   * ANY single leading character defeats it — a letter, "\n", a space, a tab;
+#   * the same words on a later line, or in a second system message, pass;
+#   * the identity must run as far as "…for Claude" to be refused at all.
+# So we prepend one stable newline instead of rewriting the line: the identity
+# stays visible to the model (it is what makes Claude-Code-style tool use work),
+# and a constant prefix cannot disturb the upstream prompt cache.
+CLAUDE_IDENTITY_OPENINGS = ("you are claude code",)
+CHANNEL_SAFE_PREFIX = "\n"
+
+# Used only when stripping leaves a request with no system prompt at all, where
+# the gateway's other check ("first message is not system prompt") would fire.
+DEFAULT_SYSTEM_PROMPT = (
+    "You are an interactive agent that helps users with software engineering tasks."
+)
 
 
 def _strip_marker_lines(text: str) -> tuple[str, bool]:
@@ -152,6 +182,26 @@ def _strip_marker_lines(text: str) -> tuple[str, bool]:
     if text.endswith("\n") and not out.endswith("\n"):
         out += "\n"
     return out, out != text
+
+
+def _opens_with_identity(text: str) -> bool:
+    """True when ``text`` would trip the gateway's identity check."""
+    head = text.lstrip("\ufeff").lower()
+    # Only the very first characters count; a leading whitespace already passes,
+    # but normalise it away so the check is about the words, not the padding.
+    head = head.lstrip()
+    return head.startswith(CLAUDE_IDENTITY_OPENINGS)
+
+
+def _first_text_block(content):
+    """The first text-bearing piece of an Anthropic ``system``/``content`` value."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        for blk in content:
+            if isinstance(blk, dict) and isinstance(blk.get("text"), str):
+                return blk["text"]
+    return None
 
 
 def _clean_content(content):
@@ -181,36 +231,96 @@ def _clean_content(content):
     return blocks, changed
 
 
-def strip_billing_header(body: bytes) -> tuple[bytes, bool]:
-    """Remove Claude Code's ``x-anthropic-billing-header`` marker from a request.
+def _neutralize_identity(content):
+    """Return ``(content, changed)`` with a refused opening made harmless.
 
-    Returns ``(body, changed)``. The marker lives in the Anthropic ``system``
-    field (as a dedicated first text block) but this walks message contents too,
-    so a variant that inlines it is caught as well. Anything unparseable is
-    returned untouched — a rewrite must never be the reason a request fails.
+    Prepends one stable newline to the first text-bearing piece of ``system``
+    when it opens with Claude Code's identity. Content is otherwise untouched.
     """
-    if not body or b"x-anthropic-billing-header" not in body.lower():
-        return body, False
+    text = _first_text_block(content)
+    if text is None or not _opens_with_identity(text):
+        return content, False
+    if isinstance(content, str):
+        return CHANNEL_SAFE_PREFIX + content, True
+    blocks = []
+    for blk in content:
+        if (
+            isinstance(blk, dict)
+            and isinstance(blk.get("text"), str)
+            and _opens_with_identity(blk["text"])
+        ):
+            blk = dict(blk, text=CHANNEL_SAFE_PREFIX + blk["text"])
+        blocks.append(blk)
+    return blocks, True
+
+
+def sanitize_channel_markers(body: bytes) -> tuple[bytes, list[str]]:
+    """Make an Anthropic request acceptable to a gateway with a channel check.
+
+    Returns ``(body, applied)`` where ``applied`` names the rewrites that fired
+    (empty list = the body is unchanged). Two things are removed/neutralised:
+
+    ``billing-header``
+        Claude Code's ``x-anthropic-billing-header`` block, dropped from
+        ``system`` — and from message contents, in case a variant inlines it.
+    ``claude-identity``
+        The Claude Code identity line, neutralised with a leading newline when
+        it would open the first system message.
+
+    Anything unparseable is returned untouched: a rewrite must never be the
+    reason a request fails. The rewrites are scoped per model by
+    ``bridge/request_rules.json``, so Anthropic-native profiles still get the
+    original bytes.
+    """
+    marker_present = b"x-anthropic-billing-header" in body.lower()
+    identity_present = any(
+        o.encode() in body.lower() for o in CLAUDE_IDENTITY_OPENINGS
+    )
+    if not body or not (marker_present or identity_present):
+        return body, []
     try:
         import json as _j
 
         doc = _j.loads(body)
     except Exception:
-        return body, False
+        return body, []
     if not isinstance(doc, dict):
-        return body, False
+        return body, []
 
-    changed = False
-    if "system" in doc:
+    applied: list[str] = []
+    if marker_present and "system" in doc:
         doc["system"], hit = _clean_content(doc["system"])
-        changed = changed or hit
-    for msg in doc.get("messages") or []:
-        if isinstance(msg, dict) and "content" in msg:
-            msg["content"], hit = _clean_content(msg["content"])
-            changed = changed or hit
-    if not changed:
-        return body, False
-    return _j.dumps(doc).encode("utf-8"), True
+        if hit:
+            applied.append("billing-header")
+    if marker_present:
+        for msg in doc.get("messages") or []:
+            if isinstance(msg, dict) and "content" in msg:
+                msg["content"], hit = _clean_content(msg["content"])
+                if hit and "billing-header" not in applied:
+                    applied.append("billing-header")
+
+    if identity_present:
+        if "system" not in doc:
+            # Without a system prompt the gateway's other check fires instead
+            # ("first message is not system prompt"), so supply a neutral one.
+            doc["system"] = [{"type": "text", "text": DEFAULT_SYSTEM_PROMPT}]
+            applied.append("claude-identity")
+        else:
+            doc["system"], hit = _neutralize_identity(doc["system"])
+            if hit:
+                applied.append("claude-identity")
+
+    if not applied:
+        return body, []
+    if not doc.get("system"):
+        doc["system"] = [{"type": "text", "text": DEFAULT_SYSTEM_PROMPT}]
+    return _j.dumps(doc).encode("utf-8"), applied
+
+
+# Previous name, kept so out-of-tree callers do not break.
+def strip_billing_header(body: bytes) -> tuple[bytes, bool]:
+    out, applied = sanitize_channel_markers(body)
+    return out, bool(applied)
 
 
 def resolve_max_output(

@@ -146,16 +146,22 @@ def test_strip_1m_beta():
     assert strip_1m_beta("") == ""
 
 
-# ── billing-header sanitisation (CodeBuddy channel check) ──────────────────
+# ── channel-check sanitisation (CodeBuddy identity gate) ──────────────────
 
 BILLING = "x-anthropic-billing-header: cc_version=2.1.287.95e; cc_entrypoint=sdk-cli;"
+# The three identity lines Claude Code 2.1.287 can send, and which mode sends each.
+IDENTITY_TUI = "You are Claude Code, Anthropic's official CLI for Claude."
+IDENTITY_APPEND = (
+    "You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK."
+)
+IDENTITY_SDK = "You are a Claude agent, built on Anthropic's Claude Agent SDK."
 
 
-def test_strip_billing_header_from_system_blocks():
+def test_sanitize_channel_removes_billing_header_block():
     """The real Claude Code shape: marker in its own first system text block."""
     import json
 
-    from sse_finalize import strip_billing_header
+    from sse_finalize import sanitize_channel_markers
 
     body = json.dumps(
         {
@@ -167,17 +173,17 @@ def test_strip_billing_header_from_system_blocks():
             "messages": [{"role": "user", "content": "hi"}],
         }
     ).encode()
-    out, changed = strip_billing_header(body)
-    assert changed is True
+    out, applied = sanitize_channel_markers(body)
+    assert applied == ["billing-header"]
     doc = json.loads(out)
     # the marker-only block is dropped entirely, the real prompt survives
     assert doc["system"] == [{"type": "text", "text": "You are a helpful coding agent."}]
 
 
-def test_strip_billing_header_keeps_other_text_in_shared_block():
+def test_sanitize_channel_keeps_other_text_in_shared_block():
     import json
 
-    from sse_finalize import strip_billing_header
+    from sse_finalize import sanitize_channel_markers
 
     body = json.dumps(
         {
@@ -185,15 +191,15 @@ def test_strip_billing_header_keeps_other_text_in_shared_block():
             "messages": [],
         }
     ).encode()
-    out, changed = strip_billing_header(body)
-    assert changed is True
+    out, applied = sanitize_channel_markers(body)
+    assert applied == ["billing-header"]
     assert json.loads(out)["system"] == [{"type": "text", "text": "Real instructions."}]
 
 
-def test_strip_billing_header_handles_string_system_and_messages():
+def test_sanitize_channel_handles_string_system_and_messages():
     import json
 
-    from sse_finalize import strip_billing_header
+    from sse_finalize import sanitize_channel_markers
 
     body = json.dumps(
         {
@@ -201,24 +207,106 @@ def test_strip_billing_header_handles_string_system_and_messages():
             "messages": [{"role": "user", "content": [{"type": "text", "text": BILLING}]}],
         }
     ).encode()
-    out, changed = strip_billing_header(body)
-    assert changed is True
+    out, applied = sanitize_channel_markers(body)
+    assert applied == ["billing-header"]
     doc = json.loads(out)
     assert doc["system"] == "Line one.\nLine two."
     assert doc["messages"][0]["content"] == []
 
 
-def test_strip_billing_header_noop_otherwise():
-    from sse_finalize import strip_billing_header
+def test_sanitize_channel_neutralises_the_identity_the_tui_sends():
+    """The regression this file exists for.
 
-    # marker absent -> untouched, and cheap early-out keeps other providers intact
+    Stripping the billing block PROMOTES the identity line to the position the
+    gateway inspects, so the interactive TUI (identity line ``Jw``) and
+    ``-p --append-system-prompt`` (``j0``) were still refused with 11128. The
+    opening now gets one stable leading newline; the words stay so the model
+    still knows it is Claude Code.
+    """
+    import json
+
+    from sse_finalize import sanitize_channel_markers
+
+    for identity in (IDENTITY_TUI, IDENTITY_APPEND):
+        body = json.dumps(
+            {
+                "system": [
+                    {"type": "text", "text": BILLING},
+                    {"type": "text", "text": identity},
+                    {"type": "text", "text": "\nlong prompt..."},
+                ],
+                "messages": [],
+            }
+        ).encode()
+        out, applied = sanitize_channel_markers(body)
+        assert set(applied) == {"billing-header", "claude-identity"}, identity
+        sysmsg = json.loads(out)["system"]
+        # billing block gone, identity still there but no longer at the opening
+        assert sysmsg[0]["text"].startswith("\n")
+        assert identity in sysmsg[0]["text"]
+
+
+def test_sanitize_channel_identity_without_billing_block():
+    """`--append-system-prompt` on a build without the billing block."""
+    import json
+
+    from sse_finalize import sanitize_channel_markers
+
+    body = json.dumps({"system": [{"type": "text", "text": IDENTITY_APPEND}], "messages": []}).encode()
+    out, applied = sanitize_channel_markers(body)
+    assert applied == ["claude-identity"]
+    assert json.loads(out)["system"][0]["text"] == "\n" + IDENTITY_APPEND
+
+
+def test_sanitize_channel_covers_string_system_identity():
+    import json
+
+    from sse_finalize import sanitize_channel_markers
+
+    body = json.dumps({"system": IDENTITY_TUI + "\nmore", "messages": []}).encode()
+    out, applied = sanitize_channel_markers(body)
+    assert applied == ["claude-identity"]
+    assert json.loads(out)["system"].startswith("\n")
+
+
+def test_sanitize_channel_leaves_the_sdk_identity_alone():
+    """`claude -p` (no --append-system-prompt) sends `z0`, which the gateway
+    accepts. Adding a newline there would be a needless prompt mutation."""
+    import json
+
+    from sse_finalize import sanitize_channel_markers
+
+    body = json.dumps({"system": [{"type": "text", "text": IDENTITY_SDK}], "messages": []}).encode()
+    assert sanitize_channel_markers(body) == (body, [])
+
+
+def test_sanitize_channel_supplies_a_system_prompt_when_stripping_empties_it():
+    """The gateway has a second check, "first message is not system prompt"."""
+    import json
+
+    from sse_finalize import DEFAULT_SYSTEM_PROMPT, sanitize_channel_markers
+
+    body = json.dumps({"system": [{"type": "text", "text": BILLING}], "messages": []}).encode()
+    out, applied = sanitize_channel_markers(body)
+    assert applied == ["billing-header"]
+    sysmsg = json.loads(out)["system"]
+    assert sysmsg and sysmsg[0]["text"] == DEFAULT_SYSTEM_PROMPT
+
+
+def test_sanitize_channel_noop_otherwise():
+    from sse_finalize import sanitize_channel_markers
+
+    # nothing to do -> untouched, and the cheap early-out keeps other providers intact
     clean = b'{"system":[{"type":"text","text":"hello"}],"messages":[]}'
-    assert strip_billing_header(clean) == (clean, False)
-    assert strip_billing_header(b"") == (b"", False)
-    assert strip_billing_header(b"not json") == (b"not json", False)
+    assert sanitize_channel_markers(clean) == (clean, [])
+    assert sanitize_channel_markers(b"") == (b"", [])
+    assert sanitize_channel_markers(b"not json") == (b"not json", [])
     # marker present but only in a field we do not walk -> still a no-op
     stray = b'{"system":"ok","metadata":{"x":"x-anthropic-billing-header:"}}'
-    assert strip_billing_header(stray) == (stray, False)
+    assert sanitize_channel_markers(stray) == (stray, [])
+    # a *later* line may keep the identity; only the opening is inspected
+    later = b'{"system":[{"type":"text","text":"context\\nYou are Claude Code, Anthropic\'s official CLI for Claude."}],"messages":[]}'
+    assert sanitize_channel_markers(later) == (later, [])
 
 
 def test_norm_model_key_matches_rules_to_sent_spelling():

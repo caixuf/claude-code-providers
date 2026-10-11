@@ -177,13 +177,17 @@ aliases:
 # onto the concrete model names the client sends. Keep the lists here — they
 # are curation choices, not discovered facts.
 #
-#   strip_billing_header: remove the `x-anthropic-billing-header: ...` system
-#     block Claude Code injects. CodeBuddy's gateway answers 400
+#   sanitize_channel: satisfy the provider's client-identity check before
+#     forwarding. CodeBuddy/WorkBuddy answer 400
 #     {"code":11128,"msg":"Illegal API invocation from an unapproved channel"}
-#     for any request carrying it. Anthropic's own API wants the header, so this
-#     must stay scoped to providers that reject it.
+#     for two things Claude Code always sends: the `x-anthropic-billing-header`
+#     system block, and Claude Code's own identity line when it opens the first
+#     system message (the interactive TUI always does). One of the two has to be
+#     removed and the other neutralised with a leading newline. Anthropic's own
+#     API wants the header untouched, so this stays scoped to providers whose
+#     gateway inspects it.
 request_rules:
-  strip_billing_header:
+  sanitize_channel:
     - codebuddy
 
 # ── Models that get individual LiteLLM entries (so `ccp -m <name>` works) ─
