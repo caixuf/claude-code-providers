@@ -379,9 +379,16 @@ completion to prove the token really works. Override the search with
 ```bash
 ccp discover codebuddy   # pull the model catalogue your plan exposes
 ccp render               # regenerate config + profiles + clamp/rule maps
-ccp bridge restart       # load CODEBUDDY_API_KEY
+ccp bridge restart       # deploy the rendered config + load CODEBUDDY_API_KEY
 ccp codebuddy            # switch
 ```
+
+`ccp bridge restart` (and `start`) first deploy `bridge/config.generated.yaml`
+to `~/.config/litellm/config.yaml`, backing up the previous file — so a `ccp
+render` is always followed by a service that actually serves it. Use
+`ccp bridge deploy` to do just the copy. A hand-edited config that still holds
+literal `api_key:` values is never overwritten; run `bash bridge/setup_bridge.sh`
+once to migrate those into `proxy.env`.
 
 ### 3. Why CodeBuddy needs more than a base URL
 

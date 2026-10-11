@@ -47,7 +47,8 @@ Usage:
   ccp render                 Regenerate config + profiles from the registry
   ccp discover [provider]    Refresh model metadata from provider APIs
   ccp sync                   Sync local profiles with repository templates
-  ccp bridge [action]        Manage local bridge: status, restart, start, stop, logs
+  ccp bridge [action]        Manage local bridge: status, restart, start, stop,
+                             deploy (push the rendered config to the service), logs
   ccp auth [copilot|codebuddy]
                              Authenticate a provider (Copilot device flow, or
                              import the local CodeBuddy Code login token)
@@ -278,6 +279,44 @@ ensure_bridge_running() {
   fi
 }
 
+# Copy the freshly rendered bridge config into service, because `ccp render`
+# only writes bridge/config.generated.yaml. Without this step `ccp render` +
+# `ccp bridge restart` silently kept serving the previous model list — a new
+# provider (or a corrected clamp map) looked like it had no effect.
+# setup_bridge.sh performs the same copy on install.
+deploy_bridge_config() {
+  local repo_dir src dst
+  repo_dir=$(ccp_repo_dir)
+  src="$repo_dir/bridge/config.generated.yaml"
+  dst="$HOME/.config/litellm/config.yaml"
+  [ -n "$repo_dir" ] && [ -f "$src" ] || return 0
+
+  # The watchdog reads bridge/clamp_map.json and bridge/request_rules.json
+  # straight out of the checkout, so only the LiteLLM config needs deploying.
+  if [ -f "$dst" ] && cmp -s "$src" "$dst"; then
+    return 0
+  fi
+
+  if [ -f "$dst" ]; then
+    # A hand-edited config.yaml can hold literal api_key values, which
+    # setup_bridge.sh migrates into proxy.env. Never drop those on the floor.
+    if grep -E '^[[:space:]]*api_key:' "$dst" 2>/dev/null | grep -qv 'os.environ/'; then
+      echo -e "  \033[33m⚠ $dst contains literal api_key values — not overwriting.\033[0m"
+      echo "    Run 'bash bridge/setup_bridge.sh' to migrate them into proxy.env first."
+      return 0
+    fi
+    cp "$dst" "$dst.bak.$(date +%Y%m%d-%H%M%S)"
+  fi
+
+  mkdir -p "$(dirname "$dst")"
+  if cp "$src" "$dst"; then
+    echo -e "  \033[32m✔ Deployed bridge config -> $dst\033[0m"
+  else
+    echo -e "  \033[31m! Failed to deploy bridge config to $dst\033[0m" >&2
+    return 1
+  fi
+}
+
 manage_bridge() {
   local action="${1:-status}"
   case "$action" in
@@ -301,6 +340,7 @@ manage_bridge() {
       ;;
     restart)
       echo "Restarting bridge services..."
+      deploy_bridge_config
       sync_proxy_env
       systemctl --user restart litellm-cmdc.service 2>/dev/null || true
       sleep 1.5
@@ -310,9 +350,14 @@ manage_bridge() {
       ;;
     start)
       echo "Starting bridge services..."
+      deploy_bridge_config
       sync_proxy_env
       systemctl --user start litellm-cmdc.service ccp-sse-watchdog.service 2>/dev/null || true
       sleep 1
+      manage_bridge status
+      ;;
+    deploy)
+      deploy_bridge_config
       manage_bridge status
       ;;
     stop)
@@ -324,7 +369,7 @@ manage_bridge() {
       journalctl --user -u ccp-sse-watchdog.service -u litellm-cmdc.service -f -n 50
       ;;
     *)
-      echo "Usage: ccp bridge [status|restart|start|stop|logs]"
+      echo "Usage: ccp bridge [status|restart|start|stop|deploy|logs]"
       ;;
   esac
 }
