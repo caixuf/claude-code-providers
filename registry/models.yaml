@@ -4141,3 +4141,85 @@ providers:
         endpoint_kind: anthropic
         aliases: []
         tiers: []
+  - name: opendesign
+    api_base: https://amr-link.open-design.ai
+    endpoint_kind: anthropic
+    auth_env: OPENDESIGN_API_KEY
+    models:
+      - name: claude-haiku-5.5
+        ctx: 1000000
+        max_output: 132000
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: deepseek-v4-flash
+        ctx: 1048000
+        max_output: 232000
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: deepseek-v4-flash-vision-exp
+        ctx: 1048000
+        max_output: 232000
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: deepseek-v4-pro
+        ctx: 1048000
+        max_output: 232000
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: deepseek-v4.1-flash
+        ctx: 1048000
+        max_output: 232000
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: glm-5.3-flash
+        ctx: 1048000
+        max_output: 232000
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: glm-5.3-flashx
+        ctx: 1000000
+        max_output: 232000
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: gpt-6-luna
+        ctx: 1050000
+        max_output: 304000
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: kimi-k2.7-code
+        ctx: 262000
+        max_output: 262000
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: mimo-v2.6-flash
+        ctx: 1048000
+        max_output: 232000
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: mimo-v2.6-pro
+        ctx: 1048000
+        max_output: 232000
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []

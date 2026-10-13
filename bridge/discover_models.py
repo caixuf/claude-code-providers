@@ -115,6 +115,19 @@ PROVIDERS = {
         "profile_file": "~/.claude/providers/minimax.json",
         "max_output_default": None,
     },
+    # OpenDesign (amr-link.open-design.ai) — an Anthropic-native aggregator, so
+    # it needs no bridge at all. Its /v1/models is unusually good: every entry
+    # carries metadata.context_limit (input window), metadata.context_budget
+    # (output cap) and architecture.input_modalities, so nothing has to be
+    # guessed or cross-checked against LiteLLM's cost map.
+    "opendesign": {
+        "models_url": "https://amr-link.open-design.ai/v1/models",
+        "api_base": "https://amr-link.open-design.ai",
+        "endpoint_kind": "anthropic",
+        "auth_env": "OPENDESIGN_API_KEY",
+        "profile_file": "~/.claude/providers/opendesign.json",
+        "max_output_default": None,
+    },
 }
 
 
@@ -308,6 +321,28 @@ def norm_codebuddy(entry: dict, provider: dict, cmap: dict, idx: dict | None = N
     }
 
 
+def norm_opendesign(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
+    """OpenDesign exposes everything the registry needs inside the model entry.
+
+    ``metadata.context_limit`` is the input window, ``metadata.context_budget``
+    the output cap (verified by probe: asking for more than the budget is
+    rejected), and ``architecture.input_modalities`` lists image/audio/video.
+    Because the vendor states these itself there is no cost-map fallback here —
+    an absent field stays absent instead of being filled with someone else's
+    number.
+    """
+    meta = entry.get("metadata") or {}
+    arch = entry.get("architecture") or {}
+    mods = arch.get("input_modalities") or []
+    return {
+        "name": entry.get("id", ""),
+        "ctx": meta.get("context_limit"),
+        "max_output": meta.get("context_budget"),
+        "vision": "image" in mods if mods else None,
+        "endpoint_kind": "anthropic",
+    }
+
+
 def _guess_vision(mid: str) -> bool | None:
     m = mid.lower()
     if any(w in m for w in ("vision", "-vl", "omni", "gemini", "gpt-4o", "gpt-5", "claude-", "grok")):
@@ -321,6 +356,7 @@ NORMALIZERS = {
     "codebuddy": norm_codebuddy,
     "deepseek": norm_deepseek,
     "minimax": norm_generic,
+    "opendesign": norm_opendesign,
 }
 
 # Speed-tier variants that share every fact with their base model. Neither the

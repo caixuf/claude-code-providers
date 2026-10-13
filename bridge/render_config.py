@@ -493,8 +493,24 @@ def render_profile(
     alias_idx = alias_idx or {}
     profiles_doc = profiles_doc or {}
 
+    # A native profile talks to the provider directly: there is no bridge to
+    # translate the name it sends, so it must send the UPSTREAM model id and
+    # never the alias or the `[1m]` suffix. Both are ccp inventions that exist
+    # only because the watchdog strips them on the bridged path — a native
+    # endpoint answers `model "opendesign[1m]" not found` (verified against
+    # OpenDesign and the same for any strict Anthropic endpoint).
+    # deepseek/minimax only appeared to work because their tiers happen to use
+    # ids with no alias; those profiles were silently one rename away from
+    # breaking.
+    native = spec.get("native", False)
+
     def claude_name(mname: str) -> str:
-        """Prefer the friendly alias over the raw upstream id."""
+        """Prefer the friendly alias over the raw upstream id.
+
+        Bridged only: a native endpoint has no idea what an alias is.
+        """
+        if native:
+            return mname
         a = alias_idx.get((pname, mname))
         return a if a else mname
 
@@ -514,7 +530,12 @@ def render_profile(
             meta = synth_meta(profiles_doc, pname, mname)
         display = claude_name(mname)
         ctx = (meta or {}).get("ctx") if meta else None
-        resolved[tier] = {"display": display, "ctx": ctx, "bracketed": (ctx or 0) >= 1_000_000}
+        resolved[tier] = {
+            "display": display,
+            "ctx": ctx,
+            # the bracketed spelling is a bridged-path convention only
+            "bracketed": (not native) and (ctx or 0) >= 1_000_000,
+        }
 
     primary = spec.get("primary_tier", "default")
     pctx = resolved.get(primary, {}).get("ctx") or 200000
@@ -526,7 +547,6 @@ def render_profile(
             return resolved.get("default", {}).get("display", "")
         return r["display"] + ("[1m]" if r["bracketed"] else "")
 
-    native = spec.get("native", False)
     auth = "sk-cmdc-litellm-local" if not native else "YOUR_" + spec["provider"].split("-")[0].upper() + "_API_KEY"
     env = {
         "ANTHROPIC_AUTH_TOKEN": auth,

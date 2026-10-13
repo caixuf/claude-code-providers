@@ -300,6 +300,78 @@ def test_unresolvable_group_member_is_reported_not_emitted(capsys):
     assert "no-such-model-xyz" in capsys.readouterr().err
 
 
+# ── native profiles must send the upstream id, unadorned ──────────────────
+# A native profile talks to the provider directly. There is no watchdog in that
+# path, so the two conventions the watchdog exists to undo — the friendly alias
+# and the `[1m]` marker — would reach the endpoint intact.
+# OpenDesign answers `model "opendesign[1m]" not found` for exactly that reason.
+
+
+def test_native_profile_sends_the_upstream_model_id_not_the_alias():
+    doc, profiles = _load()
+    models, providers = render_config.index_models(doc)
+    # opendesign has an alias whose name differs from the upstream id
+    assert profiles["aliases"]["opendesign"]["model"] == "deepseek-v4.1-flash"
+    rendered = render_config.render_profile(
+        "opendesign",
+        profiles["profiles"]["opendesign"],
+        models,
+        providers,
+        render_config._alias_index(profiles),
+        profiles,
+    )
+    env = json.loads(rendered)["env"]
+    assert env["ANTHROPIC_BASE_URL"] == "https://amr-link.open-design.ai"
+    for key in ("ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"):
+        assert "opendesign" not in env[key], f"{key} leaks the ccp alias upstream: {env[key]}"
+
+
+def test_native_profile_never_carries_the_1m_marker():
+    """`[1m]` is stripped by the watchdog on the bridged path; a native endpoint
+    has no watchdog, and a strict one rejects the suffixed id outright."""
+    doc, profiles = _load()
+    models, providers = render_config.index_models(doc)
+    alias_idx = render_config._alias_index(profiles)
+    for name, spec in profiles["profiles"].items():
+        if not spec.get("native"):
+            continue
+        env = json.loads(
+            render_config.render_profile(name, spec, models, providers, alias_idx, profiles)
+        )["env"]
+        for key, value in env.items():
+            if key.endswith("MODEL") or key == "ANTHROPIC_MODEL":
+                assert "[1m]" not in value, f"{name}.{key} carries [1m]: {value}"
+
+
+def test_bridged_profiles_still_use_alias_and_1m_marker():
+    """The fix must not leak into the bridged path, where both conventions are
+    required: the alias is the LiteLLM model_name and the marker is stripped by
+    the watchdog."""
+    doc, profiles = _load()
+    models, providers = render_config.index_models(doc)
+    alias_idx = render_config._alias_index(profiles)
+    env = json.loads(
+        render_config.render_profile(
+            "codebuddy", profiles["profiles"]["codebuddy"], models, providers, alias_idx, profiles
+        )
+    )["env"]
+    assert env["ANTHROPIC_MODEL"] == "codebuddy[1m]"
+    assert env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:4000"
+
+
+def test_opendesign_is_registered_and_discovered():
+    """The provider must declare itself discoverable and native, and its tiers
+    must resolve to ids the catalogue actually lists."""
+    doc, profiles = _load()
+    models, _ = render_config.index_models(doc)
+    assert profiles["profiles"]["opendesign"]["native"] is True
+    known = {m for (p, m) in models if p == "opendesign"}
+    assert known, "opendesign models missing from registry/models.yaml"
+    for tier, tspec in profiles["profiles"]["opendesign"]["tiers"].items():
+        assert tspec["model"] in known, f"tier {tier} -> {tspec['model']} not in the catalogue"
+
+
+
 # ── CodeBuddy wiring ──────────────────────────────────────────────────────
 # These pin the three things that are invisible in the YAML but decide whether
 # a CodeBuddy request reaches the gateway at all.

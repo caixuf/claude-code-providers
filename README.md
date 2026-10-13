@@ -168,6 +168,7 @@ Pre-configured templates in `providers/`:
 - **`cmdc-deepseek-pro.json`**: CommandCode DeepSeek v4 Pro (hybrid-attention long-context reasoning) via local bridge
 - **`cmdc-deepseek.json`**: CommandCode DeepSeek v4.1 Flash via local bridge
 - **`cline-deepseek.json`**: ClinePass Subscription DeepSeek via local bridge
+- **`opendesign.json`**: OpenDesign (`amr-link.open-design.ai`) — Anthropic-native aggregator, **no bridge**
 - **`minimax.json`**: MiniMax M3 (`api.minimaxi.com/anthropic`)
 - **`deepseek.json`**: Official DeepSeek Anthropic API (`api.deepseek.com/anthropic`)
 
@@ -432,6 +433,53 @@ few ids the gateway routes but the INTL catalogue omits (notably
 The CN deployment (`copilot.tencent.com`) works the same way; change
 `models_url`/`api_base` in `bridge/discover_models.py` if your account lives
 there.
+
+---
+
+## 🎨 Using OpenDesign with Claude Code
+
+[OpenDesign](https://amr-link.open-design.ai) is an **Anthropic-native** aggregator:
+it already speaks `/v1/messages`, so it needs **no bridge and no rewrites** — the
+profile points straight at it. It is a credit reseller (a small top-up buys a
+much larger amount of list-price usage), which is why its ladder is built from
+the vendor's own `cost` / `capability` metadata rather than list price.
+
+```bash
+# 1. Add the key to the shared secrets file
+python3 - <<'PY'
+import sys; sys.path.insert(0, "bridge"); import codebuddy_auth as cb
+cb.write_env_value(__import__("pathlib").Path.home()/".config/litellm/proxy.env",
+                   "sk-amr-…", key="OPENDESIGN_API_KEY")
+PY
+
+# 2. Discover its catalogue, render, sync, switch
+ccp discover opendesign
+ccp render && ccp sync
+ccp opendesign
+```
+
+The upstream id goes into the live profile — the template keeps
+`YOUR_OPENDESIGN_API_KEY`, so the key never reaches the repository.
+
+| Tier | Model | Context |
+| :--- | :--- | ---: |
+| default / sonnet | `deepseek-v4.1-flash` | 1048k |
+| opus / fable | `deepseek-v4-pro` | 1048k |
+| haiku | `glm-5.3-flash` | 1048k |
+
+Hot-swap within the aggregator with `ccp -m opendesign-pro`, `opendesign-glm`,
+`opendesign-luna`, `opendesign-mimo`. Its `/v1/models` is unusually complete —
+`metadata.context_limit` (window), `metadata.context_budget` (output cap) and
+`architecture.input_modalities` — so `ccp discover` needs no cost-map
+cross-check for it.
+
+> **Native profiles send the upstream id, never an alias or a `[1m]` marker.**
+> Both exist only because the watchdog strips them on the bridged path; with no
+> watchdog in the way a strict endpoint answers
+> `model "opendesign[1m]" not found`. `render_config.py` therefore keeps aliases
+> and the 1M marker bridged-only. DeepSeek and MiniMax only appeared to work
+> because their tiers happened to use ids with no alias — those two profiles
+> were one rename away from breaking the same way, and are fixed here.
 
 ---
 

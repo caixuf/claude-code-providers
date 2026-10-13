@@ -1,0 +1,21 @@
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "YOUR_OPENDESIGN_API_KEY",
+    "ANTHROPIC_BASE_URL": "https://amr-link.open-design.ai",
+    "ANTHROPIC_MODEL": "deepseek-v4.1-flash",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-pro",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "deepseek-v4-pro",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4.1-flash",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-5.3-flash",
+    "ANTHROPIC_SMALL_FAST_MODEL": "glm-5.3-flash",
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1048000",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1048000"
+  },
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
+  "model": "deepseek-v4.1-flash",
+  "autoUpdatesChannel": "stable",
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "dark"
+}
