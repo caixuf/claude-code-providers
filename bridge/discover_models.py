@@ -5,26 +5,28 @@ Instead of hand-filling context window / vision / output caps for every model,
 this pulls them from, in priority order:
 
   1. The provider's own ``GET .../models`` endpoint (authoritative when present):
-       - CommandCode : context_length, supported_endpoints   (~87 models)
-       - CodeBuddy   : maxInputTokens / maxOutputTokens / supportsImages, via the
-                       account-scoped ``/v2/enterprises/personal/models`` REST
-                       envelope (run ``ccp auth codebuddy`` first for the token)
        - Cline       : id/name only
        - MiniMax / DeepSeek : standard OpenAI /v1/models shape
-  2. LiteLLM's bundled cost map (``litellm.model_cost``, ~4500 entries) for
-     max_input_tokens / max_output_tokens / supports_vision.
-  3. A tiny built-in defaults table for the few facts neither source knows
-     (e.g. every CommandCode model caps output at 393216 — verified by probe, and
-     the CodeBuddy ids the gateway routes but a plan's catalogue omits).
+       - Qianfan     : context_length / max_completions_tokens /
+                       architecture.input_modalities (the richest of the lot)
+       - OpenDesign  : metadata.context_limit / context_budget
+       - Trae        : no /models at all — trae_bridge.py's own catalogue RPC
+   2. LiteLLM's bundled cost map (``litellm.model_cost``, ~4500 entries) for
+      max_input_tokens / max_output_tokens / supports_vision.
+   3. A tiny built-in defaults table for the few facts neither source knows.
+
+Only the providers ccp currently keeps are registered here. Archived ones
+(CommandCode, CodeBuddy, Copilot) are described in docs/archived-providers.md;
+restoring one means putting its entry back and re-running discovery.
 
 Output is a *generated but committed* ``registry/models.yaml`` that a human can
 still hand-edit; re-running merges (never clobbers manual ``aliases``/``tiers``).
 
 Usage:
-  python3 discover_models.py                 # refresh all providers into registry
-  python3 discover_models.py --provider cmdc # just one
-  python3 discover_models.py --dry-run       # print, don't write
-  python3 discover_models.py --diff          # show what changed vs current file
+  python3 discover_models.py                  # refresh all providers into registry
+  python3 discover_models.py --provider cline # just one
+  python3 discover_models.py --dry-run        # print, don't write
+  python3 discover_models.py --diff           # show what changed vs current file
 """
 from __future__ import annotations
 
@@ -39,23 +41,9 @@ BRIDGE_DIR = Path(__file__).resolve().parent
 REPO_DIR = BRIDGE_DIR.parent
 REGISTRY_PATH = REPO_DIR / "registry" / "models.yaml"
 
-# CommandCode's hard output cap — verified by direct probe
-# (max_tokens=393216 -> 200, 393217 -> 400) across flash / flash-fast / pro.
-CMDC_MAX_OUTPUT = 393216
-
 # Provider definitions. ``auth_file`` points at the deployed litellm config or
 # env so we can read the token without hard-coding secrets here.
 PROVIDERS = {
-    "cmdc": {
-        "models_url": "https://api.commandcode.ai/provider/v1/models",
-        "api_base": "https://api.commandcode.ai/provider/v1",
-        "endpoint_kind": "openai",  # Chat Completions / Responses
-        "litellm_prefix": "openai/",  # we keep upstream model id as-is
-        "auth_env": "CMDC_API_KEY",
-        "auth_file": "~/.config/litellm/config.yaml",
-        "auth_grep": "api.commandcode.ai",
-        "max_output_default": CMDC_MAX_OUTPUT,
-    },
     "cline": {
         "models_url": "https://api.cline.bot/api/v1/models",
         "api_base": "https://api.cline.bot/api/v1",
@@ -64,37 +52,6 @@ PROVIDERS = {
         "auth_env": "CLINE_API_KEY",
         "auth_file": "~/.config/litellm/config.yaml",
         "auth_grep": "api.cline.bot",
-        "max_output_default": None,
-    },
-    # CodeBuddy (Tencent coding-copilot) subscription gateway, authenticated by
-    # the access token the CodeBuddy Code CLI already keeps on disk — run
-    # `ccp auth codebuddy` to copy it into ~/.config/litellm/proxy.env.
-    #
-    # The catalogue endpoint answers with a REST envelope
-    # ({code, msg, data: {models: [...]}}) instead of a bare OpenAI /models
-    # list, hence ``models_json_path``. It is also *account-scoped*: it lists
-    # what your plan exposes (18 ids on the INTL personal plan), so ids that a
-    # given plan omits but that the gateway still routes are re-added from
-    # ``extra_models``.
-    "codebuddy": {
-        "models_url": "https://www.codebuddy.ai/v2/enterprises/personal/models",
-        # LiteLLM appends /chat/completions, and CodeBuddy only serves that
-        # under /v2 — there is no /v1/* upstream at all.
-        "api_base": "https://www.codebuddy.ai/v2",
-        "endpoint_kind": "openai",
-        # See litellm_model_string_override in render_config.py: `openai/` would
-        # be routed to the Responses API (/v2/responses → 404 upstream).
-        "litellm_prefix": "hosted_vllm/",
-        "auth_env": "CODEBUDDY_API_KEY",
-        "models_json_path": ("data", "models"),
-        # Routable-but-unlisted ids, verified by direct probe. ctx / max_output
-        # / vision come from the CLI's own product.json, which does list them.
-        "extra_models": [
-            {"name": "deepseek-v4.1-flash", "ctx": 1000000, "max_output": 128000, "vision": True},
-            {"name": "deepseek-v4.1-flash-sg", "ctx": 1000000, "max_output": 128000, "vision": True},
-            {"name": "glm-5.3-flash", "ctx": 1000000, "max_output": 32000, "vision": True},
-            {"name": "kimi-k2.8-preview", "ctx": 1000000, "max_output": 32000, "vision": True},
-        ],
         "max_output_default": None,
     },
     # Native Anthropic-compatible endpoints (no bridge). Rich metadata where
@@ -319,22 +276,6 @@ def _cost_fields(e: dict) -> dict:
     }
 
 
-def norm_cmdc(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
-    mid = entry.get("id", "")
-    ctx = entry.get("context_length")
-    endpoints = entry.get("supported_endpoints") or []
-    kind = "anthropic" if endpoints == ["/messages"] else "openai"
-    # cross-check with cost map
-    info = cost_lookup(cmap, [mid, f"openrouter/{mid}", mid.split("/", 1)[-1]], idx)
-    return {
-        "name": mid,
-        "ctx": ctx or info.get("ctx"),
-        "max_output": provider["max_output_default"],
-        "vision": info.get("vision") if info.get("vision") is not None else _guess_vision(mid),
-        "endpoint_kind": kind,
-    }
-
-
 def norm_deepseek(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
     """Official DeepSeek exposes context_window / max_output_tokens /
     input_modalities (["text","image"] -> vision)."""
@@ -381,27 +322,6 @@ def norm_qianfan(entry: dict, provider: dict, cmap: dict, idx: dict | None = Non
         "max_output": (entry.get("max_completions_tokens")
                        or entry.get("max_tokens")
                        or provider.get("max_output_default")),
-        "vision": vision,
-        "endpoint_kind": provider["endpoint_kind"],
-    }
-
-
-def norm_codebuddy(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
-    """CodeBuddy's catalogue is richer than a /models list: every entry carries
-    maxInputTokens / maxOutputTokens / supportsImages / supportsToolCall, so no
-    cost-map cross-check is needed (these ids are gateway-private anyway).
-
-    Also accepts an already-normalized entry (``name`` / ``ctx`` / ``max_output``
-    / ``vision``), which is the shape PROVIDERS[...]["extra_models"] uses for the
-    ids the gateway routes but this account's catalogue does not list.
-    """
-    vision = entry.get("supportsImages")
-    if vision is None:
-        vision = entry.get("vision")
-    return {
-        "name": entry.get("id") or entry.get("name") or "",
-        "ctx": entry.get("maxInputTokens") or entry.get("ctx"),
-        "max_output": entry.get("maxOutputTokens") or entry.get("max_output"),
         "vision": vision,
         "endpoint_kind": provider["endpoint_kind"],
     }
@@ -455,9 +375,7 @@ def norm_trae(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) 
 
 
 NORMALIZERS = {
-    "cmdc": norm_cmdc,
     "cline": norm_generic,
-    "codebuddy": norm_codebuddy,
     "deepseek": norm_deepseek,
     "minimax": norm_generic,
     "opendesign": norm_opendesign,

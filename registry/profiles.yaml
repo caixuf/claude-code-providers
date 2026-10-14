@@ -22,50 +22,7 @@ version: 1
 # CLAUDE_CODE_MAX_CONTEXT_TOKENS for the whole profile (Claude Code has one
 # context number per session, so we advertise the slot the user starts on).
 profiles:
-  cmdc-deepseek:
-    provider: cmdc
-    primary_tier: sonnet
-    tiers:
-      default: {model: deepseek/deepseek-v4.1-flash}
-      opus:    {model: deepseek/deepseek-v4-pro}
-      fable:   {model: deepseek/deepseek-v4-pro}
-      sonnet:  {model: deepseek/deepseek-v4.1-flash}
-      haiku:   {model: deepseek/deepseek-v4.1-flash-fast}
-
-  cmdc-deepseek-fast:
-    provider: cmdc
-    primary_tier: default
-    tiers:
-      default: {model: deepseek/deepseek-v4.1-flash-fast}
-      opus:    {model: deepseek/deepseek-v4-pro}
-      fable:   {model: deepseek/deepseek-v4-pro}
-      sonnet:  {model: deepseek/deepseek-v4.1-flash}
-      haiku:   {model: deepseek/deepseek-v4.1-flash-fast}
-
-  cmdc-deepseek-pro:
-    provider: cmdc
-    primary_tier: opus
-    tiers:
-      default: {model: deepseek/deepseek-v4-pro}
-      opus:    {model: deepseek/deepseek-v4-pro}
-      fable:   {model: deepseek/deepseek-v4-pro}
-      sonnet:  {model: deepseek/deepseek-v4.1-flash}
-      haiku:   {model: deepseek/deepseek-v4.1-flash-fast}
-
-  # Multimodal entry point: every tier points at a vision-capable model so
-  # pasting an image "just works". Kept separate from the text profiles so
-  # plain text turns stay on the cheaper/faster pure-text ladder.
-  cmdc-vision:
-    provider: cmdc
-    primary_tier: opus
-    tiers:
-      default: {model: deepseek/deepseek-v4-flash-vision-exp}
-      opus:    {model: deepseek/deepseek-v4-flash-vision-exp}
-      fable:   {model: deepseek/deepseek-v4-flash-vision-exp}
-      sonnet:  {model: deepseek/deepseek-v4-flash-vision-exp}
-      haiku:   {model: deepseek/deepseek-v4.1-flash-fast}
-
-  cline-deepseek:
+  cline:
     provider: cline
     primary_tier: default
     tiers:
@@ -165,76 +122,13 @@ profiles:
       sonnet:  {model: deepseek-v4.1-flash}
       haiku:   {model: glm-5.3-flash}
 
-  copilot:
-    provider: copilot
-    native: false
-    primary_tier: sonnet
-    tiers:
-      default: {model: github_copilot/claude-sonnet-5.5}
-      opus:    {model: github_copilot/claude-opus-5.5}
-      fable:   {model: github_copilot/claude-opus-5.5}
-      sonnet:  {model: github_copilot/claude-sonnet-5.5}
-      haiku:   {model: github_copilot/claude-haiku-5.5}
-
-  # ── CodeBuddy (Tencent coding-copilot subscription) ────────────────────
-  # One entry point onto the CodeBuddy model fleet; the ladder mixes vendors
-  # because no single vendor covers all four tiers well. Every model listed
-  # here is 1M-context, so Claude Code's auto-compact window can stay at 1M
-  # whichever tier is active (compaction itself runs on the haiku tier).
-  #   default/sonnet : DeepSeek v4.1 Flash — free (0 credits), 1M, multimodal
-  #   opus/fable     : GLM-5.3 — strongest tool-call reliability in the fleet
-  #   haiku          : GLM-5.3-Flash — cheap, fast, still 1M
-  # Switch within the provider with `ccp -m codebuddy-glm` etc. (see aliases).
-  codebuddy:
-    provider: codebuddy
-    native: false
-    primary_tier: default
-    tiers:
-      default: {model: deepseek-v4.1-flash}
-      opus:    {model: glm-5.3}
-      fable:   {model: glm-5.3}
-      sonnet:  {model: deepseek-v4.1-flash}
-      haiku:   {model: glm-5.3-flash}
-
-# ── Providers not covered by auto-discovery ────────────────────────────
-# Describes how to render their config entries + model metadata. Keyed by the
-# `provider:` name used in `profiles:` above.
-providers:
-  copilot:
-    endpoint_kind: github_copilot   # no api_base / api_key (token store)
-    model_defaults:                 # substring match -> metadata
-      claude-opus-5.5:  {ctx: 1000000, max_output: 32000, vision: true}
-      claude-sonnet-5.5: {ctx: 1000000, max_output: 32000, vision: true}
-      claude-haiku-5.5: {ctx: 1000000, max_output: 32000, vision: true}
-      claude-opus-5:    {ctx: 200000, max_output: 32000, vision: true}
-      claude-sonnet-5:  {ctx: 200000, max_output: 32000, vision: true}
-      claude-opus-4.5:  {ctx: 200000, max_output: 32000, vision: true}
-      claude-sonnet-4.5: {ctx: 200000, max_output: 32000, vision: true}
-      claude-haiku-4.5: {ctx: 200000, max_output: 32000, vision: true}
-
 # ── Short aliases exposed to LiteLLM (config.yaml model_name) ──────────
 # These are the names Claude Code puts in ANTHROPIC_MODEL. The `[1m]` marker
 # is appended automatically for models whose ctx >= 1000000 (the proxy strips
 # it before forwarding). Add aliases here only when you want a friendly name;
 # the profile tier model above already resolves via its registry name.
 aliases:
-  cmdc-deepseek:      {provider: cmdc, model: deepseek/deepseek-v4.1-flash, ctx: 1000000}
-  cmdc-deepseek-fast: {provider: cmdc, model: deepseek/deepseek-v4.1-flash-fast, ctx: 1000000}
-  cmdc-deepseek-pro:  {provider: cmdc, model: deepseek/deepseek-v4-pro, ctx: 1000000}
-  cmdc-vision:        {provider: cmdc, model: deepseek/deepseek-v4-flash-vision-exp, ctx: 1000000}
   cline-deepseek:     {provider: cline, model: deepseek/deepseek-v4.1-flash, ctx: 1000000}
-  # Copilot: keep the original short names so existing configs keep working
-  claude-sonnet-5.5:  {provider: copilot, model: github_copilot/claude-sonnet-5.5, ctx: 1000000}
-  claude-opus-5.5:    {provider: copilot, model: github_copilot/claude-opus-5.5, ctx: 1000000}
-  claude-haiku-5.5:   {provider: copilot, model: github_copilot/claude-haiku-5.5, ctx: 1000000}
-  # CodeBuddy: one alias per vendor worth hot-switching to via `ccp -m`
-  codebuddy:          {provider: codebuddy, model: deepseek-v4.1-flash, ctx: 1000000}
-  codebuddy-glm:      {provider: codebuddy, model: glm-5.3, ctx: 1000000}
-  codebuddy-fast:     {provider: codebuddy, model: glm-5.3-flash, ctx: 1000000}
-  codebuddy-kimi:     {provider: codebuddy, model: kimi-k3, ctx: 1000000}
-  codebuddy-gpt:      {provider: codebuddy, model: gpt-5.5, ctx: 1000000}
-  codebuddy-gemini:   {provider: codebuddy, model: gemini-3.5-flash, ctx: 1000000}
-  codebuddy-hunyuan:  {provider: codebuddy, model: hy4-preview, ctx: 1000000}
   # OpenDesign: hot-swap between the aggregator's rungs with `ccp -m`
   opendesign:         {provider: opendesign, model: deepseek-v4.1-flash, ctx: 1048000}
   opendesign-pro:     {provider: opendesign, model: deepseek-v4-pro, ctx: 1048000}
@@ -328,26 +222,20 @@ groups: {}
 #     removed and the other neutralised with a leading newline. Anthropic's own
 #     API wants the header untouched, so this stays scoped to providers whose
 #     gateway inspects it.
-request_rules:
-  sanitize_channel:
-    - codebuddy
+request_rules: {}
+# The one rule this repo ever carried — codebuddy's `sanitize_channel` client
+# check — went with the provider. See docs/archived-providers.md to restore it
+# alongside codebuddy.
 
 # ── Models that get individual LiteLLM entries (so `ccp -m <name>` works) ─
 # Everything else is still reachable via the provider's `*`-less explicit
 # fallback only through discovery docs; keep this list short and curated.
 expose_models:
+  # cline is the only kept provider whose catalogue is wide enough to need
+  # individual entries. deepseek / minimax / opendesign / qianfan reach their
+  # models through the aliases above, and trae is a native endpoint that the
+  # adapter resolves by name.
   - deepseek/deepseek-v4.1-flash
-  - deepseek/deepseek-v4.1-flash-fast
   - deepseek/deepseek-v4-pro
   - deepseek/deepseek-v4-flash-vision-exp
-  - moonshotai/Kimi-K3
-  - zai-org/GLM-5.3
-  - MiniMaxAI/MiniMax-M3
-  - Qwen/Qwen3.8-Max
-  - xai/grok-4.7
   - google/gemini-3.8-flash
-  # CodeBuddy (unaliased picks)
-  - gpt-5.6-sol
-  - gpt-5.6-luna
-  - kimi-k2.6
-  - hy3

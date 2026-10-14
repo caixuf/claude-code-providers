@@ -168,32 +168,33 @@ def test_no_accounts_renders_exactly_as_before():
 def test_account_becomes_a_second_deployment_under_the_same_name():
     """An account must NOT fork the model name.
 
-    `codebuddy-a2` as its own name would give no failover at all: the client
-    sends `codebuddy`, gets the primary, and never learns the second account
-    exists. Both accounts are deployments of `codebuddy`, which is what lets
-    LiteLLM move to the second when the first answers 401/429.
+    `cline-deepseek-a2` as its own name would give no failover at all: the
+    client sends `cline-deepseek`, gets the primary, and never learns the second
+    account exists. Both accounts are deployments of `cline-deepseek`, which is
+    what lets LiteLLM move to the second when the first answers 401/429.
     """
     doc, profiles = _load()
-    profiles["accounts"] = {"codebuddy": {"a2": {"auth_env": "CODEBUDDY_API_KEY_2"}}}
+    profiles["accounts"] = {"cline": {"a2": {"auth_env": "CLINE_API_KEY_2"}}}
     deps = _deployments(_render_with(profiles))
-    pool = [(m, k) for n, m, k in deps if n == "codebuddy"]
+    pool = [(m, k) for n, m, k in deps if n == "cline-deepseek"]
     assert len(pool) == 2, "one deployment per account"
-    assert {k for _, k in pool} == {"CODEBUDDY_API_KEY", "CODEBUDDY_API_KEY_2"}
+    assert {k for _, k in pool} == {"CLINE_API_KEY", "CLINE_API_KEY_2"}
     assert len({m for m, _ in pool}) == 1, "same upstream model"
     # no suffixed name is invented anywhere
-    assert not [n for n, _, _ in deps if n.startswith("codebuddy-") and n.endswith("a2")]
+    assert not [n for n, _, _ in deps
+                if n.startswith("cline-deepseek-") and n.endswith("a2")]
 
 
 def test_account_pool_also_covers_the_1m_bracket_spelling():
-    """Claude Code sends `codebuddy[1m]`, so the pool must exist under that
+    """Claude Code sends `cline-deepseek[1m]`, so the pool must exist under that
     name too — otherwise a 1M session gets no failover."""
     doc, profiles = _load()
-    profiles["accounts"] = {"codebuddy": {"a2": {"auth_env": "CODEBUDDY_API_KEY_2"}}}
+    profiles["accounts"] = {"cline": {"a2": {"auth_env": "CLINE_API_KEY_2"}}}
     text = _render_with(profiles)
     deps = _deployments(text)
-    bracketed = [(m, k) for n, m, k in deps if n == "codebuddy[1m]"]
+    bracketed = [(m, k) for n, m, k in deps if n == "cline-deepseek[1m]"]
     assert len(bracketed) == 2
-    assert {k for _, k in bracketed} == {"CODEBUDDY_API_KEY", "CODEBUDDY_API_KEY_2"}
+    assert {k for _, k in bracketed} == {"CLINE_API_KEY", "CLINE_API_KEY_2"}
     # and the file is still valid YAML (quoting must wrap the whole name)
     parsed = yaml.safe_load(text)
     assert len(parsed["model_list"]) == len(deps)
@@ -206,9 +207,9 @@ def test_group_is_one_model_name_with_several_deployments():
     doc, profiles = _load()
     profiles["groups"] = {
         "daily": {
-            "members": ["codebuddy", "codebuddy-fast", "cmdc-deepseek-fast"],
+            "members": ["cline-deepseek", "qianfan-deepseek-flash", "trae-glm"],
             "routing_strategy": "usage-based-routing-v2",
-            "fallback": ["cmdc-deepseek-pro"],
+            "fallback": ["qianfan-deepseek-pro"],
         }
     }
     deps = _deployments(_render_with(profiles))
@@ -216,7 +217,8 @@ def test_group_is_one_model_name_with_several_deployments():
     assert len(group) == 3, f"expected 3 group deployments, got {group}"
     # three *different* upstreams, each keeping its provider's key
     assert len({m for _, m, _ in group}) == 3
-    assert {k for _, _, k in group} == {"CODEBUDDY_API_KEY", "CMDC_API_KEY"}
+    assert {k for _, _, k in group} == {
+        "CLINE_API_KEY", "QIANFAN_API_KEY", "TRAECLI_PERSONAL_ACCESS_TOKEN"}
 
 
 def test_group_members_join_their_account_pools():
@@ -226,29 +228,30 @@ def test_group_members_join_their_account_pools():
     account to try, defeating the point of the pool.
     """
     doc, profiles = _load()
-    profiles["accounts"] = {"codebuddy": {"a2": {"auth_env": "CODEBUDDY_API_KEY_2"}}}
-    profiles["groups"] = {"daily": {"members": ["codebuddy", "cmdc-deepseek-fast"]}}
+    profiles["accounts"] = {"cline": {"a2": {"auth_env": "CLINE_API_KEY_2"}}}
+    profiles["groups"] = {"daily": {"members": ["cline-deepseek",
+                                                "qianfan-deepseek-flash"]}}
     deps = _deployments(_render_with(profiles))
     names = [n for n, _, _ in deps]
     # 2 members, one of which has 2 accounts = 3 deployments, all one name
     assert names.count("daily") == 3
     assert not [n for n in names if n.startswith("daily-")], "accounts must not fork the name"
     keys = sorted(k for n, _, k in deps if n == "daily")
-    assert keys == ["CMDC_API_KEY", "CODEBUDDY_API_KEY", "CODEBUDDY_API_KEY_2"]
+    assert keys == ["CLINE_API_KEY", "CLINE_API_KEY_2", "QIANFAN_API_KEY"]
 
 
 def test_group_emits_router_settings_that_litellm_accepts():
     doc, profiles = _load()
     profiles["groups"] = {
         "daily": {
-            "members": ["codebuddy", "cmdc-deepseek-fast"],
+            "members": ["cline-deepseek", "qianfan-deepseek-flash"],
             "routing_strategy": "usage-based-routing-v2",
-            "fallback": ["cmdc-deepseek-pro"],
+            "fallback": ["qianfan-deepseek-pro"],
         }
     }
     parsed = yaml.safe_load(_render_with(profiles))
     rs = parsed["router_settings"]
-    assert rs["fallbacks"] == [{"daily": ["cmdc-deepseek-pro"]}]
+    assert rs["fallbacks"] == [{"daily": ["qianfan-deepseek-pro"]}]
     rg = rs["routing_groups"][0]
     assert rg["group_name"] == "daily"
     # the group claims exactly the one model_name its deployments share
@@ -269,42 +272,39 @@ def test_group_member_may_be_an_alias_a_registry_id_or_provider_slash_model():
     profiles["groups"] = {
         "g": {
             "members": [
-                "codebuddy",                      # alias
-                "glm-5.3",                        # bare registry id (codebuddy)
-                "cmdc/deepseek-v4.1-flash",       # provider/model
+                "qianfan-deepseek-flash",              # alias
+                "MiniMax-M3",                          # bare registry id (minimax)
+                "cline/deepseek/deepseek-v4.1-flash",  # provider/model
             ]
         }
     }
     deps = _deployments(_render_with(profiles))
     group = [m for n, m, _ in deps if n == "g"]
     assert len(group) == 3
-    assert "hosted_vllm/deepseek-v4.1-flash" in group
-    assert "hosted_vllm/glm-5.3" in group
-    assert "openai/deepseek-v4.1-flash" in group
+    assert "openai/deepseek-v4.1-flash" in group           # qianfan (bridged)
+    assert "anthropic/MiniMax-M3" in group                 # minimax (native)
+    # cline keeps its subscription namespace: dropping the `cline-pass/` segment
+    # silently bills pay-as-you-go instead of the flat plan (see
+    # render_config.litellm_model_string_override).
+    assert "openai/cline-pass/deepseek-v4.1-flash" in group
 
 
 def test_group_dedupes_only_identical_deployments():
     """A bare id and an alias that resolve to the same provider+model are one
     deployment; the group must not emit the same target twice."""
     doc, profiles = _load()
-    profiles["groups"] = {"g": {"members": ["codebuddy", "deepseek-v4.1-flash"]}}
+    profiles["groups"] = {"g": {"members": ["cline-deepseek",
+                                            "deepseek/deepseek-v4.1-flash"]}}
     deps = _deployments(_render_with(profiles))
     assert [n for n, _, _ in deps if n == "g"] == ["g"]
 
 
 def test_unresolvable_group_member_is_reported_not_emitted(capsys):
     doc, profiles = _load()
-    profiles["groups"] = {"g": {"members": ["codebuddy", "no-such-model-xyz"]}}
+    profiles["groups"] = {"g": {"members": ["cline-deepseek", "no-such-model-xyz"]}}
     deps = _deployments(_render_with(profiles))
     assert [n for n, _, _ in deps if n == "g"] == ["g"]  # only the resolvable one
     assert "no-such-model-xyz" in capsys.readouterr().err
-
-
-# ── native profiles must send the upstream id, unadorned ──────────────────
-# A native profile talks to the provider directly. There is no watchdog in that
-# path, so the two conventions the watchdog exists to undo — the friendly alias
-# and the `[1m]` marker — would reach the endpoint intact.
-# OpenDesign answers `model "opendesign[1m]" not found` for exactly that reason.
 
 
 def test_native_profile_sends_the_upstream_model_id_not_the_alias():
@@ -344,18 +344,19 @@ def test_native_profile_never_carries_the_1m_marker():
 
 
 def test_bridged_profiles_still_use_alias_and_1m_marker():
-    """The fix must not leak into the bridged path, where both conventions are
-    required: the alias is the LiteLLM model_name and the marker is stripped by
-    the watchdog."""
+    """The native carve-out must not leak into the bridged path, where both
+    conventions are required: the alias is the LiteLLM model_name and the marker
+    is stripped by the watchdog."""
     doc, profiles = _load()
     models, providers = render_config.index_models(doc)
     alias_idx = render_config._alias_index(profiles)
     env = json.loads(
         render_config.render_profile(
-            "codebuddy", profiles["profiles"]["codebuddy"], models, providers, alias_idx, profiles
+            "qianfan", profiles["profiles"]["qianfan"], models, providers,
+            alias_idx, profiles
         )
     )["env"]
-    assert env["ANTHROPIC_MODEL"] == "codebuddy[1m]"
+    assert env["ANTHROPIC_MODEL"] == "qianfan-deepseek-flash[1m]"
     assert env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:4000"
 
 
@@ -372,27 +373,11 @@ def test_opendesign_is_registered_and_discovered():
 
 
 
-# ── CodeBuddy wiring ──────────────────────────────────────────────────────
-# These pin the three things that are invisible in the YAML but decide whether
-# a CodeBuddy request reaches the gateway at all.
-
-
-def test_codebuddy_routes_through_chat_completions_prefix():
-    """CodeBuddy 404s /v1/* and /responses; only /v2/chat/completions exists.
-
-    LiteLLM sends every ``openai/`` deployment reached via Anthropic
-    /v1/messages to the Responses API, so this prefix is load-bearing. If it
-    ever reverts to ``openai/`` the bridge silently starts POSTing
-    /v2/responses and every CodeBuddy turn 404s.
-    """
-    assert render_config.litellm_model_string_override("codebuddy", "glm-5.3") == (
-        "hosted_vllm/glm-5.3"
-    )
-    # the api_base must carry /v2 for LiteLLM to append /chat/completions to it
-    doc, _ = _load()
-    _, providers = render_config.index_models(doc)
-    assert providers["codebuddy"]["api_base"].endswith("/v2")
-    assert providers["codebuddy"]["auth_env"] == "CODEBUDDY_API_KEY"
+# ── request rewrites ──────────────────────────────────────────────────────
+# The one rule ccp ever shipped — codebuddy's `sanitize_channel` client check —
+# was archived with that provider, so the table is empty. These tests pin that:
+# an empty table must stay a no-op, and must not start rewriting requests for
+# the providers that remain.
 
 
 def _emitted_and_rules():
@@ -404,54 +389,20 @@ def _emitted_and_rules():
     return models, profiles, emitted, render_config.render_request_rules(profiles, emitted)
 
 
-def test_request_rules_cover_every_reachable_codebuddy_name():
-    """The proxy matches rules on the model name the client sent, which is one
-    of the names LiteLLM actually exposes for codebuddy — plus a ``[1m]``
-    bracket the proxy strips before lookup. Every spelling must resolve.
+def test_request_rules_are_empty_and_rewrite_nothing():
+    """Nothing in the kept set may have its request rewritten.
+
+    Stripping Anthropic's billing header anywhere but the gateway that demands
+    it is a silent prompt mutation, so an empty table has to mean *empty*.
     """
     from sse_finalize import norm_model_key
 
     models, profiles, emitted, rules = _emitted_and_rules()
-    assert "sanitize_channel" in rules
-    listed = {norm_model_key(n) for n in rules["sanitize_channel"]}
-
-    cb_names = emitted.get("codebuddy") or set()
-    assert cb_names, "no codebuddy entries were emitted"
-    for name in cb_names:
-        assert norm_model_key(name) in listed, f"{name} would not be sanitised"
-    # the profile's tiers must all be reachable and therefore sanitised
-    spec = profiles["profiles"]["codebuddy"]
-    for tier, tspec in spec["tiers"].items():
-        meta = models.get(("codebuddy", tspec["model"]))
-        assert meta, f"tier {tier} -> {tspec['model']} not in registry"
-        for alias, aspec in (profiles["aliases"] or {}).items():
-            if aspec["provider"] == "codebuddy" and aspec["model"] == tspec["model"]:
-                assert norm_model_key(alias) in listed
-
-
-def test_request_rules_exclude_other_providers():
-    """The billing header is Anthropic's; stripping it elsewhere would be a
-    silent prompt mutation for providers that never asked for it — including
-    for ids that two providers happen to share (cmdc and codebuddy both list
-    gpt-5.3-codex, but only one of them wins the LiteLLM entry)."""
-    models, profiles, emitted, rules = _emitted_and_rules()
-    listed = set(rules["sanitize_channel"])
+    assert (profiles.get("request_rules") or {}) == {}
+    assert rules.get("sanitize_channel") in (None, [])
+    # non-vacuous: providers really did emit names to check against
+    assert any(names for names in emitted.values()), "nothing was emitted at all"
+    listed = {norm_model_key(n) for n in (rules.get("sanitize_channel") or [])}
     for pname, names in emitted.items():
-        if pname == "codebuddy":
-            continue
         for name in names:
-            assert name not in listed, f"{pname}/{name} must not be sanitised"
-    assert "cmdc-deepseek[1m]" not in listed
-    assert "cline-deepseek" not in listed
-
-
-def test_codebuddy_profile_tiers_are_all_one_million_context():
-    """Claude Code compacts through the haiku tier while advertising the primary
-    tier's window, so every CodeBuddy tier must carry the same 1M context."""
-    doc, profiles = _load()
-    models, _ = render_config.index_models(doc)
-    spec = profiles["profiles"]["codebuddy"]
-    for tier, tspec in spec["tiers"].items():
-        meta = models.get(("codebuddy", tspec["model"]))
-        assert meta, f"tier {tier} -> {tspec['model']} not in registry"
-        assert meta["ctx"] == 1000000, f"tier {tier} ctx is {meta['ctx']}, not 1M"
+            assert norm_model_key(name) not in listed, f"{pname}/{name} would be rewritten"
