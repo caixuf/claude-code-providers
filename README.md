@@ -180,7 +180,7 @@ the point of keeping them all: same model, different pipe and quota.
 
 The four DeepSeek-V4.1-Flash rows are the same underlying model reached four
 ways; `ccp -m` then hot-swaps to another rung *within* a provider (for example
-`ccp -m trae-glm`, `ccp -m qianfan-glm-5.3`).
+`ccp -m trae-glm-5.3`, `ccp -m qianfan-glm-5.3`).
 
 **Bridged** profiles run Claude Code → `:4000` watchdog → `:4001` LiteLLM →
 upstream. **Native** ones point straight at an Anthropic-compatible endpoint.
@@ -335,8 +335,8 @@ The upstream id goes into the live profile — the template keeps
 | opus / fable | `deepseek-v4-pro` | 1048k |
 | haiku | `glm-5.3-flash` | 1048k |
 
-Hot-swap within the aggregator with `ccp -m opendesign-pro`, `opendesign-glm`,
-`opendesign-luna`, `opendesign-mimo`. Its `/v1/models` is unusually complete —
+Hot-swap within the aggregator with `ccp -m opendesign-deepseek-v4-pro`,
+`opendesign-glm-5.3-flash`, `opendesign-gpt-6-luna`, `opendesign-mimo-v2.6-pro`. Its `/v1/models` is unusually complete —
 `metadata.context_limit` (window), `metadata.context_budget` (output cap) and
 `architecture.input_modalities` — so `ccp discover` needs no cost-map
 cross-check for it.
@@ -388,10 +388,12 @@ per model, so nothing has to be guessed or cross-checked against LiteLLM's cost
 map. `deepseek-v4.1-flash` takes the top tiers: 1.44M context and genuinely
 multimodal, so image pasting works on it.
 
-> Aliases are spelled out (`qianfan-deepseek-flash`, `qianfan-glm-5.3`, …). The
-> short first cut (`qianfan-ds`, `qianfan-pro`, `qianfan-flash`) was dropped once
-> no running session referenced it: a picker that lists one model twice under
-> two spellings is exactly the confusion these names exist to remove.
+> Every alias is `<provider>-<exact model>`. DeepSeek's own version matters —
+> `deepseek-v4.1-flash`, `deepseek-v4-flash` and `deepseek-v4-pro` are three
+> different models — so no alias drops it. The earlier short spellings
+> (`qianfan-ds`, `qianfan-pro`) were dropped once no running session referenced
+> them: a picker listing one model twice under two spellings is exactly the
+> confusion these names exist to remove.
 
 ---
 
@@ -450,7 +452,7 @@ model: on a text-only model it substitutes
 `[image/png content is not supported by current model]`. The profile's tiers are
 therefore all vision-capable (qwen3.8-max / Doubao-Seed-2.1-pro /
 glm-5.3-flash). `glm-5.3`, the strongest tool-caller on this subscription, is
-text-only and is reached through the `trae-glm` alias when you do not need
+text-only and is reached through the `trae-glm-5.3` alias when you do not need
 vision.
 
 Verified end to end: Claude Code's `Read` on a PNG travels through the adapter
@@ -498,8 +500,9 @@ A group is one model name with a deployment per `(member, account)` pair, so a
 group is also a pool. Use it as the model and failover happens underneath.
 
 ```bash
-ccp accounts group add daily qianfan-deepseek-flash cline-deepseek \
-    --strategy usage-based-routing-v2 --fallback opendesign-pro
+ccp accounts group add daily qianfan-deepseek-v4.1-flash \
+    cline-deepseek-v4.1-flash --strategy usage-based-routing-v2 \
+    --fallback opendesign-deepseek-v4-pro
 ccp -m group/daily
 ```
 
@@ -512,7 +515,7 @@ ccp -m group/daily
 | `cost-based-routing` | cheapest member |
 
 `--fallback` names what to use once every member is exhausted. Members may be
-aliases (`qianfan-deepseek-flash`), registry ids (`glm-5.3`) or `provider/model`.
+aliases (`qianfan-deepseek-v4.1-flash`), registry ids (`glm-5.3`) or `provider/model`.
 
 ### Quota
 

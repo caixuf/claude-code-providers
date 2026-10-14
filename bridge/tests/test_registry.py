@@ -168,31 +168,31 @@ def test_no_accounts_renders_exactly_as_before():
 def test_account_becomes_a_second_deployment_under_the_same_name():
     """An account must NOT fork the model name.
 
-    `cline-deepseek-a2` as its own name would give no failover at all: the
-    client sends `cline-deepseek`, gets the primary, and never learns the second
-    account exists. Both accounts are deployments of `cline-deepseek`, which is
+    `cline-deepseek-v4.1-flash-a2` as its own name would give no failover at all: the
+    client sends `cline-deepseek-v4.1-flash`, gets the primary, and never learns the second
+    account exists. Both accounts are deployments of `cline-deepseek-v4.1-flash`, which is
     what lets LiteLLM move to the second when the first answers 401/429.
     """
     doc, profiles = _load()
     profiles["accounts"] = {"cline": {"a2": {"auth_env": "CLINE_API_KEY_2"}}}
     deps = _deployments(_render_with(profiles))
-    pool = [(m, k) for n, m, k in deps if n == "cline-deepseek"]
+    pool = [(m, k) for n, m, k in deps if n == "cline-deepseek-v4.1-flash"]
     assert len(pool) == 2, "one deployment per account"
     assert {k for _, k in pool} == {"CLINE_API_KEY", "CLINE_API_KEY_2"}
     assert len({m for m, _ in pool}) == 1, "same upstream model"
     # no suffixed name is invented anywhere
     assert not [n for n, _, _ in deps
-                if n.startswith("cline-deepseek-") and n.endswith("a2")]
+                if n.startswith("cline-deepseek-v4.1-flash-") and n.endswith("a2")]
 
 
 def test_account_pool_also_covers_the_1m_bracket_spelling():
-    """Claude Code sends `cline-deepseek[1m]`, so the pool must exist under that
+    """Claude Code sends `cline-deepseek-v4.1-flash[1m]`, so the pool must exist under that
     name too — otherwise a 1M session gets no failover."""
     doc, profiles = _load()
     profiles["accounts"] = {"cline": {"a2": {"auth_env": "CLINE_API_KEY_2"}}}
     text = _render_with(profiles)
     deps = _deployments(text)
-    bracketed = [(m, k) for n, m, k in deps if n == "cline-deepseek[1m]"]
+    bracketed = [(m, k) for n, m, k in deps if n == "cline-deepseek-v4.1-flash[1m]"]
     assert len(bracketed) == 2
     assert {k for _, k in bracketed} == {"CLINE_API_KEY", "CLINE_API_KEY_2"}
     # and the file is still valid YAML (quoting must wrap the whole name)
@@ -207,9 +207,9 @@ def test_group_is_one_model_name_with_several_deployments():
     doc, profiles = _load()
     profiles["groups"] = {
         "daily": {
-            "members": ["cline-deepseek", "qianfan-deepseek-flash", "trae-glm"],
+            "members": ["cline-deepseek-v4.1-flash", "qianfan-deepseek-v4.1-flash", "trae-glm-5.3"],
             "routing_strategy": "usage-based-routing-v2",
-            "fallback": ["qianfan-deepseek-pro"],
+            "fallback": ["qianfan-deepseek-v4-pro"],
         }
     }
     deps = _deployments(_render_with(profiles))
@@ -229,8 +229,8 @@ def test_group_members_join_their_account_pools():
     """
     doc, profiles = _load()
     profiles["accounts"] = {"cline": {"a2": {"auth_env": "CLINE_API_KEY_2"}}}
-    profiles["groups"] = {"daily": {"members": ["cline-deepseek",
-                                                "qianfan-deepseek-flash"]}}
+    profiles["groups"] = {"daily": {"members": ["cline-deepseek-v4.1-flash",
+                                                "qianfan-deepseek-v4.1-flash"]}}
     deps = _deployments(_render_with(profiles))
     names = [n for n, _, _ in deps]
     # 2 members, one of which has 2 accounts = 3 deployments, all one name
@@ -244,14 +244,14 @@ def test_group_emits_router_settings_that_litellm_accepts():
     doc, profiles = _load()
     profiles["groups"] = {
         "daily": {
-            "members": ["cline-deepseek", "qianfan-deepseek-flash"],
+            "members": ["cline-deepseek-v4.1-flash", "qianfan-deepseek-v4.1-flash"],
             "routing_strategy": "usage-based-routing-v2",
-            "fallback": ["qianfan-deepseek-pro"],
+            "fallback": ["qianfan-deepseek-v4-pro"],
         }
     }
     parsed = yaml.safe_load(_render_with(profiles))
     rs = parsed["router_settings"]
-    assert rs["fallbacks"] == [{"daily": ["qianfan-deepseek-pro"]}]
+    assert rs["fallbacks"] == [{"daily": ["qianfan-deepseek-v4-pro"]}]
     rg = rs["routing_groups"][0]
     assert rg["group_name"] == "daily"
     # the group claims exactly the one model_name its deployments share
@@ -272,7 +272,7 @@ def test_group_member_may_be_an_alias_a_registry_id_or_provider_slash_model():
     profiles["groups"] = {
         "g": {
             "members": [
-                "qianfan-deepseek-flash",              # alias
+                "qianfan-deepseek-v4.1-flash",              # alias
                 "MiniMax-M3",                          # bare registry id (minimax)
                 "cline/deepseek/deepseek-v4.1-flash",  # provider/model
             ]
@@ -293,7 +293,7 @@ def test_group_dedupes_only_identical_deployments():
     """A bare id and an alias that resolve to the same provider+model are one
     deployment; the group must not emit the same target twice."""
     doc, profiles = _load()
-    profiles["groups"] = {"g": {"members": ["cline-deepseek",
+    profiles["groups"] = {"g": {"members": ["cline-deepseek-v4.1-flash",
                                             "deepseek/deepseek-v4.1-flash"]}}
     deps = _deployments(_render_with(profiles))
     assert [n for n, _, _ in deps if n == "g"] == ["g"]
@@ -301,7 +301,7 @@ def test_group_dedupes_only_identical_deployments():
 
 def test_unresolvable_group_member_is_reported_not_emitted(capsys):
     doc, profiles = _load()
-    profiles["groups"] = {"g": {"members": ["cline-deepseek", "no-such-model-xyz"]}}
+    profiles["groups"] = {"g": {"members": ["cline-deepseek-v4.1-flash", "no-such-model-xyz"]}}
     deps = _deployments(_render_with(profiles))
     assert [n for n, _, _ in deps if n == "g"] == ["g"]  # only the resolvable one
     assert "no-such-model-xyz" in capsys.readouterr().err
@@ -311,7 +311,7 @@ def test_native_profile_sends_the_upstream_model_id_not_the_alias():
     doc, profiles = _load()
     models, providers = render_config.index_models(doc)
     # opendesign has an alias whose name differs from the upstream id
-    assert profiles["aliases"]["opendesign"]["model"] == "deepseek-v4.1-flash"
+    assert profiles["aliases"]["opendesign-deepseek-v4.1-flash"]["model"] == "deepseek-v4.1-flash"
     rendered = render_config.render_profile(
         "opendesign-deepseek-v4.1-flash",
         profiles["profiles"]["opendesign-deepseek-v4.1-flash"],
@@ -356,7 +356,7 @@ def test_bridged_profiles_still_use_alias_and_1m_marker():
             alias_idx, profiles
         )
     )["env"]
-    assert env["ANTHROPIC_MODEL"] == "qianfan-deepseek-flash[1m]"
+    assert env["ANTHROPIC_MODEL"] == "qianfan-deepseek-v4.1-flash[1m]"
     assert env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:4000"
 
 
