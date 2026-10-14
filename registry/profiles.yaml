@@ -104,22 +104,22 @@ profiles:
   # ── OpenDesign (amr-link.open-design.ai) ──────────────────────────────
   # Anthropic-native aggregator, so `native: true` — no bridge, no rewrites,
   # the profile points straight at the endpoint. A cheap credit re-seller
-  # ($8 buys ~$120 of list-price usage), which is why the ladder is built from
-  # its own capability/cost metadata rather than from list price:
-  #   default/sonnet : deepseek-v4.1-flash — marked advanced, cost low
-  #   opus/fable     : deepseek-v4-pro     — the high/advanced rung
-  #   haiku          : glm-5.3-flash       — low cost, still 1M and advanced
-  # Everything here is 1M-context, so Claude Code keeps a 1M window on any tier.
+  # ($8 buys ~$120 of list-price usage).
+  #
+  # Deliberately curated down to ONE model: every tier is deepseek-v4.1-flash,
+  # so no Claude Code slot can drift onto a model this account was not meant to
+  # spend on. It is 1048k-context, so the 1M window holds on every tier. Add a
+  # rung here if that ever changes.
   opendesign:
     provider: opendesign
     native: true
     primary_tier: default
     tiers:
       default: {model: deepseek-v4.1-flash}
-      opus:    {model: deepseek-v4-pro}
-      fable:   {model: deepseek-v4-pro}
+      opus:    {model: deepseek-v4.1-flash}
+      fable:   {model: deepseek-v4.1-flash}
       sonnet:  {model: deepseek-v4.1-flash}
-      haiku:   {model: glm-5.3-flash}
+      haiku:   {model: deepseek-v4.1-flash}
 
   copilot:
     provider: copilot
