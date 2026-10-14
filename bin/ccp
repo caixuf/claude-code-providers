@@ -191,6 +191,15 @@ set_active_model() {
     return 1
   fi
 
+  # `ccp -m group/daily` is the documented spelling of a routing group, but
+  # LiteLLM reads a `/` in a model name as a provider prefix: it answers
+  # `Invalid model name passed in model=group/daily` and the session dies with
+  # a 400. render_config.py registers the group under its bare name, so drop
+  # the prefix here and let both spellings work.
+  case "$model" in
+    group/*) model="${model#group/}" ;;
+  esac
+
   if [ ! -f "$SETTINGS_FILE" ]; then
     echo "Error: settings file $SETTINGS_FILE not found. Switch to a provider first." >&2
     return 1
