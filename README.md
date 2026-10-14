@@ -11,7 +11,7 @@
 
 ## ✨ Features
 
-- ⚡ **One-command switching**: Switch models in 1 second (`ccp qianfan`, `ccp trae`, `ccp deepseek`).
+- ⚡ **One-command switching**: Switch models in 1 second (`ccp qianfan-deepseek-v4.1-flash`, `ccp trae-qwen3.8-max`, `ccp minimax-m3`).
 - 🛡️ **Safe & non-destructive**: Automatically creates timestamped backups of `~/.claude/settings.json` upon every switch; supports instant rollback with `ccp --rollback`.
 - 🌉 **Universal Protocol Bridge**: Claude Code hardcodes the Anthropic Messages API (`/v1/messages`). `ccp` includes an optional zero-latency local proxy bridge (powered by LiteLLM) that allows Claude Code to access **any OpenAI-compatible gateway** (Qianfan, ClinePass, self-hosted vLLM) with full streaming, tool use, and thinking tokens!
 - 🎯 **Preserves Full Capabilities**:
@@ -19,8 +19,8 @@
   - ✅ Thinking tokens (Extended reasoning / CoT streaming)
   - ✅ Stream-json / verbose output
 - 🧪 **Battle-Tested**: Validated by rigorous automated 6-axis code generation benchmarks on complex real-world codebases.
-- 🐧 **Baidu Qianfan (Token Plan)**: a plain OpenAI-compatible gateway, so it needs no adapter — just `ccp qianfan`.
-- 🐣 **Trae CLI subscription**: TraeCLI publishes no API at all, so `bridge/trae_bridge.py` replays its private streaming RPC and re-shapes it into the Anthropic Messages API — `ccp trae`.
+- 🐧 **Baidu Qianfan (Token Plan)**: a plain OpenAI-compatible gateway, so it needs no adapter — just `ccp qianfan-deepseek-v4.1-flash`.
+- 🐣 **Trae CLI subscription**: TraeCLI publishes no API at all, so `bridge/trae_bridge.py` replays its private streaming RPC and re-shapes it into the Anthropic Messages API — `ccp trae-qwen3.8-max`.
 
 ---
 
@@ -165,14 +165,22 @@ Example configuration template:
 
 Pre-configured templates in `providers/` — the set ccp currently keeps:
 
-| Profile | Provider | Path | Models |
+A profile's name is `<provider>-<model you land on>`, so `ccp` alone tells you
+what you are about to run. Several providers resell the *same* model — that is
+the point of keeping them all: same model, different pipe and quota.
+
+| Profile | Lands on | Path | Catalogue |
 | :--- | :--- | :--- | ---: |
-| `qianfan` | Baidu Qianfan (Token Plan) | bridged → LiteLLM | 6 |
-| `trae` | Trae CLI subscription | native `127.0.0.1:4100` | 23 |
-| `cline` | ClinePass | bridged → LiteLLM | 469 catalogued |
-| `opendesign` | OpenDesign aggregator | native Anthropic | 11 |
-| `minimax` | MiniMax official | native Anthropic | 8 |
-| `deepseek` | DeepSeek official | native Anthropic | 2 |
+| `qianfan-deepseek-v4.1-flash` | DeepSeek-V4.1-Flash (1.44M) | bridged → LiteLLM | 6 |
+| `opendesign-deepseek-v4.1-flash` | DeepSeek-V4.1-Flash (1.05M) | native Anthropic | 11 |
+| `cline-deepseek-v4.1-flash` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 469 |
+| `deepseek-v4.1-flash` | DeepSeek-V4.1-Flash (1M) | native Anthropic | 2 |
+| `trae-qwen3.8-max` | Qwen3.8-Max (168k) | native `127.0.0.1:4100` | 23 |
+| `minimax-m3` | MiniMax-M3 (1M) | native Anthropic | 8 |
+
+The four DeepSeek-V4.1-Flash rows are the same underlying model reached four
+ways; `ccp -m` then hot-swaps to another rung *within* a provider (for example
+`ccp -m trae-glm`, `ccp -m qianfan-glm-5.3`).
 
 **Bridged** profiles run Claude Code → `:4000` watchdog → `:4001` LiteLLM →
 upstream. **Native** ones point straight at an Anthropic-compatible endpoint.
@@ -315,7 +323,7 @@ $EDITOR ~/.config/litellm/proxy.env
 # 2. Discover its catalogue, render, sync, switch
 ccp discover opendesign
 ccp render && ccp sync
-ccp opendesign
+ccp opendesign-deepseek-v4.1-flash
 ```
 
 The upstream id goes into the live profile — the template keeps

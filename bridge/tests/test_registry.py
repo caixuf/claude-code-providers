@@ -313,8 +313,8 @@ def test_native_profile_sends_the_upstream_model_id_not_the_alias():
     # opendesign has an alias whose name differs from the upstream id
     assert profiles["aliases"]["opendesign"]["model"] == "deepseek-v4.1-flash"
     rendered = render_config.render_profile(
-        "opendesign",
-        profiles["profiles"]["opendesign"],
+        "opendesign-deepseek-v4.1-flash",
+        profiles["profiles"]["opendesign-deepseek-v4.1-flash"],
         models,
         providers,
         render_config._alias_index(profiles),
@@ -352,7 +352,7 @@ def test_bridged_profiles_still_use_alias_and_1m_marker():
     alias_idx = render_config._alias_index(profiles)
     env = json.loads(
         render_config.render_profile(
-            "qianfan", profiles["profiles"]["qianfan"], models, providers,
+            "qianfan-deepseek-v4.1-flash", profiles["profiles"]["qianfan-deepseek-v4.1-flash"], models, providers,
             alias_idx, profiles
         )
     )["env"]
@@ -365,10 +365,10 @@ def test_opendesign_is_registered_and_discovered():
     must resolve to ids the catalogue actually lists."""
     doc, profiles = _load()
     models, _ = render_config.index_models(doc)
-    assert profiles["profiles"]["opendesign"]["native"] is True
+    assert profiles["profiles"]["opendesign-deepseek-v4.1-flash"]["native"] is True
     known = {m for (p, m) in models if p == "opendesign"}
     assert known, "opendesign models missing from registry/models.yaml"
-    for tier, tspec in profiles["profiles"]["opendesign"]["tiers"].items():
+    for tier, tspec in profiles["profiles"]["opendesign-deepseek-v4.1-flash"]["tiers"].items():
         assert tspec["model"] in known, f"tier {tier} -> {tspec['model']} not in the catalogue"
 
 

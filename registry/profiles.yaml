@@ -22,7 +22,7 @@ version: 1
 # CLAUDE_CODE_MAX_CONTEXT_TOKENS for the whole profile (Claude Code has one
 # context number per session, so we advertise the slot the user starts on).
 profiles:
-  cline:
+  cline-deepseek-v4.1-flash:
     provider: cline
     primary_tier: default
     tiers:
@@ -37,7 +37,7 @@ profiles:
   # rendered into config.yaml too so `ccp models` can list them, but the
   # profile JSON points ANTHROPIC_BASE_URL directly (no 127.0.0.1:4000).
   # Models are auto-discovered (see registry/models.yaml).
-  deepseek:
+  deepseek-v4.1-flash:
     provider: deepseek
     native: true
     primary_tier: default
@@ -48,7 +48,7 @@ profiles:
       sonnet:  {model: deepseek-flash}
       haiku:   {model: deepseek-flash}
 
-  minimax:
+  minimax-m3:
     provider: minimax
     native: true
     primary_tier: default
@@ -67,7 +67,7 @@ profiles:
   # so no Claude Code slot can drift onto a model this account was not meant to
   # spend on. It is 1048k-context, so the 1M window holds on every tier. Add a
   # rung here if that ever changes.
-  opendesign:
+  opendesign-deepseek-v4.1-flash:
     provider: opendesign
     native: true
     primary_tier: default
@@ -92,7 +92,7 @@ profiles:
   # `trae-glm` alias instead of holding a tier.
   # Names are registry names (Trae `config_name`), which is what the adapter
   # matches against the live catalogue.
-  trae:
+  trae-qwen3.8-max:
     provider: trae
     native: true
     primary_tier: sonnet
@@ -112,7 +112,7 @@ profiles:
   # 34-model catalogue down to the 6 ids this key can actually call.
   # deepseek-v4.1-flash takes the top tiers: 1.44M context and genuinely
   # multimodal (vision works on it), so it also backs image pasting.
-  qianfan:
+  qianfan-deepseek-v4.1-flash:
     provider: qianfan
     primary_tier: sonnet
     tiers:
