@@ -388,9 +388,10 @@ per model, so nothing has to be guessed or cross-checked against LiteLLM's cost
 map. `deepseek-v4.1-flash` takes the top tiers: 1.44M context and genuinely
 multimodal, so image pasting works on it.
 
-> Aliases are spelled out (`qianfan-deepseek-flash`, `qianfan-glm-5.3`, …)
-> because the short first cut (`qianfan-ds`, `qianfan-pro`) did not say which
-> model you were actually on.
+> Aliases are spelled out (`qianfan-deepseek-flash`, `qianfan-glm-5.3`, …). The
+> short first cut (`qianfan-ds`, `qianfan-pro`, `qianfan-flash`) was dropped once
+> no running session referenced it: a picker that lists one model twice under
+> two spellings is exactly the confusion these names exist to remove.
 
 ---
 
