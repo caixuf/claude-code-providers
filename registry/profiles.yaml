@@ -121,6 +121,28 @@ profiles:
       sonnet:  {model: deepseek-v4.1-flash}
       haiku:   {model: deepseek-v4.1-flash}
 
+  # ── Trae CLI (ByteDance enterprise coding agent) ──────────────────────
+  # Also `native: true`: bridge/trae_bridge.py speaks the Anthropic Messages
+  # API directly, so Claude Code talks to :4100 with no LiteLLM hop. The
+  # endpoint is the local adapter, not Trae itself — the adapter replays Trae's
+  # private `llm_raw_chat` RPC using the PAT TraeCLI already stores on disk.
+  #
+  # Tiers mirror the ladder this subscription actually exposes: glm-5.3 is the
+  # strongest tool-caller on it, deepseek-V4-Pro the heaviest reasoner, and
+  # glm-5.3-flash the cheap tier compaction runs on. All are 168k-context.
+  # Names are registry names (Trae `config_name`), which is what the adapter
+  # matches against the live catalogue.
+  trae:
+    provider: trae
+    native: true
+    primary_tier: sonnet
+    tiers:
+      default: {model: glm-5.3}
+      opus:    {model: deepseek-V4-Pro}
+      fable:   {model: deepseek-V4-Pro}
+      sonnet:  {model: glm-5.3}
+      haiku:   {model: glm-5.3-flash}
+
   copilot:
     provider: copilot
     native: false
@@ -197,6 +219,17 @@ aliases:
   opendesign-glm:     {provider: opendesign, model: glm-5.3-flash, ctx: 1048000}
   opendesign-luna:    {provider: opendesign, model: gpt-6-luna, ctx: 1050000}
   opendesign-mimo:    {provider: opendesign, model: mimo-v2.6-pro, ctx: 1048000}
+  # Trae: one alias per rung worth hot-switching to via `ccp -m`. The model id
+  # on the right is the registry name (Trae's `config_name`), which is also
+  # what the adapter matches against its live catalogue.
+  trae-glm:           {provider: trae, model: glm-5.3, ctx: 168000}
+  trae-glm-flash:     {provider: trae, model: glm-5.3-flash, ctx: 168000}
+  trae-deepseek:      {provider: trae, model: DeepSeek-V4.1-Flash, ctx: 168000}
+  trae-deepseek-pro:  {provider: trae, model: deepseek-V4-Pro, ctx: 168000}
+  trae-kimi:          {provider: trae, model: kimi-k3, ctx: 168000}
+  trae-minimax:       {provider: trae, model: minimax-m3, ctx: 184000}
+  trae-qwen:          {provider: trae, model: qwen3.8-max, ctx: 168000}
+  trae-doubao:        {provider: trae, model: Doubao-Seed-2.1-pro, ctx: 184000}
 
 # ── Accounts: several logins for one provider ──────────────────────────
 # Each extra account becomes its own LiteLLM deployment named

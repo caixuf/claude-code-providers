@@ -128,6 +128,20 @@ PROVIDERS = {
         "profile_file": "~/.claude/providers/opendesign.json",
         "max_output_default": None,
     },
+    # TraeCLI (ByteDance's enterprise coding agent). There is no public API and
+    # no /models endpoint: `bridge/trae_bridge.py` owns the private
+    # `llm_raw_chat` protocol and is what `ccp trae` points at. Discovery and
+    # the runtime therefore share one catalogue source — the bridge's own
+    # `get_config_list` call — via ``catalogue_command``. The PAT never has to
+    # be duplicated here: the bridge reads it from proxy.env itself.
+    "trae": {
+        "models_url": None,
+        "api_base": "http://127.0.0.1:4100",
+        "endpoint_kind": "anthropic",
+        "auth_env": "TRAECLI_PERSONAL_ACCESS_TOKEN",
+        "catalogue_command": ["trae_bridge.py", "--list-models-json"],
+        "max_output_default": None,
+    },
 }
 
 
@@ -179,6 +193,25 @@ def read_token(provider: dict) -> str | None:
                 if not val.startswith("os.environ/"):
                     return val
     return None
+
+
+def fetch_catalogue(command: list[str]) -> list[dict]:
+    """Ask a provider's own adapter for its model list.
+
+    Used by providers with no HTTP /models endpoint (Trae). The adapter owns the
+    auth handshake, so discovery never needs the credential itself — it just
+    runs the sibling script and reads JSON from stdout.
+    """
+    import subprocess
+
+    script = BRIDGE_DIR / command[0]
+    proc = subprocess.run(
+        [sys.executable, str(script), *command[1:]],
+        capture_output=True, text=True, timeout=120,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError((proc.stderr or proc.stdout or "no output").strip()[:300])
+    return json.loads(proc.stdout)
 
 
 def fetch_models(url: str, token: str | None, json_path: tuple[str, ...] | None = None) -> list[dict]:
@@ -350,6 +383,24 @@ def _guess_vision(mid: str) -> bool | None:
     return None
 
 
+def norm_trae(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
+    """TraeCLI's subscription catalogue.
+
+    Trae publishes no /models endpoint; ``trae_bridge.py`` calls its private
+    ``get_config_list`` RPC through the PAT and hands us one dict per model
+    with ctx / max_output / vision already resolved from the catalogue's own
+    ``prompt_max_tokens`` / ``max_tokens`` / ``multimodal`` fields. Nothing has
+    to be guessed, so this normalizer is a straight copy.
+    """
+    return {
+        "name": entry.get("config_name") or entry.get("id"),
+        "ctx": entry.get("ctx"),
+        "max_output": entry.get("max_output"),
+        "vision": entry.get("vision"),
+        "endpoint_kind": "anthropic",
+    }
+
+
 NORMALIZERS = {
     "cmdc": norm_cmdc,
     "cline": norm_generic,
@@ -357,6 +408,7 @@ NORMALIZERS = {
     "deepseek": norm_deepseek,
     "minimax": norm_generic,
     "opendesign": norm_opendesign,
+    "trae": norm_trae,
 }
 
 # Speed-tier variants that share every fact with their base model. Neither the
@@ -453,7 +505,10 @@ def build(only: str | None) -> dict:
         token = read_token(pdef)
         raw = None
         try:
-            raw = fetch_models(pdef["models_url"], token, pdef.get("models_json_path"))
+            if pdef.get("catalogue_command"):
+                raw = fetch_catalogue(pdef["catalogue_command"])
+            else:
+                raw = fetch_models(pdef["models_url"], token, pdef.get("models_json_path"))
         except Exception as e:
             print(f"  ! {pname}: fetch failed ({e}); keeping existing entries", file=sys.stderr)
         if raw is None:

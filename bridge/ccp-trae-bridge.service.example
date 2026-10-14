@@ -1,0 +1,18 @@
+[Unit]
+Description=CCP Trae bridge (Trae CLI subscription as an Anthropic endpoint)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/code/claude-code-providers/bridge
+ExecStart=/usr/bin/env python3 %h/code/claude-code-providers/bridge/trae_bridge.py --serve --port 4100
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+# The PAT lives in the same secrets file the rest of ccp uses. Optional
+# (-): a missing file must not stop the unit from starting, because the
+# bridge reports the missing token itself with an actionable message.
+EnvironmentFile=-%h/.config/litellm/proxy.env
+
+[Install]
+WantedBy=default.target

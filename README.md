@@ -483,6 +483,60 @@ cross-check for it.
 
 ---
 
+## 🐣 Using Trae CLI with Claude Code
+
+TraeCLI (ByteDance's enterprise coding agent) is the odd one out here: it
+publishes **no API at all**. A logged-in TraeCLI holds a personal access token,
+exchanges it for a 14-day JWT, and then runs every turn through one private
+streaming RPC:
+
+```
+POST https://api.enterprise.trae.cn/api/ide/v2/llm_raw_chat
+```
+
+So `bridge/trae_bridge.py` replays that RPC and re-shapes it into the Anthropic
+Messages API. It listens on **`127.0.0.1:4100`** and Claude Code talks to it
+directly — `native: true`, no LiteLLM hop, nothing in the running :4000/:4001
+deployment changes.
+
+```bash
+ccp auth trae      # copy the TraeCLI token into proxy.env, then verify it answers
+ccp bridge start trae
+ccp trae           # switch; ccp auto-starts the adapter if it is down
+```
+
+Then just use `claude`. Verified against the live subscription: text, streaming,
+multi-turn tool calling, and 23 models (GLM-5.3 / DeepSeek-V4 / Kimi-K3 /
+MiniMax-M3 / Doubao-Seed / Qwen3.8-Max / MiMo).
+
+To run it at login, install the unit once:
+
+```bash
+cp bridge/ccp-trae-bridge.service.example ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now ccp-trae-bridge.service
+```
+
+`ccp models trae` lists the catalogue, which `ccp discover trae` refreshes from
+the subscription itself.
+
+**Three protocol details this cost real time to find** — recorded here so nobody
+re-derives them:
+
+1. **Tool `parameters` must be a JSON *string*.** Sending an object makes Trae
+   answer HTTP 500 with the bare body `Internal Server Error` and nothing else.
+2. **Responses are an SSE dialect**, not OpenAI streaming: `event: output`
+   carries a `tool_calls` array, `event: done` carries `finish_reason`, and
+   `event: token_usage` the counts. An empty `response` with a populated
+   `reasoning_content` is normal — thinking streams first.
+3. **A turn that is only a tool call still carries `content: " "`** (one space).
+   That is what makes the follow-up `tool_result` turn valid.
+
+**Known limitation:** images are not translated. Trae takes them in a separate
+`multimodal_contents` field whose shape is not captured, so an `image` block is
+dropped rather than sent malformed. Text and tools are unaffected.
+
+---
+
 ## 🔀 Accounts, pools and routing groups
 
 These three exist so a plan running out is not your problem. All of it is

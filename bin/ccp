@@ -48,10 +48,10 @@ Usage:
   ccp discover [provider]    Refresh model metadata from provider APIs
   ccp sync                   Sync local profiles with repository templates
   ccp bridge [action]        Manage local bridge: status, restart, start, stop,
-                             deploy (push the rendered config to the service), logs
-  ccp auth [copilot|codebuddy]
-                             Authenticate a provider (Copilot device flow, or
-                             import the local CodeBuddy Code login token)
+                             deploy, logs, start-trae/stop-trae/restart-trae (the Trae adapter)
+  ccp auth [copilot|codebuddy|trae]
+                             Authenticate a provider (Copilot device flow,
+                             import the CodeBuddy login, or the TraeCLI token)
   ccp accounts [action]      Several logins for one provider, and routing groups:
                              list | add <provider> <suffix> | remove <provider> <suffix>
                              | group add <name> <member...> | group remove <name>
@@ -285,6 +285,34 @@ ensure_bridge_running() {
       echo -e "  \033[32m✔ Universal Bridge healthy (SSE Watchdog :4000 -> LiteLLM :4001)\033[0m"
     fi
   fi
+
+  # Trae is a separate, self-contained adapter on :4100 — it speaks Anthropic
+  # itself, so it never touches LiteLLM or the watchdog. Same auto-start
+  # contract as the universal bridge so `ccp trae` works from a cold shell.
+  if [[ "$url" =~ (127\.0\.0\.1|localhost):4100 ]]; then
+    sync_proxy_env
+    if check_bridge_port 4100; then
+      echo -e "  \033[32m✔ Trae bridge healthy (:4100)\033[0m"
+      return 0
+    fi
+    echo -e "  \033[33m⚡ Trae bridge (:4100) not running. Auto-starting...\033[0m"
+    if systemctl --user start ccp-trae-bridge.service 2>/dev/null; then
+      for _ in {1..10}; do
+        sleep 0.5
+        check_bridge_port 4100 && break
+      done
+    fi
+    if check_bridge_port 4100; then
+      echo -e "  \033[32m✔ Trae bridge active (:4100)\033[0m"
+    elif [ ! -f "$HOME/.config/systemd/user/ccp-trae-bridge.service" ]; then
+      echo -e "  \033[33m⚠ No service installed. Run this once:\033[0m"
+      echo -e "      cp \$(ccp_repo_dir)/bridge/ccp-trae-bridge.service.example \\"
+      echo -e "         \$HOME/.config/systemd/user/ccp-trae-bridge.service"
+      echo -e "      systemctl --user daemon-reload && systemctl --user enable --now ccp-trae-bridge.service"
+    else
+      echo -e "  \033[31m⚠ Trae bridge failed to start: systemctl --user status ccp-trae-bridge.service\033[0m"
+    fi
+  fi
 }
 
 # Adopt credentials the owning CLI may have rotated since the last import.
@@ -344,6 +372,21 @@ deploy_bridge_config() {
 manage_bridge() {
   local action="${1:-status}"
   case "$action" in
+    start-trae|stop-trae|restart-trae)
+      # Addresses the Trae adapter only. It deliberately does NOT deploy
+      # config.generated.yaml: the adapter needs no LiteLLM config, and pushing
+      # one here would touch the running universal bridge for no benefit.
+      systemctl --user "${action%-trae}" ccp-trae-bridge.service 2>/dev/null || {
+        echo -e "\033[31mNo ccp-trae-bridge.service installed. See README → Trae CLI.\033[0m" >&2
+        return 1
+      }
+      sleep 1
+      if check_bridge_port 4100; then
+        echo -e "\033[32m✔ Trae bridge active (:4100)\033[0m"
+      else
+        echo -e "\033[31m✗ Trae bridge down — systemctl --user status ccp-trae-bridge.service\033[0m"
+      fi
+      ;;
     status)
       echo "Universal Bridge Status:"
       local p4000=0 p4001=0
@@ -360,6 +403,15 @@ manage_bridge() {
         echo -e "  LiteLLM  (:4001):   \033[32mRUNNING\033[0m"
       else
         echo -e "  LiteLLM  (:4001):   \033[31mSTOPPED\033[0m"
+      fi
+
+      # The Trae adapter is independent of the above two — it never goes
+      # through LiteLLM — so report it separately rather than implying the
+      # universal bridge covers it.
+      if check_bridge_port 4100; then
+        echo -e "  Trae     (:4100):   \033[32mRUNNING\033[0m"
+      else
+        echo -e "  Trae     (:4100):   \033[31mSTOPPED\033[0m  (ccp auth trae; ccp bridge start trae)"
       fi
       ;;
     restart)
@@ -395,7 +447,7 @@ manage_bridge() {
       journalctl --user -u ccp-sse-watchdog.service -u litellm-cmdc.service -f -n 50
       ;;
     *)
-      echo "Usage: ccp bridge [status|restart|start|stop|deploy|logs]"
+      echo "Usage: ccp bridge [status|restart|start|stop|deploy|logs|start-trae|stop-trae|restart-trae]"
       ;;
   esac
 }
@@ -471,8 +523,23 @@ except Exception as e:
       fi
       return $ret
       ;;
+    trae|traecli)
+      # TraeCLI keeps its personal access token in ~/.bashrc rather than a
+      # keychain. Copy it into the shared secrets file so the bridge works
+      # without an interactive shell, then prove the subscription answers.
+      local repo_dir py_bin
+      repo_dir=$(ccp_repo_dir)
+      if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/trae_auth.py" ]; then
+        echo -e "\033[31mError: repo checkout not found (need bridge/trae_auth.py).\033[0m" >&2
+        return 1
+      fi
+      py_bin=$(ccp_python)
+      echo -e "\033[36m=== Trae Authentication (import TraeCLI token) ===\033[0m"
+      "$py_bin" "$repo_dir/bridge/trae_auth.py" "${@:2}"
+      return $?
+      ;;
     *)
-      echo "Usage: ccp auth [copilot|codebuddy]" >&2
+      echo "Usage: ccp auth [copilot|codebuddy|trae]" >&2
       return 1
       ;;
   esac
