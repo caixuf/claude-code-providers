@@ -483,6 +483,49 @@ cross-check for it.
 
 ---
 
+## 🐧 Using Baidu Qianfan with Claude Code
+
+[Qianfan](https://qianfan.baidubce.com) (百度千帆) is a plain OpenAI-compatible
+gateway, so it needs no adapter: it is a normal **bridged** provider behind
+LiteLLM, like CommandCode or Cline.
+
+```bash
+# 1. Put the Token Plan key in the bridge's secrets file
+#    (QIANFAN_API_KEY=bce-v3/...)
+$EDITOR ~/.config/litellm/proxy.env
+
+# 2. Refresh the catalogue, render, deploy
+ccp discover qianfan
+ccp render && ccp bridge deploy && ccp bridge restart
+ccp qianfan
+```
+
+Two things about the Token Plan key are worth knowing, both verified against
+the live endpoint:
+
+* **The key only works on the Token-Plan prefix.** The same key answers
+  `token_plan_person_api_key_not_allowed` on the ordinary
+  `/v2/chat/completions`, so ccp pins `api_base` to
+  `https://qianfan.baidubce.com/v2/tokenplan/personal`.
+* **The catalogue is much wider than the plan.** `/v2/models` lists ~34 models,
+  but Token Plan Person only serves the GLM and DeepSeek families — the ERNIE,
+  Qwen, VL, OCR and embedding ids all answer
+  `token_plan_person_model_not_supported`. Discovery therefore narrows the
+  registry to the six ids the key can actually call, so no profile advertises a
+  model that would fail at request time.
+
+Qianfan's `/v2/models` is unusually good about metadata — `context_length`,
+`max_completions_tokens` and `architecture.input_modalities` are all published
+per model, so nothing has to be guessed or cross-checked against LiteLLM's cost
+map. `deepseek-v4.1-flash` takes the top tiers: 1.44M context and genuinely
+multimodal, so image pasting works on it.
+
+> Aliases are spelled out (`qianfan-deepseek-flash`, `qianfan-glm-5.3`, …)
+> because the short first cut (`qianfan-ds`, `qianfan-pro`) did not say which
+> model you were actually on.
+
+---
+
 ## 🐣 Using Trae CLI with Claude Code
 
 TraeCLI (ByteDance's enterprise coding agent) is the odd one out here: it
@@ -531,9 +574,18 @@ re-derives them:
 3. **A turn that is only a tool call still carries `content: " "`** (one space).
    That is what makes the follow-up `tool_result` turn valid.
 
-**Known limitation:** images are not translated. Trae takes them in a separate
-`multimodal_contents` field whose shape is not captured, so an `image` block is
-dropped rather than sent malformed. Text and tools are unaffected.
+**Images work, but the tier has to be a vision model.** Trae takes an image as
+an OpenAI-style `image_url` data URL on a user turn, and the adapter emits
+exactly that. The catch is that *TraeCLI* decides whether pixels reach the
+model: on a text-only model it substitutes
+`[image/png content is not supported by current model]`. The profile's tiers are
+therefore all vision-capable (qwen3.8-max / Doubao-Seed-2.1-pro /
+glm-5.3-flash). `glm-5.3`, the strongest tool-caller on this subscription, is
+text-only and is reached through the `trae-glm` alias when you do not need
+vision.
+
+Verified end to end: Claude Code's `Read` on a PNG travels through the adapter
+and the model names the colours correctly.
 
 ---
 

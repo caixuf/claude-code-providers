@@ -128,6 +128,36 @@ PROVIDERS = {
         "profile_file": "~/.claude/providers/opendesign.json",
         "max_output_default": None,
     },
+    # Baidu Qianfan (文心 / 千帆) Token Plan, personal tier. Standard
+    # OpenAI-compatible Chat Completions, so it goes through the normal bridge
+    # with no adapter. Two quirks, both verified against the live endpoint:
+    #   * the Token Plan key is only accepted on the `/v2/tokenplan/personal/`
+    #     prefix — the same key gets `token_plan_person_api_key_not_allowed`
+    #     on plain `/v2/chat/completions`;
+    #   * the catalogue lists ~34 models but Token Plan Person only serves the
+    #     GLM / DeepSeek families; the ERNIE, Qwen, VL, OCR and embedding ids
+    #     all answer `token_plan_person_model_not_supported`. ``only_models``
+    #     narrows the registry to the verified set so no profile advertises a
+    #     model this key cannot call.
+    "qianfan": {
+        "models_url": "https://qianfan.baidubce.com/v2/models",
+        "api_base": "https://qianfan.baidubce.com/v2/tokenplan/personal",
+        "endpoint_kind": "openai",
+        "litellm_prefix": "openai/",
+        "auth_env": "QIANFAN_API_KEY",
+        "auth_file": "~/.config/litellm/config.yaml",
+        "auth_grep": "qianfan.baidubce.com",
+        # Verified to answer on the Token Plan Person endpoint.
+        "only_models": [
+            "deepseek-v4.1-flash",
+            "deepseek-v4-pro",
+            "deepseek-v4-flash-0731",
+            "glm-5.3",
+            "glm-5.3-flash",
+            "glm-5.2",
+        ],
+        "max_output_default": 32000,
+    },
     # TraeCLI (ByteDance's enterprise coding agent). There is no public API and
     # no /models endpoint: `bridge/trae_bridge.py` owns the private
     # `llm_raw_chat` protocol and is what `ccp trae` points at. Discovery and
@@ -333,6 +363,29 @@ def norm_generic(entry: dict, provider: dict, cmap: dict, idx: dict | None = Non
     }
 
 
+def norm_qianfan(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
+    """Qianfan's /v2/models carries real capability metadata per model.
+
+    Unlike most OpenAI-shaped catalogues this one publishes
+    ``context_length`` / ``max_completions_tokens`` and
+    ``architecture.input_modalities``, so nothing has to be guessed or
+    cross-checked against LiteLLM's cost map. ``type: multimodal`` plus an
+    ``image`` input modality is the vision signal.
+    """
+    arch = entry.get("architecture") or {}
+    mods = arch.get("input_modalities") or []
+    vision = "image" in mods if mods else None
+    return {
+        "name": entry.get("id", ""),
+        "ctx": entry.get("context_length") or entry.get("prompt_tokens"),
+        "max_output": (entry.get("max_completions_tokens")
+                       or entry.get("max_tokens")
+                       or provider.get("max_output_default")),
+        "vision": vision,
+        "endpoint_kind": provider["endpoint_kind"],
+    }
+
+
 def norm_codebuddy(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
     """CodeBuddy's catalogue is richer than a /models list: every entry carries
     maxInputTokens / maxOutputTokens / supportsImages / supportsToolCall, so no
@@ -409,6 +462,7 @@ NORMALIZERS = {
     "minimax": norm_generic,
     "opendesign": norm_opendesign,
     "trae": norm_trae,
+    "qianfan": norm_qianfan,
 }
 
 # Speed-tier variants that share every fact with their base model. Neither the
@@ -519,6 +573,15 @@ def build(only: str | None) -> dict:
             continue
         # ids the gateway routes but this account's catalogue omits
         raw = list(raw) + list(pdef.get("extra_models") or [])
+        # Some providers publish a catalogue wider than the plan can actually
+        # call (Qianfan: ~34 models listed, only the GLM/DeepSeek families
+        # answer on the Token Plan tier). ``only_models`` narrows the registry
+        # to the verified set, so an unusable id never reaches a profile where
+        # it would fail at request time.
+        if pdef.get("only_models"):
+            wanted = set(pdef["only_models"])
+            raw = [e for e in raw
+                   if (e.get("id") or e.get("config_name")) in wanted]
         models = []
         seen: set[str] = set()
         for entry in raw:

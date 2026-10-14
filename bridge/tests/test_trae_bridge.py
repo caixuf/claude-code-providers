@@ -39,11 +39,18 @@ def test_plain_string_user_message_survives_intact():
                     "content": [{"type": "text", "text": "What is 17*23?"}]}]
 
 
-def test_content_block_list_is_preserved():
+def test_content_block_list_coalesces_into_one_user_turn():
+    """Several blocks in one Anthropic turn are one Trae turn.
+
+    Splitting them would send Trae a conversation with more user messages than
+    the client has — the prompt shape must survive the translation.
+    """
     out = tb.anthropic_to_trae(
         [{"role": "user", "content": [{"type": "text", "text": "hi"},
                                       {"type": "text", "text": " there"}]}], None)
-    assert [m["content"][0]["text"] for m in out] == ["hi", " there"]
+    assert len(out) == 1
+    assert out[0]["content"] == [{"type": "text", "text": "hi"},
+                                 {"type": "text", "text": " there"}]
 
 
 def test_system_prompt_leads_the_conversation():
@@ -83,6 +90,72 @@ def test_tool_result_inside_a_mixed_user_turn_is_split_out():
     ], None)
     assert out[0]["role"] == "tool"
     assert out[1]["role"] == "user" and out[1]["content"][0]["text"] == "and then?"
+
+
+def test_image_and_text_coalesce_into_one_user_turn():
+    """Trae emits a pasted image as image_url *inside* the user turn.
+
+    Splitting it into two user messages would change the conversation shape
+    Trae itself produces.
+    """
+    out = tb.anthropic_to_trae([{"role": "user", "content": [
+        {"type": "text", "text": "what is this?"},
+        {"type": "image", "source": {"type": "base64",
+                                     "media_type": "image/png",
+                                     "data": "iVBORw0KGgo="}}]}], None)
+    assert len(out) == 1
+    assert out[0]["role"] == "user"
+    assert out[0]["content"][0] == {"type": "text", "text": "what is this?"}
+    assert out[0]["content"][1] == {
+        "type": "image_url",
+        "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}}
+
+
+def test_url_image_source_is_passed_through():
+    out = tb.anthropic_to_trae([{"role": "user", "content": [
+        {"type": "image", "source": {"type": "url",
+                                     "url": "https://x/y.png"}}]}], None)
+    assert out[0]["content"][0]["image_url"]["url"] == "https://x/y.png"
+
+
+def test_untranslatable_image_says_so_instead_of_vanishing():
+    """A dropped image would silently answer a question about nothing."""
+    out = tb.anthropic_to_trae([{"role": "user", "content": [
+        {"type": "text", "text": "look:"},
+        {"type": "image", "source": {"type": "file", "file_id": "f1"}}]}], None)
+    texts = [p["text"] for p in out[0]["content"] if p["type"] == "text"]
+    assert any("omitted" in t for t in texts)
+
+
+def test_tool_result_image_rides_on_its_own_user_turn():
+    """An image cannot go on a `role: tool` message.
+
+    Claude Code's Read on a .png produces exactly this shape: text plus an
+    image inside one tool_result.
+    """
+    out = tb.anthropic_to_trae([
+        {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t1", "name": "Read",
+             "input": {"file_path": "p.png"}}]},
+        {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "t1", "content": [
+                {"type": "text", "text": "image/png file read: p.png"},
+                {"type": "image", "source": {"type": "base64",
+                                             "media_type": "image/png",
+                                             "data": "AAAA"}}]}]}], None)
+    assert [m["role"] for m in out] == ["assistant", "tool", "user"]
+    # The tool message carries the text only — no "[image]" placeholder, since
+    # the pixels travel on the next turn.
+    assert out[1]["content"] == [{"type": "text",
+                                  "text": "image/png file read: p.png"}]
+    assert out[2]["content"][0]["image_url"]["url"] == "data:image/png;base64,AAAA"
+
+
+def test_text_of_notes_images_only_where_requested():
+    content = [{"type": "text", "text": "a"},
+               {"type": "image", "source": {"type": "url", "url": "u"}}]
+    assert tb._text_of(content) == "a[image]"
+    assert tb._text_of(content, images_as_placeholder=False) == "a"
 
 
 # ── tool translation ───────────────────────────────────────────────────────

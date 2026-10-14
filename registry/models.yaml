@@ -4223,6 +4223,53 @@ providers:
         endpoint_kind: anthropic
         aliases: []
         tiers: []
+  - name: qianfan
+    api_base: https://qianfan.baidubce.com/v2/tokenplan/personal
+    endpoint_kind: openai
+    auth_env: QIANFAN_API_KEY
+    models:
+      - name: deepseek-v4-flash-0731
+        ctx: 1441792
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek-v4-pro
+        ctx: 1441792
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek-v4.1-flash
+        ctx: 1441792
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: glm-5.2
+        ctx: 1179648
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: glm-5.3
+        ctx: 1179648
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: glm-5.3-flash
+        ctx: 1179648
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
   - name: trae
     api_base: http://127.0.0.1:4100
     endpoint_kind: anthropic

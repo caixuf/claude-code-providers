@@ -127,9 +127,12 @@ profiles:
   # endpoint is the local adapter, not Trae itself — the adapter replays Trae's
   # private `llm_raw_chat` RPC using the PAT TraeCLI already stores on disk.
   #
-  # Tiers mirror the ladder this subscription actually exposes: glm-5.3 is the
-  # strongest tool-caller on it, deepseek-V4-Pro the heaviest reasoner, and
-  # glm-5.3-flash the cheap tier compaction runs on. All are 168k-context.
+  # Tiers are all VISION-capable on purpose. TraeCLI decides whether an image
+  # reaches the model, and with a text-only model it substitutes
+  # "[image/png content is not supported by current model]" — so a pasted
+  # screenshot silently degrades on a text-only tier. glm-5.3 (the strongest
+  # tool-caller on this subscription) is text-only, so it is reached via the
+  # `trae-glm` alias instead of holding a tier.
   # Names are registry names (Trae `config_name`), which is what the adapter
   # matches against the live catalogue.
   trae:
@@ -137,10 +140,29 @@ profiles:
     native: true
     primary_tier: sonnet
     tiers:
-      default: {model: glm-5.3}
-      opus:    {model: deepseek-V4-Pro}
-      fable:   {model: deepseek-V4-Pro}
-      sonnet:  {model: glm-5.3}
+      default: {model: qwen3.8-max}
+      opus:    {model: Doubao-Seed-2.1-pro}
+      fable:   {model: Doubao-Seed-2.1-pro}
+      sonnet:  {model: qwen3.8-max}
+      haiku:   {model: glm-5.3-flash}
+
+  # ── Baidu Qianfan (千帆) Token Plan, personal tier ─────────────────────
+  # Standard OpenAI-compatible Chat Completions on a Token-Plan-specific
+  # prefix, so this is a normal *bridged* provider: no adapter, no native
+  # endpoint. No `ccp auth` step — the key lives in proxy.env.
+  #
+  # The plan only serves the GLM / DeepSeek families; discovery narrows the
+  # 34-model catalogue down to the 6 ids this key can actually call.
+  # deepseek-v4.1-flash takes the top tiers: 1.44M context and genuinely
+  # multimodal (vision works on it), so it also backs image pasting.
+  qianfan:
+    provider: qianfan
+    primary_tier: sonnet
+    tiers:
+      default: {model: deepseek-v4.1-flash}
+      opus:    {model: deepseek-v4-pro}
+      fable:   {model: deepseek-v4-pro}
+      sonnet:  {model: deepseek-v4.1-flash}
       haiku:   {model: glm-5.3-flash}
 
   copilot:
@@ -230,6 +252,25 @@ aliases:
   trae-minimax:       {provider: trae, model: minimax-m3, ctx: 184000}
   trae-qwen:          {provider: trae, model: qwen3.8-max, ctx: 168000}
   trae-doubao:        {provider: trae, model: Doubao-Seed-2.1-pro, ctx: 184000}
+  # Qianfan: bridged, so these resolve through LiteLLM like the cmdc aliases.
+  # Spellings are deliberately explicit — "qianfan-ds" told you nothing about
+  # which model you were actually on.
+  #
+  # The short legacy spellings are kept so an already-running session that
+  # sends one does not break mid-flight. They must stay ABOVE the preferred
+  # names: `_alias_index` is last-wins per (provider, model), so whichever
+  # appears last is the name `ccp -c` reports.
+  qianfan-ds:              {provider: qianfan, model: deepseek-v4.1-flash, ctx: 1441792}
+  qianfan-pro:             {provider: qianfan, model: deepseek-v4-pro, ctx: 1441792}
+  qianfan-flash:           {provider: qianfan, model: deepseek-v4-flash-0731, ctx: 1441792}
+  qianfan-glm-flash:       {provider: qianfan, model: glm-5.3-flash, ctx: 1179648}
+  qianfan:                 {provider: qianfan, model: deepseek-v4.1-flash, ctx: 1441792}
+  qianfan-deepseek-flash:  {provider: qianfan, model: deepseek-v4.1-flash, ctx: 1441792}
+  qianfan-deepseek-pro:    {provider: qianfan, model: deepseek-v4-pro, ctx: 1441792}
+  qianfan-deepseek-lite:   {provider: qianfan, model: deepseek-v4-flash-0731, ctx: 1441792}
+  qianfan-glm-5.3:         {provider: qianfan, model: glm-5.3, ctx: 1179648}
+  qianfan-glm-5.3-flash:   {provider: qianfan, model: glm-5.3-flash, ctx: 1179648}
+  qianfan-glm-5.2:         {provider: qianfan, model: glm-5.2, ctx: 1179648}
 
 # ── Accounts: several logins for one provider ──────────────────────────
 # Each extra account becomes its own LiteLLM deployment named

@@ -2,10 +2,10 @@
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "YOUR_TRAE_API_KEY",
     "ANTHROPIC_BASE_URL": "http://127.0.0.1:4100",
-    "ANTHROPIC_MODEL": "glm-5.3",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-V4-Pro",
-    "ANTHROPIC_DEFAULT_FABLE_MODEL": "deepseek-V4-Pro",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.3",
+    "ANTHROPIC_MODEL": "qwen3.8-max",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "Doubao-Seed-2.1-pro",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "Doubao-Seed-2.1-pro",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "qwen3.8-max",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-5.3-flash",
     "ANTHROPIC_SMALL_FAST_MODEL": "glm-5.3-flash",
     "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "168000",
@@ -14,7 +14,7 @@
   "permissions": {
     "defaultMode": "bypassPermissions"
   },
-  "model": "glm-5.3",
+  "model": "qwen3.8-max",
   "autoUpdatesChannel": "stable",
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark"

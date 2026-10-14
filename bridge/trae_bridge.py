@@ -45,11 +45,14 @@ Protocol notes (all verified against the live service)
 
 Limitations (v1)
 ----------------
-* Images are not translated. Trae takes them in a separate
-  ``multimodal_contents`` field whose exact shape is not yet captured, so an
-  ``image`` block is dropped rather than sent malformed.
 * ``max_tokens`` / ``temperature`` are accepted and ignored: Trae chooses the
   output cap from its own catalogue entry.
+* An image only reaches the model if the selected model is vision-capable.
+  TraeCLI itself decides this: with a text-only model (glm-5.3, deepseek-v4-pro)
+  it renders the tool result as ``[image/png content is not supported by
+  current model]`` and the model never sees pixels. Point the tier at a vision
+  model (doubao-seed, glm-5.3-flash, kimi-k3, minimax-m3, qwen3.8-max) or a
+  pasted image will be described only if the model decodes the bytes itself.
 
 Usage:
   python3 trae_bridge.py --check              # validate auth, print identity
@@ -237,8 +240,65 @@ class TraeAuth:
 
 # ── Trae <-> Anthropic translation ────────────────────────────────────────
 
-def _text_of(content) -> str:
-    """Flatten an Anthropic content field (string or block list) to text."""
+def _image_block(block: dict) -> dict | None:
+    """Anthropic ``image`` block -> Trae's OpenAI-style ``image_url`` block.
+
+    Verified against a captured vision-model turn: Trae takes images exactly as
+    OpenAI does, as a data URL on a *user* message:
+
+        {"type": "image_url",
+         "image_url": {"url": "data:image/png;base64,..."}}
+
+    Anthropic sends ``{"type": "image", "source": {"type": "base64",
+    "media_type": ..., "data": ...}}`` (or a ``url`` source), so this just
+    re-wraps the payload. Returns None for a block we cannot translate, so the
+    caller can fall back to a text note instead of dropping the turn.
+    """
+    source = block.get("source") or {}
+    stype = source.get("type")
+    if stype == "base64" and source.get("data"):
+        media = source.get("media_type") or "image/png"
+        return {"type": "image_url",
+                "image_url": {"url": "data:%s;base64,%s" % (media, source["data"])}}
+    if stype == "url" and source.get("url"):
+        return {"type": "image_url", "image_url": {"url": source["url"]}}
+    return None
+
+
+def _user_parts(content) -> list[dict]:
+    """Anthropic user content -> Trae content parts (text and images).
+
+    Images ride alongside text in one user message, which is what Trae itself
+    emits when an image is pasted. A tool_result is NOT handled here — the
+    caller splits those into ``role: tool`` messages.
+    """
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    parts = []
+    for block in content or []:
+        if isinstance(block, str):
+            parts.append({"type": "text", "text": block})
+        elif isinstance(block, dict) and block.get("type") == "image":
+            image = _image_block(block)
+            if image:
+                parts.append(image)
+            else:
+                # Never silently lose the turn: say so in-band, the same way
+                # TraeCLI reports an unreadable image to the model.
+                parts.append({"type": "text",
+                              "text": "[image omitted: unsupported source]"})
+        else:
+            parts.append({"type": "text", "text": _text_of([block])})
+    return parts
+
+
+def _text_of(content, images_as_placeholder: bool = True) -> str:
+    """Flatten an Anthropic content field (string or block list) to text.
+
+    ``images_as_placeholder=False`` drops image blocks entirely instead of
+    noting them — used where the image is being sent separately (a tool_result
+    whose pixels travel on the following user turn).
+    """
     if isinstance(content, str):
         return content
     parts = []
@@ -250,8 +310,12 @@ def _text_of(content) -> str:
             if btype == "text":
                 parts.append(block.get("text") or "")
             elif btype == "tool_result":
-                parts.append(_text_of(block.get("content")))
-            # image / document blocks are dropped (see "Limitations")
+                parts.append(_text_of(block.get("content"), images_as_placeholder))
+            elif btype == "image" and images_as_placeholder:
+                # Real images go through _user_parts, which emits an image_url
+                # block; this placeholder only covers text-only contexts (a
+                # system prompt, or a flattened tool result).
+                parts.append("[image]")
     return "".join(parts)
 
 
@@ -301,22 +365,36 @@ def anthropic_to_trae(messages: list[dict], system) -> list[dict]:
 
         elif role == "user":
             blocks = content if isinstance(content, list) else [content]
+            # Text and images coalesce into ONE user turn, the way Trae itself
+            # emits a pasted image. A tool_result is the exception: it becomes a
+            # `role: tool` message, and any image it carried follows as its own
+            # user turn (an image cannot ride on a tool message).
+            pending: list[dict] = []
+
+            def flush() -> None:
+                if pending:
+                    out.append({"role": "user", "content": list(pending)})
+                    pending.clear()
+
             for block in blocks:
                 if isinstance(block, dict) and block.get("type") == "tool_result":
+                    flush()
+                    inner = block.get("content")
+                    # Text goes on the tool message without any `[image]`
+                    # placeholder — images are sent separately right after.
                     out.append({
                         "role": "tool",
                         "content": [{"type": "text",
-                                     "text": _text_of(block.get("content"))}],
+                                     "text": _text_of(inner, images_as_placeholder=False)}],
                         "tool_call_id": block.get("tool_use_id"),
                     })
+                    images = [p for p in _user_parts(inner)
+                              if p.get("type") == "image_url"]
+                    if images:
+                        out.append({"role": "user", "content": images})
                 else:
-                    # A plain string is already the text; only a block list
-                    # needs flattening. Passing a {"type":"text"} dict back
-                    # through _text_of would read its *keys* — that bug shipped
-                    # once and rewrote every prompt to "typetext".
-                    text = block if isinstance(block, str) else _text_of([block])
-                    out.append({"role": "user",
-                                "content": [{"type": "text", "text": text}]})
+                    pending.extend(_user_parts([block]))
+            flush()
 
         else:
             out.append({"role": role or "user",
