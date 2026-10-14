@@ -155,14 +155,34 @@ def test_no_accounts_renders_exactly_as_before():
 
     Account pools are opt-in: an empty `accounts:` table has to be a no-op, or
     every existing install silently doubles its config.
+
+    What has to hold is that an EMPTY table is a no-op — not that the shipped
+    file is empty. Asserting the committed state made the test fail the moment
+    anyone configured a group, so the tables are blanked here instead.
     """
     doc, profiles = _load()
-    assert not (profiles.get("accounts") or {}), "this test assumes no accounts configured"
-    assert not (profiles.get("groups") or {}), "this test assumes no groups configured"
-    text = _render_with(profiles)
+    bare = dict(profiles)
+    bare["accounts"] = {}
+    bare["groups"] = {}
+    text = _render_with(bare)
     names = [n for n, _, _ in _deployments(text)]
     assert len(names) == len(set(names)), "no pool means no duplicate model_name"
     assert "router_settings" not in text, "nothing to route without groups"
+
+
+def test_shipped_groups_reference_models_that_resolve():
+    """A member that does not resolve is dropped with a stderr line only.
+
+    render_config prints `cannot resolve member` and moves on, so a typo would
+    leave a group that silently has fewer deployments than it claims — and a
+    fallback pointing at nothing. Check the shipped groups against the registry.
+    """
+    doc, profiles = _load()
+    models, _ = render_config.index_models(doc)
+    for gname, gspec in (profiles.get("groups") or {}).items():
+        for member in (gspec.get("members") or []) + (gspec.get("fallback") or []):
+            prov, _ = render_config._split_member(profiles, models, member)
+            assert prov is not None, f"group {gname} references unknown model {member!r}"
 
 
 def test_account_becomes_a_second_deployment_under_the_same_name():

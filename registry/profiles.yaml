@@ -192,7 +192,22 @@ accounts: {}
 #
 # NOTE: LiteLLM allows a model in at most one group, so keep membership
 # disjoint. A member that is also an alias keeps its own entry.
-groups: {}
+groups:
+  main:
+    members:
+    - qianfan-deepseek-v4.1-flash
+    fallback:
+    - opendesign-deepseek-v4.1-flash
+  pro:
+    members:
+    - qianfan-deepseek-v4-pro
+    fallback:
+    - opendesign-deepseek-v4-pro
+  flash:
+    members:
+    - qianfan-glm-5.3-flash
+    fallback:
+    - opendesign-glm-5.3-flash
 # Example — cheap-first, escalating to a different vendor when both are out:
 #   groups:
 #     daily:
