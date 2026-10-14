@@ -52,6 +52,26 @@ PROVIDERS = {
         "auth_env": "CLINE_API_KEY",
         "auth_file": "~/.config/litellm/config.yaml",
         "auth_grep": "api.cline.bot",
+        # ClinePass advertises 469 ids but its plan serves a small subset. Every
+        # family it does NOT serve — Google (42 ids), OpenAI, Anthropic and xAI
+        # included — answers `{"error":"model not found"}` when called, so the
+        # catalogue is not a capability list. ``only_models`` keeps the registry
+        # to the ids verified by direct probe; without it `ccp models` claims 469
+        # models of which ~6 work.
+        #
+        # Verified 2026-10-14 against https://api.cline.bot/api/v1 with
+        # `model: cline-pass/<id>`. The prefix is mandatory: without it the
+        # gateway answers "invalid model format. Expected format: modelType/model".
+        # Re-probe when the plan changes, and extend this list rather than
+        # trusting the catalogue again.
+        "only_models": [
+            "deepseek/deepseek-v4.1-flash",
+            "deepseek/deepseek-v4-pro",
+            "z-ai/glm-5.3",
+            "moonshotai/kimi-k3",
+            "minimax/minimax-m3",
+            "qwen/qwen3.7-max",
+        ],
         "max_output_default": None,
     },
     # Native Anthropic-compatible endpoints (no bridge). Rich metadata where

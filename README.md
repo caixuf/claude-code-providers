@@ -173,7 +173,7 @@ the point of keeping them all: same model, different pipe and quota.
 | :--- | :--- | :--- | ---: |
 | `qianfan-deepseek-v4.1-flash` | DeepSeek-V4.1-Flash (1.44M) | bridged → LiteLLM | 6 |
 | `opendesign-deepseek-v4.1-flash` | DeepSeek-V4.1-Flash (1.05M) | native Anthropic | 11 |
-| `cline-deepseek-v4.1-flash` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 469 |
+| `cline-deepseek-v4.1-flash` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 6 |
 | `deepseek-v4.1-flash` | DeepSeek-V4.1-Flash (1M) | native Anthropic | 2 |
 | `trae-qwen3.8-max` | Qwen3.8-Max (168k) | native `127.0.0.1:4100` | 23 |
 | `minimax-m3` | MiniMax-M3 (1M) | native Anthropic | 8 |
@@ -181,6 +181,15 @@ the point of keeping them all: same model, different pipe and quota.
 The four DeepSeek-V4.1-Flash rows are the same underlying model reached four
 ways; `ccp -m` then hot-swaps to another rung *within* a provider (for example
 `ccp -m trae-glm-5.3`, `ccp -m qianfan-glm-5.3`).
+
+> **ClinePass advertises 469 models and serves 6.** Its `/v1/models` is a public
+> catalogue, not an entitlement list: every Google (42 ids), OpenAI, Anthropic
+> and xAI model answers `{"error":"model not found"}` when actually called.
+> `only_models` in `discover_models.py` keeps the registry to the ids verified by
+> direct probe — `deepseek-v4.1-flash`, `deepseek-v4-pro`, `z-ai/glm-5.3`,
+> `moonshotai/kimi-k3`, `minimax/minimax-m3`, `qwen3.7-max` — and nothing is
+> selectable under a raw upstream id. Re-probe before extending that list: a
+> catalogue entry is not evidence that a call will succeed.
 
 **Bridged** profiles run Claude Code → `:4000` watchdog → `:4001` LiteLLM →
 upstream. **Native** ones point straight at an Anthropic-compatible endpoint.

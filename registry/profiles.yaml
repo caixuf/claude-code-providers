@@ -128,17 +128,12 @@ profiles:
 # it before forwarding). Add aliases here only when you want a friendly name;
 # the profile tier model above already resolves via its registry name.
 aliases:
-  # TEMPORARY — the running session is pinned to this spelling. It sits above
-  # `qianfan-deepseek-v4.1-flash` because aliases are last-wins per model, so
-  # the last spelling is the one the profile renders. Delete this line once the
-  # session has been re-picked in the model picker.
-  qianfan-deepseek-flash:               {provider: qianfan, model: deepseek-v4.1-flash, ctx: 1441792}
-
   # ── The names below are `<provider>-<exact model>` ─────────────────────
   # DeepSeek's version matters: v4.1-flash, v4-flash and v4-pro are three
   # different models, so no alias drops it. Same rule everywhere else — the
   # picker should never make you guess a version.
   cline-deepseek-v4.1-flash:            {provider: cline, model: deepseek/deepseek-v4.1-flash, ctx: 1000000}
+  cline-deepseek-v4-pro:                {provider: cline, model: deepseek/deepseek-v4-pro, ctx: 1000000}
   # OpenDesign: hot-swap between the aggregator's rungs with `ccp -m`
   opendesign-deepseek-v4.1-flash:       {provider: opendesign, model: deepseek-v4.1-flash, ctx: 1048000}
   opendesign-deepseek-v4-pro:           {provider: opendesign, model: deepseek-v4-pro, ctx: 1048000}
@@ -227,15 +222,10 @@ request_rules: {}
 # ── Models that get individual LiteLLM entries (so `ccp -m <name>` works) ─
 # Keep this list short: each entry becomes a selectable model name, and a raw
 # upstream id is not something anyone can decode in a picker.
-expose_models:
-  # cline is the only kept provider whose catalogue (469 ids) is wide enough to
-  # need escape hatches beyond its alias. deepseek / minimax / opendesign /
-  # qianfan are reached through the aliases above, and trae is a native
-  # endpoint the adapter resolves by name.
-  #
-  # `deepseek/deepseek-v4.1-flash` deliberately is NOT listed: cline's
-  # `cline-deepseek` alias is the same deployment, and listing both put the same
-  # model in the picker twice, once under an undecipherable slash id.
-  - deepseek/deepseek-v4-pro
-  - deepseek/deepseek-v4-flash-vision-exp
-  - google/gemini-3.8-flash
+
+# ── Nothing is exposed by raw upstream id ─────────────────────────────
+# `expose_models` used to list raw ids (e.g. `deepseek/deepseek-v4-pro`) so
+# `ccp -m <id>` reached them. Every one of those is now an alias instead: a
+# slash id is not something anyone can read in a picker, and the whole point of
+# the alias table is that a selectable name says which model it is. Keep it that
+# way — add an alias, not an exposure.
