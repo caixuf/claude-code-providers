@@ -13,6 +13,20 @@
 #
 # Model names below are the *registry* names (upstream ids). Use the exact
 # string shown by `ccp models <provider>`.
+#
+# ── A profile is a PROVIDER, not one model ─────────────────────────────
+# `ccp` lists one folder per profile; the provider's models are its contents:
+#
+#     cline/  deepseek/  minimax/  opendesign/  qianfan/  trae/
+#
+#     ccp                       # the folders, with how many models each holds
+#     ccp trae                  # switch to trae's default + list its models
+#     ccp trae deepseek-V4.1-Flash   # or: ccp trae/deepseek-V4.1-Flash
+#
+# One profile per *model* would make `ccp` a flat list of 50+ near-identical
+# lines that says nothing about which models belong together — the folders are
+# the unit. Model names are matched case-insensitively; the registry's spelling
+# is what gets written to settings.json.
 
 version: 1
 
@@ -22,7 +36,7 @@ version: 1
 # CLAUDE_CODE_MAX_CONTEXT_TOKENS for the whole profile (Claude Code has one
 # context number per session, so we advertise the slot the user starts on).
 profiles:
-  cline-deepseek-v4.1-flash:
+  cline:
     provider: cline
     primary_tier: default
     tiers:
@@ -37,7 +51,7 @@ profiles:
   # rendered into config.yaml too so `ccp models` can list them, but the
   # profile JSON points ANTHROPIC_BASE_URL directly (no 127.0.0.1:4000).
   # Models are auto-discovered (see registry/models.yaml).
-  deepseek-v4.1-flash:
+  deepseek:
     provider: deepseek
     native: true
     primary_tier: default
@@ -48,7 +62,7 @@ profiles:
       sonnet:  {model: deepseek-flash}
       haiku:   {model: deepseek-flash}
 
-  minimax-m3:
+  minimax:
     provider: minimax
     native: true
     primary_tier: default
@@ -67,7 +81,7 @@ profiles:
   # so no Claude Code slot can drift onto a model this account was not meant to
   # spend on. It is 1048k-context, so the 1M window holds on every tier. Add a
   # rung here if that ever changes.
-  opendesign-deepseek-v4.1-flash:
+  opendesign:
     provider: opendesign
     native: true
     primary_tier: default
@@ -92,7 +106,7 @@ profiles:
   # `trae-glm` alias instead of holding a tier.
   # Names are registry names (Trae `config_name`), which is what the adapter
   # matches against the live catalogue.
-  trae-qwen3.8-max:
+  trae:
     provider: trae
     native: true
     primary_tier: sonnet
@@ -112,7 +126,7 @@ profiles:
   # 34-model catalogue down to the 6 ids this key can actually call.
   # deepseek-v4.1-flash takes the top tiers: 1.44M context and genuinely
   # multimodal (vision works on it), so it also backs image pasting.
-  qianfan-deepseek-v4.1-flash:
+  qianfan:
     provider: qianfan
     primary_tier: sonnet
     tiers:
@@ -134,6 +148,10 @@ aliases:
   # picker should never make you guess a version.
   cline-deepseek-v4.1-flash:            {provider: cline, model: deepseek/deepseek-v4.1-flash, ctx: 1000000}
   cline-deepseek-v4-pro:                {provider: cline, model: deepseek/deepseek-v4-pro, ctx: 1000000}
+  cline-glm-5.3:                       {provider: cline, model: z-ai/glm-5.3, ctx: 1048576}
+  cline-kimi-k3:                       {provider: cline, model: moonshotai/kimi-k3, ctx: 1048576}
+  cline-minimax-m3:                    {provider: cline, model: minimax/minimax-m3, ctx: 1000000}
+  cline-qwen3.7-max:                   {provider: cline, model: qwen/qwen3.7-max, ctx: 1000000}
   # OpenDesign: hot-swap between the aggregator's rungs with `ccp -m`
   opendesign-deepseek-v4.1-flash:       {provider: opendesign, model: deepseek-v4.1-flash, ctx: 1048000}
   opendesign-deepseek-v4-pro:           {provider: opendesign, model: deepseek-v4-pro, ctx: 1048000}

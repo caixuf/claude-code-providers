@@ -128,8 +128,10 @@ get_active_profile_name() {
 }
 
 list_providers() {
-  if [ ! -d "$PROVIDERS_DIR" ]; then
-    echo "No providers directory found at $PROVIDERS_DIR"
+  local repo_dir
+  repo_dir=$(ccp_repo_dir)
+  if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/ccp_pick.py" ]; then
+    echo -e "\033[31mError: repo checkout not found (need bridge/ccp_pick.py).\033[0m" >&2
     return 1
   fi
 
@@ -137,23 +139,39 @@ list_providers() {
   active=$(get_active_profile_name)
   cur_model=$(get_current_model)
 
-  local found=0
-  for p in "$PROVIDERS_DIR"/*.json; do
-    [ -r "$p" ] || continue
-    found=1
-    local name
-    name=$(basename "$p" .json)
-    if [ "$name" = "$active" ]; then
-      printf " \033[32m* %-22s (active: %s)\033[0m\n" "$name" "${cur_model:-default}"
-    else
-      printf "   %-22s\n" "$name"
-    fi
-  done
+  local folders
+  folders=$("$(ccp_python)" "$repo_dir/bridge/ccp_pick.py" folders) || return 1
+  [ -n "$folders" ] || { echo "No provider profiles found."; return 1; }
 
-  if [ "$found" -eq 0 ]; then
-    echo "No provider profiles found in $PROVIDERS_DIR."
-    echo "Add JSON profile files to $PROVIDERS_DIR/ to get started."
+  local name kind count default ctx
+  while IFS='|' read -r name kind count default ctx; do
+    [ -n "$name" ] || continue
+    if [ "$name" = "$active" ]; then
+      printf " \033[32m* %-14s\033[0m %-8s %2s models   active: %s\n" \
+        "$name/" "$kind" "$count" "${cur_model:-$default}"
+    else
+      printf "   %-14s %-8s %2s models   %s\n" "$name/" "$kind" "$count" "$default"
+    fi
+  done <<< "$folders"
+
+  cat <<'EOF'
+
+Each provider is a folder; its models are the contents.
+
+  ccp <provider>              switch to that provider's default model
+  ccp <provider> <model>      switch to a specific model  (also: ccp <p>/<model>)
+  ccp models <provider>       just list a provider's models, change nothing
+EOF
+}
+
+list_provider_models() {
+  local repo_dir
+  repo_dir=$(ccp_repo_dir)
+  if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/ccp_pick.py" ]; then
+    echo -e "\033[31mError: repo checkout not found (need bridge/ccp_pick.py).\033[0m" >&2
+    return 1
   fi
+  "$(ccp_python)" "$repo_dir/bridge/ccp_pick.py" list "$1"
 }
 
 show_current() {
@@ -205,16 +223,33 @@ set_active_model() {
     return 1
   fi
 
+  # ctx is passed when the caller knows the model's real context window:
+  # CLAUDE_CODE_MAX_CONTEXT_TOKENS is per-profile, so switching to a smaller
+  # model must not leave the old number advertised or Claude Code will ask for
+  # a window the model cannot honour.
+  local ctx="${2:-}"
+
   if command -v jq >/dev/null 2>&1; then
     local tmp
     tmp=$(mktemp)
-    jq --arg m "$model" '
-      .model = $m |
-      .env.ANTHROPIC_MODEL = $m
-    ' "$SETTINGS_FILE" > "$tmp" && mv "$tmp" "$SETTINGS_FILE"
+    if [ -n "$ctx" ]; then
+      jq --arg m "$model" --argjson c "$ctx" '
+        .model = $m |
+        .env.ANTHROPIC_MODEL = $m |
+        .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = ($c | tostring)
+      ' "$SETTINGS_FILE" > "$tmp" && mv "$tmp" "$SETTINGS_FILE"
+    else
+      jq --arg m "$model" '
+        .model = $m |
+        .env.ANTHROPIC_MODEL = $m
+      ' "$SETTINGS_FILE" > "$tmp" && mv "$tmp" "$SETTINGS_FILE"
+    fi
   else
     sed -i -E "s/\"ANTHROPIC_MODEL\": \"[^\"]+\"/\"ANTHROPIC_MODEL\": \"$model\"/" "$SETTINGS_FILE"
     sed -i -E "s/\"model\": \"[^\"]+\"/\"model\": \"$model\"/" "$SETTINGS_FILE"
+    if [ -n "$ctx" ]; then
+      sed -i -E "s/\"CLAUDE_CODE_MAX_CONTEXT_TOKENS\": \"[^\"]+\"/\"CLAUDE_CODE_MAX_CONTEXT_TOKENS\": \"$ctx\"/" "$SETTINGS_FILE"
+    fi
   fi
 
   echo -e "\033[32m✔ Active model updated to: $model\033[0m"
@@ -725,23 +760,39 @@ test_provider() {
 }
 
 switch_provider() {
-  local name="$1"
-  local model_override="${2:-}"
-  local src="$PROVIDERS_DIR/$name.json"
+  local arg1="$1"
+  local arg2="${2:-}"
 
+  # `ccp trae/kimi-k3` is the folder-path spelling of `ccp trae kimi-k3`.
+  local provider="$arg1" model="$arg2"
+  case "$arg1" in
+    */*) provider="${arg1%%/*}"; model="${arg1#*/}" ;;
+  esac
+
+  local repo_dir py
+  repo_dir=$(ccp_repo_dir)
+  if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/ccp_pick.py" ]; then
+    echo -e "\033[31mError: repo checkout not found (need bridge/ccp_pick.py).\033[0m" >&2
+    return 1
+  fi
+  py=$(ccp_python)
+
+  # Resolve BEFORE touching settings.json: a typo must not leave the session
+  # pointed at a model that does not exist.
+  local resolved
+  if ! resolved=$("$py" "$repo_dir/bridge/ccp_pick.py" resolve "$provider" "$model" 2>&1); then
+    echo -e "\033[31m$resolved\033[0m" >&2
+    return 1
+  fi
+  local wire_model wire_ctx
+  wire_model=$(printf '%s\n' "$resolved" | sed -n 's/^MODEL=//p')
+  wire_ctx=$(printf '%s\n' "$resolved" | sed -n 's/^CTX=//p')
+
+  local src="$PROVIDERS_DIR/$provider.json"
   if [ ! -r "$src" ]; then
-    # Try fuzzy match if user typed 'cmdc' instead of 'cmdc-deepseek'
-    local match
-    match=$(ls "$PROVIDERS_DIR"/$name*.json 2>/dev/null | head -1 || true)
-    if [ -n "$match" ] && [ -r "$match" ]; then
-      src="$match"
-      name=$(basename "$match" .json)
-    else
-      echo -e "\033[31mError: unknown provider '$name'\033[0m" >&2
-      echo "Available providers:" >&2
-      list_providers >&2
-      return 1
-    fi
+    echo -e "\033[31mError: no installed profile for provider '$provider'.\033[0m" >&2
+    echo "Run 'ccp sync' to install the profiles, then retry." >&2
+    return 1
   fi
 
   mkdir -p "$CLAUDE_DIR"
@@ -749,20 +800,22 @@ switch_provider() {
     cp "$SETTINGS_FILE" "$SETTINGS_FILE.bak.$(date +%Y%m%d-%H%M%S)"
   fi
 
+  # Always install the provider profile first — it carries the base URL, the
+  # tier fallbacks and the credentials. Only the model line is overridden
+  # afterwards, otherwise switching to `trae kimi-k3` from a qianfan session
+  # would keep qianfan's URL.
   cp "$src" "$SETTINGS_FILE"
+  if [ -n "$model" ]; then
+    set_active_model "$wire_model" "$wire_ctx" >/dev/null
+  fi
 
   local target_url
   target_url=$(grep -oE '"ANTHROPIC_BASE_URL"[^,]*' "$src" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/' | head -1)
+  [ -n "$target_url" ] && ensure_bridge_running "$target_url"
 
-  if [ -n "$model_override" ]; then
-    set_active_model "$model_override"
-  else
-    echo -e "\033[32m✔ Switched to provider: $name\033[0m"
-    if [ -n "$target_url" ]; then
-      ensure_bridge_running "$target_url"
-    fi
-    echo "Restart any active 'claude' interactive sessions to take effect."
-  fi
+  echo -e "\033[32m✔ $provider → $wire_model\033[0m"
+  echo "Restart any active 'claude' interactive sessions to take effect."
+  list_provider_models "$provider"
 }
 
 main() {

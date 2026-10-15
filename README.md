@@ -11,7 +11,7 @@
 
 ## ✨ Features
 
-- ⚡ **One-command switching**: Switch models in 1 second (`ccp qianfan-deepseek-v4.1-flash`, `ccp trae-qwen3.8-max`, `ccp minimax-m3`).
+- ⚡ **One-command switching**: Switch models in 1 second (`ccp qianfan`, `ccp trae`, `ccp minimax`; then a model: `ccp trae deepseek-V4.1-Flash`).
 - 🛡️ **Safe & non-destructive**: Automatically creates timestamped backups of `~/.claude/settings.json` upon every switch; supports instant rollback with `ccp --rollback`.
 - 🌉 **Universal Protocol Bridge**: Claude Code hardcodes the Anthropic Messages API (`/v1/messages`). `ccp` includes an optional zero-latency local proxy bridge (powered by LiteLLM) that allows Claude Code to access **any OpenAI-compatible gateway** (Qianfan, ClinePass, self-hosted vLLM) with full streaming, tool use, and thinking tokens!
 - 🎯 **Preserves Full Capabilities**:
@@ -165,22 +165,46 @@ Example configuration template:
 
 Pre-configured templates in `providers/` — the set ccp currently keeps:
 
-A profile's name is `<provider>-<model you land on>`, so `ccp` alone tells you
-what you are about to run. Several providers resell the *same* model — that is
-the point of keeping them all: same model, different pipe and quota.
+**A profile is a provider, not a model.** `ccp` lists one folder per provider
+and each provider's models are its contents:
 
-| Profile | Lands on | Path | Catalogue |
+```
+$ ccp
+   cline/         bridged   6 models   deepseek-v4.1-flash
+   deepseek/      native    2 models   deepseek-flash
+   minimax/       native    8 models   MiniMax-M3
+   opendesign/    native   11 models   deepseek-v4.1-flash
+   trae/          native   23 models   qwen3.8-max
+   qianfan/       bridged   6 models   deepseek-v4.1-flash
+
+$ ccp trae                          # switch to trae's default, and list its models
+$ ccp trae deepseek-V4.1-Flash     # switch to a specific model
+$ ccp trae/deepseek-V4.1-Flash     # the same, as a path
+$ ccp models trae                  # just look, change nothing
+```
+
+Model names match case-insensitively and are written back in the vendor's own
+spelling (`ccp trae deepseek-v4.1-flash` → `DeepSeek-V4.1-Flash`), because
+normalising it would 404 upstream.
+
+| Folder | Lands on | Path | Models |
 | :--- | :--- | :--- | ---: |
-| `qianfan-deepseek-v4.1-flash` | DeepSeek-V4.1-Flash (1.44M) | bridged → LiteLLM | 6 |
-| `opendesign-deepseek-v4.1-flash` | DeepSeek-V4.1-Flash (1.05M) | native Anthropic | 11 |
-| `cline-deepseek-v4.1-flash` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 6 |
-| `deepseek-v4.1-flash` | DeepSeek-V4.1-Flash (1M) | native Anthropic | 2 |
-| `trae-qwen3.8-max` | Qwen3.8-Max (168k) | native `127.0.0.1:4100` | 23 |
-| `minimax-m3` | MiniMax-M3 (1M) | native Anthropic | 8 |
+| `qianfan/` | DeepSeek-V4.1-Flash (1.44M) | bridged → LiteLLM | 6 |
+| `opendesign/` | DeepSeek-V4.1-Flash (1.05M) | native Anthropic | 11 |
+| `cline/` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 6 |
+| `deepseek/` | DeepSeek-V4.1-Flash (1M) | native Anthropic | 2 |
+| `trae/` | Qwen3.8-Max (168k) | native `127.0.0.1:4100` | 23 |
+| `minimax/` | MiniMax-M3 (1M) | native Anthropic | 8 |
 
-The four DeepSeek-V4.1-Flash rows are the same underlying model reached four
-ways; `ccp -m` then hot-swaps to another rung *within* a provider (for example
-`ccp -m trae-glm-5.3`, `ccp -m qianfan-glm-5.3`).
+Four folders start on the same underlying model — that is the point of keeping
+them all: same model, different pipe and quota. Every one of them also holds the
+other models its provider serves, so nothing is a dead end.
+
+A folder's contents depend on how it is reached, and `bridge/ccp_pick.py` is
+what keeps that honest: a **native** folder lists upstream ids (the vendor wants
+its own spelling), while a **bridged** one lists the alias that LiteLLM accepts
+with the provider prefix stripped. That is why `ccp qianfan glm-5.3` and
+`ccp cline kimi-k3` read the way they do.
 
 > **ClinePass advertises 469 models and serves 6.** Its `/v1/models` is a public
 > catalogue, not an entitlement list: every Google (42 ids), OpenAI, Anthropic
