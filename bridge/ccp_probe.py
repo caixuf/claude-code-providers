@@ -116,14 +116,38 @@ def _installed_endpoint(provider: str) -> Tuple[str, str]:
     Read from the installed profile rather than the registry: that file is what
     Claude Code is actually pointed at, and for the native providers it is the
     only place the real credential lives (the template ships a placeholder).
+
+    The file is not necessarily named after the provider. Profiles are named
+    after the model they run (`opendesign-deepseek-v4.1-flash.json`,
+    `qianfan-deepseek-v4.1-flash.json`), and a rename in the registry renames
+    the installed file with it. Looking for `opendesign.json`, finding nothing
+    and returning "" demoted every renamed provider to the LiteLLM bridge —
+    and LiteLLM carries only the aliases, not the bare upstream ids, so the
+    probe answered `Invalid model name passed in model=deepseek-v4.1-flash`
+    for a provider that returns 200 when called directly. So: exact name
+    first, then the longest matching `<provider>-*.json`, then give up.
     """
-    path = pathlib.Path.home() / ".claude" / "providers" / f"{provider}.json"
+    root = pathlib.Path.home() / ".claude" / "providers"
+    candidates = []
+    exact = root / f"{provider}.json"
+    if exact.exists():
+        candidates.append(exact)
     try:
-        env = (json.loads(path.read_text()).get("env") or {})
+        candidates += sorted(root.glob(f"{provider}-*.json"),
+                             key=lambda p: len(p.name), reverse=True)
     except Exception:
-        return "", ""
-    token = env.get("ANTHROPIC_AUTH_TOKEN") or env.get("ANTHROPIC_API_KEY") or ""
-    return env.get("ANTHROPIC_BASE_URL") or "", token
+        pass
+    for path in candidates:
+        try:
+            env = (json.loads(path.read_text()).get("env") or {})
+        except Exception:
+            continue
+        base_url = env.get("ANTHROPIC_BASE_URL") or ""
+        if not base_url:
+            continue
+        token = env.get("ANTHROPIC_AUTH_TOKEN") or env.get("ANTHROPIC_API_KEY") or ""
+        return base_url, token
+    return "", ""
 
 
 def _spec(provider: str, sel_name: str, upstream: str, prov, p_doc: dict) -> Dict[str, Any]:

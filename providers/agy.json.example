@@ -1,0 +1,21 @@
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "YOUR_AGY_API_KEY",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:4120",
+    "ANTHROPIC_MODEL": "gemini-3.8-flash-low",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6-thinking",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-sonnet-4-6",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "gemini-3.8-flash-low",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gemini-3.8-flash-low",
+    "ANTHROPIC_SMALL_FAST_MODEL": "gemini-3.8-flash-low",
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "100000",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "100000"
+  },
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
+  "model": "gemini-3.8-flash-low",
+  "autoUpdatesChannel": "stable",
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "dark"
+}

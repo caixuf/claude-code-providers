@@ -488,3 +488,68 @@ providers:
         endpoint_kind: anthropic
         aliases: []
         tiers: []
+  - name: agy
+    # Google Antigravity CLI, driven through bridge/agy_bridge.py. `agy` on this
+    # host is a WSL-native ELF binary at ~/.local/bin/agy (v1.3.5); there is also
+    # an agy.exe under the Windows profile, and it is NOT interchangeable — it
+    # re-runs the Google OAuth flow on every new process and fills the desktop
+    # with login prompts. The bridge therefore takes an absolute path.
+    #
+    # What this provider really is: a full agent, not a model endpoint. Its
+    # free quota is metered against the CLI, and the only surface it exposes is
+    # its own session protocol, so the adapter drives that rather than calling
+    # inference directly.
+    #
+    # `ctx` below is NOT measured. Unlike the opencode free tier there was no
+    # needle probe for these, so every value is a conservative floor chosen to
+    # sit below anything a long agent transcript will reach. Re-probe before
+    # raising one: `--mode plan` turns plus 100KB+ prompts already fail often
+    # enough that the practical window here is far smaller than the model's real
+    # one, and advertising the model's real number would just push Claude Code
+    # into the failing band.
+    api_base: http://127.0.0.1:4120
+    endpoint_kind: anthropic
+    auth_env: AGY_BRIDGE_TOKEN
+    models:
+      - name: claude-sonnet-4-6
+        ctx: 100000
+        max_output: 64000
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: claude-opus-4-6-thinking
+        ctx: 100000
+        max_output: 64000
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: gemini-3.8-flash-low
+        ctx: 100000
+        max_output: 64000
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: gemini-3.8-flash-medium
+        ctx: 100000
+        max_output: 64000
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: gemini-3.8-flash-high
+        ctx: 100000
+        max_output: 64000
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: gpt-oss-120b-medium
+        ctx: 100000
+        max_output: 64000
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
