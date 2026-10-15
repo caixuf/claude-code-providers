@@ -428,10 +428,20 @@ async def _probe_single_round(
                 or (total_duration > 2.0 and (ttft_duration / total_duration) > 0.85)
             )
 
+            # Two clocks, two meanings. When the server streams, the honest
+            # denominator is the decode window itself — first token to last —
+            # which is what the harness measures for its own "tok/s" readout.
+            # A buffering server gives us no usable window (it stalls, then
+            # dumps), so there the only defensible denominator is the whole
+            # request; that number is not comparable with a streaming one, and
+            # `buffered` records which flavour this round produced.
             if chunks > 1 and stream_interval >= 0.05 and not is_buffered:
-                tps = max(tokens - 1, 1) / stream_interval
+                decode_seconds = stream_interval
+                decode_tokens = max(tokens - 1, 1)
             else:
-                tps = tokens / max(total_duration, 0.05)
+                decode_seconds = total_duration
+                decode_tokens = tokens
+            tps = decode_tokens / max(decode_seconds, 0.05)
 
             return {
                 "ok": True,
@@ -439,6 +449,9 @@ async def _probe_single_round(
                 "error_msg": "",
                 "ttft_ms": round(ttft_duration * 1000, 1),
                 "tps": round(tps, 1),
+                "decode_ms": round(decode_seconds * 1000, 1),
+                "decode_tokens": decode_tokens,
+                "buffered": is_buffered,
                 "total_ms": round(total_duration * 1000, 1),
                 "tokens": tokens,
                 "cached_tokens": cached,
@@ -540,7 +553,16 @@ async def probe_single_model(
                 break
 
         avg_ttft = round(sum(r["ttft_ms"] for r in ok_rounds) / len(ok_rounds), 1) if ok_rounds else 0.0
-        avg_tps = round(sum(r["tps"] for r in ok_rounds) / len(ok_rounds), 1) if ok_rounds else 0.0
+        # Aggregate the way the harness does: total tokens over total decode
+        # time, not the mean of per-round rates. Averaging rates lets one
+        # unrepresentative round pull the figure as hard as a long one, which
+        # is how the same provider read 501 tok/s and then 194 minutes apart.
+        decode_ms_sum = sum(r.get("decode_ms", 0.0) for r in ok_rounds)
+        decode_tok_sum = sum(r.get("decode_tokens", 0) for r in ok_rounds)
+        if decode_ms_sum > 0 and decode_tok_sum > 0:
+            avg_tps = round(decode_tok_sum / (decode_ms_sum / 1000.0), 1)
+        else:
+            avg_tps = round(sum(r["tps"] for r in ok_rounds) / len(ok_rounds), 1) if ok_rounds else 0.0
         avg_total = round(sum(r["total_ms"] for r in ok_rounds) / len(ok_rounds), 1) if ok_rounds else 0.0
         avg_tokens = round(sum(r["tokens"] for r in ok_rounds) / len(ok_rounds)) if ok_rounds else 0
         cached = max((r["cached_tokens"] for r in ok_rounds), default=0)
