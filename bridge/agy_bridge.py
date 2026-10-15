@@ -42,18 +42,31 @@ sentinel file:
                          restrictions" does not stop a plain `touch`)
 * `--mode plan`       -> did NOT execute
 
-`--mode plan` is therefore the default. Note *why* it holds: the tool registry
-is unchanged (still 60 tools under plan mode) — plan mode answers with a plan
-and waits for a "Proceed", and a non-interactive caller can never confirm, so
-the turn ends as text. That is a behavioural gate, not a capability removal,
-and it is recorded here rather than claimed as a hard sandbox.
+`--mode plan` is therefore the default, and a later probe pins down what it
+actually does, because "did not execute" was too coarse. Asked to write
+`/tmp/agy_plan_write_test`, plan mode **did** call `write_to_file` — with the
+target rewritten to its own scratch directory
+(`~/.gemini/antigravity-cli/brain/<conversation>/…_plan.md`) — and then asked
+for a "Proceed" confirmation before touching the requested path. `/tmp` was
+never written. So the guarantee is narrower and more specific than "no tools
+run": writes are confined to agy's own brain directory, and real actions wait
+on a confirmation a non-interactive caller can never give. It is a behavioural
+gate, not a capability removal — worth knowing exactly, because it means an
+injected instruction cannot write outside that directory but *can* still cause
+agy to invoke its tools and produce files inside it.
 
-Claude Code's own tools are a different set that agy does not know about. They
-are serialised into the prompt as text so the model can reason about them, and
-an emitted `{"tool_call":…}` line is translated back into an Anthropic
-`tool_use` block. That is prompt-level emulation, not native tool calling, and
-it is the weaker of the two: a model may answer from its own tool registry
-instead. Tool calling on this provider should be treated as best-effort.
+Claude Code's own tools are a different set that agy does not know about.
+**The wire protocol cannot carry them.** Measured: `event=system`,
+`event=tools` and `event=config` are each rejected with `warning: ignoring
+unsupported stream input message event`, and a top-level `tools` field on the
+user event is accepted without complaint but silently ignored — the model
+reported "当前可用的工具中未找到名为 get_ocean_temperature 的工具" for a tool
+that had just been sent that way. That is the whole reason tools are emulated:
+agy's only input is a user message, so Claude Code's tools are serialised into
+the prompt as text, and an emitted `{"tool_call":…}` line is translated back
+into an Anthropic `tool_use` block. The model still sees its own 60-tool table
+and may prefer it, or deny having the tool at all, so tool calling on this
+provider is best-effort — while pure text reasoning is reliable.
 """
 from __future__ import annotations
 
