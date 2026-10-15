@@ -54,6 +54,8 @@ Usage:
   ccp -c, --current          Show currently active provider, model, and endpoints
   ccp -r, --rollback [N]     Roll back to the Nth most recent backup (default: 1)
   ccp -t, --test [name]      Quick test: send a ping through Claude Code
+  ccp ping [provider|model]  Probe model health, TTFT & token speed (options:
+                             -q/--quick, -b/--bench, -n/--rounds, --sort, -s/--switch)
   ccp models [provider]      List models with context / output cap / vision
   ccp render                 Regenerate config + profiles from the registry
   ccp discover [provider]    Refresh model metadata from provider APIs
@@ -78,6 +80,10 @@ Examples:
   ccp cmdc-deepseek          # Switch to CommandCode DeepSeek
   ccp cmdc-deepseek space-bunny # Switch to CommandCode and set model to space-bunny
   ccp -m cmdc-space-bunny    # Change active model to space-bunny under current provider
+  ccp ping                   # 2-round sustained speed & stability test (~60 tokens)
+  ccp ping -b                # Deep benchmark (3 rounds, ~100 tokens, strict stress test)
+  ccp ping -q                # Quick check (1 round, 20 tokens, fast health ping)
+  ccp ping trae -s           # Benchmark Trae models and auto-switch to the winner
   ccp cline-deepseek         # Switch to ClinePass Token Plan
   ccp auth copilot           # Authorize GitHub Copilot via device flow
   ccp copilot                # Switch to GitHub Copilot (Claude Sonnet 5.5, Haiku 5.5, Opus 5.5)
@@ -876,6 +882,55 @@ main() {
       fi
       py_bin=$(ccp_python)
       "$py_bin" "$repo_dir/bridge/ccp_quota.py" "${@:2}"
+      ;;
+    ping|probe|speed)
+      local repo_dir py_bin
+      repo_dir=$(ccp_repo_dir)
+      if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/ccp_probe.py" ]; then
+        echo -e "\033[31mError: repo checkout not found (need bridge/ccp_probe.py).\033[0m" >&2
+        return 1
+      fi
+      py_bin=$(ccp_python)
+
+      local is_json=false
+      local do_switch=false
+      for arg in "$@"; do
+        if [ "$arg" = "--json" ]; then
+          is_json=true
+        elif [ "$arg" = "--switch" ] || [ "$arg" = "-s" ]; then
+          do_switch=true
+        fi
+      done
+
+      if [ "$is_json" = false ]; then
+        ensure_bridge_running "http://127.0.0.1:4000" >&2
+      fi
+
+      if [ "$do_switch" = true ]; then
+        local tmp
+        tmp=$(mktemp)
+        "$py_bin" "$repo_dir/bridge/ccp_probe.py" "${@:2}" | tee "$tmp"
+        local exit_code="${PIPESTATUS[0]}"
+        local switch_target
+        switch_target=$(grep -E '^SWITCH_TO=' "$tmp" | tail -1 | sed 's/^SWITCH_TO=//')
+        rm -f "$tmp"
+        if [ -n "$switch_target" ]; then
+          case "$switch_target" in
+            MODEL\ *)
+              local m="${switch_target#MODEL }"
+              echo -e "\n\033[32mSwitching active model to: $m\033[0m"
+              set_active_model "$m"
+              ;;
+            *)
+              echo -e "\n\033[32mSwitching provider to recommended winner: $switch_target\033[0m"
+              switch_provider $switch_target
+              ;;
+          esac
+        fi
+        return "$exit_code"
+      else
+        "$py_bin" "$repo_dir/bridge/ccp_probe.py" "${@:2}"
+      fi
       ;;
     models|--models)
       show_models "${2:-}"
