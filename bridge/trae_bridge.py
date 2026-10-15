@@ -419,7 +419,9 @@ def anthropic_tools_to_trae(tools) -> list[dict]:
                 "name": name,
                 "description": tool.get("description") or "",
                 "parameters": json.dumps(
-                    tool.get("input_schema") or {"type": "object", "properties": {}}),
+                    tool.get("input_schema") or {"type": "object", "properties": {}},
+                    sort_keys=True,
+                ),
             },
         })
     return out
@@ -437,7 +439,7 @@ class TraeStream:
     """One llm_raw_chat call, run on a thread and surfaced as an event queue."""
 
     def __init__(self, auth: TraeAuth, model: str, messages, system, tools,
-                 max_tokens=None, temperature=None, verbose=False):
+                 max_tokens=None, temperature=None, metadata=None, verbose=False):
         self.auth = auth
         self.verbose = verbose
         self.model = model
@@ -446,6 +448,7 @@ class TraeStream:
         self.tools = tools
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.metadata = metadata or {}
 
     def resolve(self) -> dict:
         """Map a requested name onto a catalogue entry."""
@@ -491,7 +494,9 @@ class TraeStream:
     def _run(self, q: queue.Queue) -> None:
         try:
             entry = self.resolve()
-            session_id = str(uuid.uuid4())
+            session_id = (str(self.metadata.get("session_id") or "")
+                          or str(self.metadata.get("conversation_id") or "")
+                          or str(uuid.uuid4()))
             loop_id = str(uuid.uuid4())
             body = {
                 "config_name": entry["config_name"],
@@ -642,6 +647,7 @@ class Handler(BaseHTTPRequestHandler):
             tools=payload.get("tools"),
             max_tokens=payload.get("max_tokens"),
             temperature=payload.get("temperature"),
+            metadata=payload.get("metadata"),
             verbose=self.verbose,
         )
         q = runner.start()
@@ -731,10 +737,16 @@ class Handler(BaseHTTPRequestHandler):
 
             for kind, data in self._drain(q, first):
                 if kind == "token_usage":
-                    usage["input_tokens"] = (data.get("prompt_tokens")
-                                             or usage["input_tokens"])
+                    total_in = data.get("prompt_tokens") or usage["input_tokens"]
+                    c_read = data.get("cache_read_input_tokens") or 0
+                    c_create = data.get("cache_creation_input_tokens") or 0
+                    usage["input_tokens"] = max(0, total_in - c_read - c_create)
                     usage["output_tokens"] = (data.get("completion_tokens")
                                               or usage["output_tokens"])
+                    if "cache_read_input_tokens" in data:
+                        usage["cache_read_input_tokens"] = c_read
+                    if "cache_creation_input_tokens" in data:
+                        usage["cache_creation_input_tokens"] = c_create
                     continue
                 if kind == "done":
                     finish = data.get("finish_reason") or ""
@@ -796,10 +808,16 @@ class Handler(BaseHTTPRequestHandler):
         finish = ""
         for kind, data in self._drain(q, first):
             if kind == "token_usage":
-                usage["input_tokens"] = (data.get("prompt_tokens")
-                                         or usage["input_tokens"])
+                total_in = data.get("prompt_tokens") or usage["input_tokens"]
+                c_read = data.get("cache_read_input_tokens") or 0
+                c_create = data.get("cache_creation_input_tokens") or 0
+                usage["input_tokens"] = max(0, total_in - c_read - c_create)
                 usage["output_tokens"] = (data.get("completion_tokens")
                                           or usage["output_tokens"])
+                if "cache_read_input_tokens" in data:
+                    usage["cache_read_input_tokens"] = c_read
+                if "cache_creation_input_tokens" in data:
+                    usage["cache_creation_input_tokens"] = c_create
             elif kind == "done":
                 finish = data.get("finish_reason") or ""
             elif kind == "output":

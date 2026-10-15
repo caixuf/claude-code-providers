@@ -426,3 +426,13 @@ def test_request_rules_are_empty_and_rewrite_nothing():
     for pname, names in emitted.items():
         for name in names:
             assert norm_model_key(name) not in listed, f"{pname}/{name} would be rewritten"
+
+
+def test_rendered_config_has_drop_params_setting():
+    """LiteLLM must drop unsupported params (like OpenAI 'store') when routing."""
+    doc, profiles = _load()
+    models, providers = render_config.index_models(doc)
+    text = render_config.render_config(models, providers, profiles)
+    cfg = yaml.safe_load(text)
+    assert cfg.get("litellm_settings", {}).get("drop_params") is True
+

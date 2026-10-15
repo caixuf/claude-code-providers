@@ -3,6 +3,7 @@ from sse_finalize import SseCutState, clamp_max_tokens, event_is_ping, resolve_m
 
 def test_close_after_message_stop():
     assert sse_should_close(b"event: message_stop\ndata: {}\n\n") is True
+    assert sse_should_close(b"data: [DONE]\n\n") is True
     assert sse_should_close(b"event: message_start\n\n") is False
 
 

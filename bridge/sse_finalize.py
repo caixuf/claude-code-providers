@@ -11,10 +11,11 @@ can go minutes without a token; a 12s idle inject aborted LiteLLM mid-JSON.
 from __future__ import annotations
 
 MESSAGE_STOP_MARK = b"event: message_stop"
+OPENAI_DONE_MARK = b"data: [DONE]"
 
 
 def sse_should_close(buf: bytes) -> bool:
-    return MESSAGE_STOP_MARK in buf
+    return MESSAGE_STOP_MARK in buf or OPENAI_DONE_MARK in buf
 
 
 def split_complete_events(buf: bytes) -> tuple[list[bytes], bytes]:

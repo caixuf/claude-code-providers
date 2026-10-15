@@ -214,6 +214,7 @@ TimeoutStopSec=3
 Environment=PYTHONUNBUFFERED=1
 Environment=LITELLM_LOCAL_MODEL_COST_MAP=True
 Environment=LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES=true
+Environment=LITELLM_DROP_PARAMS=true
 EnvironmentFile=-%h/.config/litellm/proxy.env
 
 [Install]

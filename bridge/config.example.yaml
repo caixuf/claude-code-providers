@@ -138,5 +138,8 @@ model_list:
       api_base: https://api.commandcode.ai/provider/v1
       api_key: YOUR_COMMANDCODE_AUTH_TOKEN
 
+litellm_settings:
+  drop_params: true
+
 general_settings:
   master_key: sk-cmdc-litellm-local

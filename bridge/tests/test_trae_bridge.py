@@ -184,6 +184,14 @@ def test_nameless_tools_are_dropped_rather_than_sent_broken():
     assert tb.anthropic_tools_to_trae([{"description": "no name"}]) == []
 
 
+def test_tool_parameters_json_is_deterministically_sorted():
+    """Deterministic json key ordering protects upstream prompt prefix cache."""
+    schema = {"z": 1, "a": 2, "m": 3}
+    tools = tb.anthropic_tools_to_trae([{"name": "test", "input_schema": schema}])
+    raw = tools[0]["function"]["parameters"]
+    assert raw == '{"a": 2, "m": 3, "z": 1}'
+
+
 # ── response translation ───────────────────────────────────────────────────
 
 def test_stop_reason_maps_trae_finish_reasons():
@@ -256,6 +264,30 @@ def test_token_usage_event_name_is_the_one_trae_sends():
     assert 'elif event in ("done", "token_usage", "metadata")' in src
     assert src.count('if kind == "token_usage":') == 2
     assert 'if kind == "usage":' not in src
+
+
+def test_token_usage_preserves_prompt_cache_tokens():
+    """Cache read and creation input tokens must be preserved in usage."""
+    events = [("token_usage", json.dumps({
+        "prompt_tokens": 100,
+        "completion_tokens": 20,
+        "cache_read_input_tokens": 80,
+        "cache_creation_input_tokens": 10,
+    })), ("eof", None)]
+    q, first = _Queue(events).take()
+    drained = list(tb.Handler._drain(q, first))
+    data = drained[0][1]
+    assert data.get("cache_read_input_tokens") == 80
+    assert data.get("cache_creation_input_tokens") == 10
+
+
+def test_trae_stream_adopts_metadata_session_id():
+    stream = tb.TraeStream(
+        auth=None, model="test", messages=[], system=None, tools=[],
+        metadata={"session_id": "sess-xyz-123"}
+    )
+    assert stream.metadata.get("session_id") == "sess-xyz-123"
+
 
 
 # ── SSE framing ────────────────────────────────────────────────────────────

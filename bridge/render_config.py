@@ -280,6 +280,9 @@ def render_config(
 
     lines += [
         "",
+        "litellm_settings:",
+        "  drop_params: true",
+        "",
         "general_settings:",
         "  master_key: sk-cmdc-litellm-local",
     ]
