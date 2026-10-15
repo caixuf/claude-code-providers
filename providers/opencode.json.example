@@ -1,0 +1,21 @@
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "YOUR_OPENCODE_API_KEY",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:4110",
+    "ANTHROPIC_MODEL": "deepseek-v4.1-flash-free",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "space-bunny-free",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "space-bunny-free",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4.1-flash-free",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4.1-flash-free",
+    "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-v4.1-flash-free",
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1048576",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1048576"
+  },
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
+  "model": "deepseek-v4.1-flash-free",
+  "autoUpdatesChannel": "stable",
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "dark"
+}

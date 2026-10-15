@@ -36,6 +36,13 @@ def providers(docs):
     return {p.name: p for p in ccp_pick._providers(profiles_doc, models_doc)}
 
 
+def _registry_provider_names():
+    """Provider names `ccp folders` is expected to print, from the registry."""
+    models_doc = yaml.safe_load(MODELS.read_text()) or {}
+    profiles_doc = yaml.safe_load(PROFILES.read_text()) or {}
+    return {p.name for p in ccp_pick._providers(profiles_doc, models_doc)}
+
+
 def run(*args):
     out = subprocess.run(
         [sys.executable, str(PICK), *args], capture_output=True, text=True
@@ -160,9 +167,14 @@ def test_folders_command_lists_one_line_per_provider():
     rc, out, _ = run("folders")
     assert rc == 0
     rows = [ln for ln in out.strip().splitlines() if ln.strip()]
-    assert len(rows) == 6
+    # One row per provider, whatever the registry currently ships. Pinning this
+    # to a literal count made adding a provider — the normal way this list
+    # grows — fail the suite for no behavioural reason.
+    expected = _registry_provider_names()
+    assert len(rows) == len(expected), f"{len(rows)} rows for {len(expected)} providers"
     for row in rows:
         name, kind, count, default, _ctx = row.split("|")
+        assert name in expected
         assert kind in {"native", "bridged"}
         assert int(count) > 0
         assert default
