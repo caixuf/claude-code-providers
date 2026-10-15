@@ -127,7 +127,7 @@ def test_resolve_reports_the_real_context_window():
     """CLAUDE_CODE_MAX_CONTEXT_TOKENS is per-profile, so switching to a smaller
     model must not leave the old window advertised."""
     _, out, _ = run("resolve", "trae", "qwen3.8-max")
-    assert kv(out)["CTX"] == "168000"
+    assert kv(out)["CTX"] == "1000000"  # verified window, not Trae's advertised 96k-184k
     _, out, _ = run("resolve", "qianfan", "deepseek-v4.1-flash")
     assert kv(out)["CTX"] == "1441792"
 

@@ -218,6 +218,17 @@ its own spelling), while a **bridged** one lists the alias that LiteLLM accepts
 with the provider prefix stripped. That is why `ccp qianfan glm-5.3` and
 `ccp cline kimi-k3` read the way they do.
 
+> **Trae reports 96k–184k; the real window is 1M.** Trae's catalogue field
+> `prompt_max_tokens` is what *its own CLI* will put in one request, not the
+> model's context. Taking it at face value cost 5/6 of the window. A needle
+> placed at the very end of the context is retrieved at 333k, 555k and 888k
+> input tokens; 1.25M returns HTTP 200 with empty content and zero usage — a
+> silent failure, not an error. `ctx_default` in `discover_models.py` therefore
+> overrides it, verified across four families (DeepSeek-V4.1-Flash,
+> qwen3.8-max, Doubao-Seed-2.1-pro, glm-5.3-flash). A request that returns 200
+> is not proof of this; only retrieving something from the far end of the
+> context is.
+
 > **ClinePass advertises 469 models and serves 6.** Its `/v1/models` is a public
 > catalogue, not an entitlement list: every Google (42 ids), OpenAI, Anthropic
 > and xAI model answers `{"error":"model not found"}` when actually called.

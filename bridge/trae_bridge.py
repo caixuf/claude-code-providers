@@ -453,6 +453,14 @@ class TraeStream:
         if not cat:
             raise RuntimeError("the Trae subscription returned an empty model list")
         want = (self.model or "").strip()
+
+        # `[1m]` is ccp's marker for "this model has a 1M window". It is a
+        # LiteLLM-side spelling — the watchdog strips it there. Trae is native
+        # and never sees that layer, so the marker arrives here verbatim and
+        # would otherwise miss every catalogue row.
+        if want.lower().endswith("[1m]"):
+            want = want[:-4].strip()
+
         for entry in cat:
             if want in (entry["config_name"], entry["model_name"], entry["display_name"]):
                 return entry
@@ -460,11 +468,19 @@ class TraeStream:
         for entry in cat:
             if lw in (entry["config_name"].lower(), entry["display_name"].lower()):
                 return entry
+
+        # Unknown name. Falling back silently used to hand back a *different*
+        # model than the one requested — `ccp trae qwen3.8-max` with the marker
+        # attached quietly answered as DeepSeek-V4.1-Flash, and said nothing
+        # unless --verbose was on. A wrong model is worse than a visible error,
+        # so this always says so, and names the model it is actually running.
         default = next((e for e in cat if "DeepSeek-V4.1-Flash" in e["config_name"]),
                        cat[0])
-        if self.verbose:
-            print("[trae] unknown model %r -> %s" % (want, default["config_name"]),
-                  file=sys.stderr, flush=True)
+        print("[trae] WARNING: %r is not in the Trae catalogue; "
+              "falling back to %r. Known models: %s"
+              % (self.model, default["config_name"],
+                 ", ".join(e["config_name"] for e in cat)),
+              file=sys.stderr, flush=True)
         return default
 
     def start(self) -> "queue.Queue":

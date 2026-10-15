@@ -262,161 +262,133 @@ providers:
     auth_env: TRAECLI_PERSONAL_ACCESS_TOKEN
     models:
       - name: DeepSeek-V4-Flash-Official
-        ctx: 96000
+        ctx: 1000000
         max_output: 32000
         vision: false
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: DeepSeek-V4-Pro-Official
-        ctx: 168000
+        ctx: 1000000
         max_output: 32000
         vision: false
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: DeepSeek-V4.1-Flash
-        ctx: 168000
+        ctx: 1000000
         max_output: 32000
         vision: false
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: Doubao-Seed-2.0-Code
-        ctx: 184000
+        ctx: 1000000
         max_output: 16000
         vision: true
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: Doubao-Seed-2.1-pro
-        ctx: 184000
+        ctx: 1000000
         max_output: 16000
         vision: true
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: Doubao-Seed-2.1-turbo
-        ctx: 184000
+        ctx: 1000000
         max_output: 16000
         vision: true
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: Doubao-Seed-Evolving
-        ctx: 184000
+        ctx: 1000000
         max_output: 16000
         vision: true
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: Doubao_1_6
-        ctx: 184000
+        ctx: 1000000
         max_output: 16000
         vision: true
         endpoint_kind: anthropic
         aliases: []
         tiers: []
-      - name: deepseek-V4-Pro
-        ctx: 168000
-        max_output: 32000
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
       - name: glm-5.2
-        ctx: 184000
+        ctx: 1000000
         max_output: 16000
         vision: false
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: glm-5.3
-        ctx: 168000
+        ctx: 1000000
         max_output: 32000
         vision: false
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: glm-5.3-flash
-        ctx: 168000
+        ctx: 1000000
         max_output: 32000
         vision: true
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: glm-5.3-flashx
-        ctx: 184000
+        ctx: 1000000
         max_output: 16000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: glm-5v-turbo
-        ctx: 184000
-        max_output: 16000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: kimi-k2.7-code
-        ctx: 168000
-        max_output: 32000
         vision: true
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: kimi-k2.8-preview
-        ctx: 168000
+        ctx: 1000000
         max_output: 32000
         vision: true
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: kimi-k3
-        ctx: 168000
+        ctx: 1000000
         max_output: 16000
         vision: true
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: mimo-v2.6-flash
-        ctx: 168000
+        ctx: 1000000
         max_output: 16000
         vision: true
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: mimo-v2.6-pro
-        ctx: 168000
+        ctx: 1000000
         max_output: 16000
         vision: true
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: minimax-m2.7
-        ctx: 184000
+        ctx: 1000000
         max_output: 16000
         vision: false
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: minimax-m3
-        ctx: 184000
+        ctx: 1000000
         max_output: 16000
         vision: true
         endpoint_kind: anthropic
         aliases: []
         tiers: []
-      - name: qwen-3.7-plus
-        ctx: 168000
-        max_output: 32000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
       - name: qwen3.8-max
-        ctx: 168000
+        ctx: 1000000
         max_output: 32000
         vision: true
         endpoint_kind: anthropic

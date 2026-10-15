@@ -366,3 +366,52 @@ def test_catalogue_defaults_are_used_when_the_row_is_sparse():
     assert tb._catalogue_from(payload)[0] == {
         "config_name": "x", "model_name": "x__v2", "display_name": "x",
         "ctx": 128000, "max_output": 8192, "vision": False}
+
+# ── the [1m] marker ────────────────────────────────────────────────────────
+# Trae is native, so `[1m]` — ccp's LiteLLM-side spelling for "1M window" —
+# reaches the adapter verbatim. It used to miss every catalogue row and fall
+# back to a *different* model, silently: asking for qwen3.8-max[1m] answered as
+# DeepSeek-V4.1-Flash. A wrong model beats no model only if it is announced.
+
+
+class _FakeAuth:
+    CATALOGUE = [
+        {"config_name": "qwen3.8-max", "model_name": "qwen3.8-max",
+         "display_name": "Qwen3.8-Max", "ctx": 1000000, "max_output": 32000,
+         "vision": True},
+        {"config_name": "DeepSeek-V4.1-Flash", "model_name": "DeepSeek-V4.1-Flash",
+         "display_name": "DeepSeek-V4.1-Flash", "ctx": 1000000,
+         "max_output": 32000, "vision": False},
+    ]
+
+    def catalogue(self, refresh=False):
+        return self.CATALOGUE
+
+
+def _stream_with_model(name):
+    s = tb.TraeStream.__new__(tb.TraeStream)
+    s.auth = _FakeAuth()
+    s.model = name
+    s.verbose = False
+    return s
+
+
+@pytest.mark.parametrize("spelling", ["qwen3.8-max[1m]", "qwen3.8-max[1M]"])
+def test_1m_marker_resolves_to_the_model_it_names(spelling):
+    """`[1m]` must not change which model answers."""
+    got = _stream_with_model(spelling).resolve()
+    assert got["config_name"] == "qwen3.8-max"
+
+
+def test_model_name_without_the_marker_still_resolves():
+    assert _stream_with_model("qwen3.8-max").resolve()["config_name"] == "qwen3.8-max"
+
+
+def test_unknown_model_falls_back_but_says_so(capsys):
+    """Silently answering with another model is the failure mode worth guarding."""
+    got = _stream_with_model("gpt-5.5").resolve()
+    assert got["config_name"] == "DeepSeek-V4.1-Flash"  # still usable...
+    err = capsys.readouterr().err
+    assert "WARNING" in err
+    assert "gpt-5.5" in err
+    assert "qwen3.8-max" in err  # ...and it lists what it could have been

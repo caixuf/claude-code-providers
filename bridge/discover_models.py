@@ -147,6 +147,11 @@ PROVIDERS = {
         "endpoint_kind": "anthropic",
         "auth_env": "TRAECLI_PERSONAL_ACCESS_TOKEN",
         "catalogue_command": ["trae_bridge.py", "--list-models-json"],
+        # Verified by needle-in-a-haystack probe through :4100 (2026-10-15):
+        # 333k / 555k / 888k all retrieve a code placed at the very end of the
+        # context; 1.25M returns 200 with empty content. Real window is 1M —
+        # the same as every other provider here — not the 96k–184k Trae reports.
+        "ctx_default": 1000000,
         "max_output_default": None,
     },
 }
@@ -382,12 +387,23 @@ def norm_trae(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) 
     Trae publishes no /models endpoint; ``trae_bridge.py`` calls its private
     ``get_config_list`` RPC through the PAT and hands us one dict per model
     with ctx / max_output / vision already resolved from the catalogue's own
-    ``prompt_max_tokens`` / ``max_tokens`` / ``multimodal`` fields. Nothing has
-    to be guessed, so this normalizer is a straight copy.
+    ``prompt_max_tokens`` / ``max_tokens`` / ``multimodal`` fields.
+
+    ``prompt_max_tokens`` is NOT the model's window — it is what Trae's own CLI
+    is willing to put in one request. Every model reports 96k–184k that way,
+    and taking it at face value cost us 5/6 of the real window: the same
+    DeepSeek-V4.1-Flash answers a 333k-token prompt and finds a needle placed at
+    its very end, and still answers at 888k tokens, while 1.25M returns HTTP 200
+    with empty content and zero usage — a silent failure, not an error.
+
+    So ctx comes from ``ctx_default`` below, and ``prompt_max_tokens`` is kept
+    out of the registry entirely. Re-probe by moving the needle: a request that
+    succeeds is not proof, only one that answers correctly from the far end of
+    the context is.
     """
     return {
         "name": entry.get("config_name") or entry.get("id"),
-        "ctx": entry.get("ctx"),
+        "ctx": provider.get("ctx_default") or entry.get("ctx"),
         "max_output": entry.get("max_output"),
         "vision": entry.get("vision"),
         "endpoint_kind": "anthropic",
