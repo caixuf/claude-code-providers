@@ -179,8 +179,24 @@ _NATIVE_DENY_PATHS = (
     "**/proxy.env",
 )
 _NATIVE_TOOL_DENY = [
+    # Allow-all first, then deny every tool except `read` — the shape that was
+    # measured to work. Cutting the native tool set is not just hygiene here,
+    # it is most of the prompt: on a 44-character user turn the session costs
+    # ~6083 tokens with the stock rules and ~1963 with this one, because the
+    # definitions of tools we can never surface to the caller are injected
+    # every turn regardless. Changing only the agent's `system` text moved it
+    # 6083 -> 5780, which is how we know the bulk is the tool table and not the
+    # prompt text.
+    #
+    # `read` stays allowed on purpose. Denying it as well (`deny *`) was
+    # observed answering 403 FreeTierError instead of running the turn, so the
+    # one read-only tool is the price of the turn being accepted at all.
+    {"action": "*", "resource": "*", "effect": "allow"},
+] + [
     {"action": action, "resource": "*", "effect": "deny"}
-    for action in ("shell", "edit", "write", "patch")
+    for action in ("shell", "edit", "write", "patch", "glob", "grep", "list",
+                   "webfetch", "websearch", "todowrite", "subagent", "skill",
+                   "question", "browser")
 ] + [
     {"action": action, "resource": resource, "effect": "deny"}
     for action in ("read", "glob", "grep")

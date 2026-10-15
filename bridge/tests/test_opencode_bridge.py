@@ -112,10 +112,35 @@ def test_credential_paths_are_denied_for_read_only_tools():
 
 
 def test_every_permission_rule_is_well_formed():
+    """Rule shape, and the one deliberate exception to "everything is a deny".
+
+    The ruleset opens with `allow *` and then denies the individual tools. That
+    leader is load-bearing rather than decorative: it is the shape that was
+    measured to shrink the session from ~6083 tokens to ~1963, and the session
+    permissions are a list of overrides rather than a default-deny policy.
+    """
+    allow = [r for r in ob._NATIVE_TOOL_DENY if r["effect"] == "allow"]
+    assert allow == [{"action": "*", "resource": "*", "effect": "allow"}], (
+        "exactly one allow-all leader, at the front"
+    )
+    assert ob._NATIVE_TOOL_DENY[0] is allow[0], "and it has to come first"
     for rule in ob._NATIVE_TOOL_DENY:
         assert set(rule) == {"action", "resource", "effect"}
-        assert rule["effect"] == "deny"
-        assert rule["resource"] and rule["resource"] != ""
+        assert rule["effect"] in ("allow", "deny")
+        assert rule["resource"]
+
+
+def test_read_is_never_denied_globally():
+    """Denying `read` makes the free-tier gate answer 403 instead of running.
+
+    So it stays reachable — that is the whole reason the tool list can be cut
+    down to a read-only remnant without the turn failing. Denying it for the
+    credential paths is fine; denying the action outright is not.
+    """
+    assert not any(
+        r["action"] == "read" and r["resource"] == "*" and r["effect"] == "deny"
+        for r in ob._NATIVE_TOOL_DENY
+    )
 
 
 # ── protocol translation ────────────────────────────────────────────────────
