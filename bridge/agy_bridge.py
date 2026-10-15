@@ -418,12 +418,20 @@ class Conversation:
             if exc.errno != errno.ESRCH:
                 raise
         finally:
-            # Never leave the handle unreaped: a bridge that runs for days
-            # would otherwise accumulate zombies.
+            # Reap unconditionally. The wait() above only runs on the branch
+            # where the process was still alive when we got here; a child that
+            # had ALREADY exited took the poll() is not None path, skipped the
+            # wait, and was left as a zombie for as long as its conversation key
+            # went untouched — which for a one-off request is forever. Observed
+            # as `[agy] <defunct>` children reparented to the bridge process.
             try:
                 if proc.stdout:
                     proc.stdout.close()
             except OSError:
+                pass
+            try:
+                proc.wait(timeout=5)
+            except (subprocess.TimeoutExpired, OSError):
                 pass
         _log("conversation %s: process reaped" % self.key[:8])
 

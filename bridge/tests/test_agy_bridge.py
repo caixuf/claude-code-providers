@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import sys
 from pathlib import Path
 
@@ -286,3 +287,38 @@ def test_a_filtered_turn_is_reported_as_content_rejection_not_an_empty_body():
     assert exc.value.status == 400
     assert exc.value.kind == "invalid_request_error"
     assert "blocked" in str(exc.value).lower()
+
+
+def test_a_child_that_already_exited_is_still_reaped():
+    """`_kill` must reap even when there is nothing left to terminate.
+
+    The wait() only ran on the branch where the process was still alive, so a
+    child that had already exited skipped it and stayed a zombie until its
+    conversation key was touched again — forever, for a one-off request.
+    Observed as `[agy] <defunct>` children reparented to the bridge process.
+
+    Checked against the process table rather than Python's returncode: Popen
+    caches the exit status, so `poll()` looks identical whether or not the
+    zombie was ever reaped. Once reaped the pid is gone, and signalling it
+    raises ProcessLookupError; a zombie would still accept the signal.
+    """
+    import os as _os
+    import subprocess as _sp
+
+    convo = agy.Conversation.__new__(agy.Conversation)
+    convo.key = "reap"
+    convo.lock = threading.Lock()
+    convo.completed_turns = 0
+    convo.last_used = 0.0
+    convo.conversation_id = None
+    convo._queue = None
+    convo._reader = None
+    convo._proc = _sp.Popen(["/bin/true"])
+    time.sleep(0.3)
+
+    pid = convo._proc.pid
+    assert convo._proc.poll() is not None, "child should have exited already"
+    convo._kill()
+
+    with pytest.raises(ProcessLookupError):
+        _os.kill(pid, 0)
