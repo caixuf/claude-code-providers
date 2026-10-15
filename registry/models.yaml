@@ -489,65 +489,76 @@ providers:
         aliases: []
         tiers: []
   - name: agy
-    # Google Antigravity CLI, driven through bridge/agy_bridge.py. `agy` on this
-    # host is a WSL-native ELF binary at ~/.local/bin/agy (v1.3.5); there is also
-    # an agy.exe under the Windows profile, and it is NOT interchangeable — it
-    # re-runs the Google OAuth flow on every new process and fills the desktop
-    # with login prompts. The bridge therefore takes an absolute path.
+    # Google Antigravity CLI, driven through bridge/agy_bridge.py. `agy` here is
+    # the WSL-native ELF binary at ~/.local/bin/agy; a Windows `agy.exe` also
+    # exists under the user profile and is NOT interchangeable — it re-runs the
+    # Google OAuth flow on every new process and floods the desktop with login
+    # prompts. The bridge therefore takes an absolute path, never `PATH`, where
+    # the Windows copy comes first.
     #
-    # What this provider really is: a full agent, not a model endpoint. Its
-    # free quota is metered against the CLI, and the only surface it exposes is
-    # its own session protocol, so the adapter drives that rather than calling
-    # inference directly.
+    # What this provider really is: a full agent, not a model endpoint. Its free
+    # quota is metered against the CLI and the only surface exposed is its own
+    # session protocol, so the adapter drives that rather than calling inference.
     #
-    # `ctx` below is NOT measured. Unlike the opencode free tier there was no
-    # needle probe for these, so every value is a conservative floor chosen to
-    # sit below anything a long agent transcript will reach. Re-probe before
-    # raising one: `--mode plan` turns plus 100KB+ prompts already fail often
-    # enough that the practical window here is far smaller than the model's real
-    # one, and advertising the model's real number would just push Claude Code
-    # into the failing band.
+    # ⚠️ `ctx` is measured, and it is much smaller than the models' real windows.
+    # agy caps INPUT at roughly 63.5k tokens for gemini-3.8-flash-* and 72.9k for
+    # claude-sonnet-4-6 — measured by watching `usage.input_tokens` plateau while
+    # the prompt kept growing (100k and 300k 汉字 both reported ~63.3k). About
+    # 13k of that cap is agy's own system prompt and tool definitions, so the
+    # budget actually left for the caller is nearer 50k / 60k. Past the cap the
+    # input is truncated *silently*: the turn still succeeds, the model just
+    # answers without having seen everything. Advertising the model's true
+    # window would walk Claude Code straight into that, so these are the usable
+    # numbers, not the model's.
+    #
+    # An earlier note here claimed a ~60KB *byte* limit. That was wrong, and the
+    # way it was wrong is worth keeping: the probe fed `"测" * 40000`, and
+    # Gemini's safety filter rejects degenerate repeated text with
+    # `status=SUCCESS, response=""` plus the real reason in `error`. The bridge
+    # used to report every empty body as "empty completion", which turned a
+    # content rejection into a phantom size limit. Realistic prose of the same
+    # size always went through.
     api_base: http://127.0.0.1:4120
     endpoint_kind: anthropic
     auth_env: AGY_BRIDGE_TOKEN
     models:
       - name: claude-sonnet-4-6
-        ctx: 100000
+        ctx: 60000
         max_output: 64000
         vision: false
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: claude-opus-4-6-thinking
-        ctx: 100000
+        ctx: 60000
         max_output: 64000
         vision: false
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: gemini-3.8-flash-low
-        ctx: 100000
+        ctx: 50000
         max_output: 64000
         vision: false
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: gemini-3.8-flash-medium
-        ctx: 100000
+        ctx: 50000
         max_output: 64000
         vision: false
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: gemini-3.8-flash-high
-        ctx: 100000
+        ctx: 50000
         max_output: 64000
         vision: false
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: gpt-oss-120b-medium
-        ctx: 100000
+        ctx: 50000
         max_output: 64000
         vision: false
         endpoint_kind: anthropic

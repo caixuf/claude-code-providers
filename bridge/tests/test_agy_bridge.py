@@ -8,6 +8,7 @@ HTTP 200.
 from __future__ import annotations
 
 import json
+import threading
 import sys
 from pathlib import Path
 
@@ -240,3 +241,48 @@ def test_known_models_are_the_ones_agy_actually_serves():
     assert "gemini-3.8-flash-low" in agy.AGY_MODELS
     assert "claude-sonnet-4-6" in agy.AGY_MODELS
     assert len(agy.AGY_MODELS) == 6
+
+def test_a_filtered_turn_is_reported_as_content_rejection_not_an_empty_body():
+    """Gemini answers a filtered turn with `status=SUCCESS, response=""`.
+
+    The explanation lives in `error`. Reporting that as a generic "empty
+    completion; retry" is what once sent a debugging session chasing a phantom
+    size limit: retrying a content rejection reproduces it forever, because
+    nothing about the request changed. It has to arrive as a non-retryable
+    invalid_request carrying the provider's own wording.
+    """
+    class _Stdin:
+        def write(self, _data):
+            return len(_data)
+
+        def flush(self):
+            pass
+
+    class _Proc:
+        stdin = _Stdin()
+
+        def poll(self):
+            return None
+
+    convo = agy.Conversation.__new__(agy.Conversation)
+    convo.key = "k"
+    convo.model = "gemini-3.8-flash-low"
+    convo.lock = threading.Lock()
+    convo.completed_turns = 0
+    convo.last_used = 0.0
+    convo.conversation_id = None
+    convo._proc = _Proc()
+    convo._queue = None
+    convo.alive = lambda: True
+    convo._spawn = lambda: None
+    convo._kill = lambda: None
+
+    lines = ['{"event":"result","result":{"status":"SUCCESS","response":"",'
+             '"error":"This request was blocked by Gemini\'s filter."}}']
+    convo._read_line = lambda budget=None, idle=None: lines.pop(0) if lines else ""
+
+    with pytest.raises(agy.UpstreamError) as exc:
+        list(convo.turn("hi"))
+    assert exc.value.status == 400
+    assert exc.value.kind == "invalid_request_error"
+    assert "blocked" in str(exc.value).lower()

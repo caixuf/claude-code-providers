@@ -8,8 +8,8 @@
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "gemini-3.8-flash-low",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gemini-3.8-flash-low",
     "ANTHROPIC_SMALL_FAST_MODEL": "gemini-3.8-flash-low",
-    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "100000",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "100000"
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "50000",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "50000"
   },
   "permissions": {
     "defaultMode": "bypassPermissions"

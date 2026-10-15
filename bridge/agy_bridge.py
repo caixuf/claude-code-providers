@@ -503,7 +503,28 @@ class Conversation:
                 if kind == "result":
                     result = event.get("result") or {}
                     body = result.get("response") or "".join(text)
+                    status = str(result.get("status") or "").upper()
+                    detail = result.get("error") or ""
                     if not (body or "").strip():
+                        # Say what actually happened. Reporting every empty body
+                        # as "empty completion; retry" hid the real cause once
+                        # already: a turn whose content tripped Gemini's safety
+                        # filter comes back `status=SUCCESS, response=""` with the
+                        # explanation in `error`, and a retry reproduces it
+                        # forever because nothing about the request changed.
+                        text_detail = ("%s %s" % (status, detail)).strip()
+                        filtered = any(w in text_detail.lower() for w in (
+                            "block", "filter", "safety", "policy", "prohibited"))
+                        if filtered:
+                            raise UpstreamError(
+                                "agy rejected the turn on content grounds: %s"
+                                % (detail or status),
+                                status=400, kind="invalid_request_error")
+                        if detail or (status and status != "SUCCESS"):
+                            raise UpstreamError(
+                                "agy turn failed (%s): %s" % (status or "no status",
+                                                              detail or "no detail"),
+                                status=502, kind="overloaded_error")
                         raise UpstreamError(
                             "agy returned an empty completion; retry the request",
                             status=502, kind="overloaded_error")

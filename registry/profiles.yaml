@@ -176,19 +176,18 @@ profiles:
   # API itself, so Claude Code talks to :4120 with no LiteLLM hop.
   #
   # Six models on one Google account, including Claude Sonnet 4.6 and Opus 4.6
-  # — the only place in this repo where Anthropic's own models are reachable
-  # without an Anthropic key. Tiers are split by role rather than laddering
-  # one family: the flash tiers are what a fast lane is for, opus holds the
-  # thinking slots.
+  # — the only route to Anthropic's own models in this repo without an
+  # Anthropic key. Tiers split by role rather than laddering one family: the
+  # flash tiers are the fast lane, opus holds the thinking slot.
   #
   # ⚠️ Two measured limits, both load-bearing:
   # * Tools are prompt-emulated, because agy accepts no tool schemas. Text
   #   reasoning is reliable; actually *doing* things is not — the model tends
   #   to reach for its own tool table instead of the one Claude Code sent.
-  # * Prompts past roughly 60KB fail often enough to matter (117KB came back
-  #   empty 3 times out of 5). That is why `ctx` is a conservative 100k rather
-  #   than the models' real window: a long agent transcript crosses the band
-  #   where the upstream starts dropping turns.
+  # * agy caps input at ~63.5k tokens (gemini) / ~72.9k (claude-sonnet), about
+  #   13k of which is its own system prompt. Past the cap the input is
+  #   truncated *silently*, so `ctx` is the usable budget rather than the
+  #   model's window. See registry/models.yaml for how it was measured.
   agy:
     provider: agy
     native: true
@@ -258,12 +257,12 @@ aliases:
   # Every one of these runs on Google's free quota through the local CLI. The
   # `-free` suffix is NOT part of these ids — Antigravity meters differently —
   # so the alias is the honest spelling of what you are actually calling.
-  agy-claude-sonnet-4-6:                {provider: agy, model: claude-sonnet-4-6, ctx: 100000}
-  agy-claude-opus-4-6-thinking:         {provider: agy, model: claude-opus-4-6-thinking, ctx: 100000}
-  agy-gemini-3.8-flash-low:             {provider: agy, model: gemini-3.8-flash-low, ctx: 100000}
-  agy-gemini-3.8-flash-medium:          {provider: agy, model: gemini-3.8-flash-medium, ctx: 100000}
-  agy-gemini-3.8-flash-high:            {provider: agy, model: gemini-3.8-flash-high, ctx: 100000}
-  agy-gpt-oss-120b-medium:              {provider: agy, model: gpt-oss-120b-medium, ctx: 100000}
+  agy-claude-sonnet-4-6:                {provider: agy, model: claude-sonnet-4-6, ctx: 60000}
+  agy-claude-opus-4-6-thinking:         {provider: agy, model: claude-opus-4-6-thinking, ctx: 60000}
+  agy-gemini-3.8-flash-low:             {provider: agy, model: gemini-3.8-flash-low, ctx: 50000}
+  agy-gemini-3.8-flash-medium:          {provider: agy, model: gemini-3.8-flash-medium, ctx: 50000}
+  agy-gemini-3.8-flash-high:            {provider: agy, model: gemini-3.8-flash-high, ctx: 50000}
+  agy-gpt-oss-120b-medium:              {provider: agy, model: gpt-oss-120b-medium, ctx: 50000}
   opencode-longcat-2.5-preview-free:    {provider: opencode, model: longcat-2.5-preview-free, ctx: 1048576}
   opencode-muse-spark-1.3-contributor-free: {provider: opencode, model: muse-spark-1.3-contributor-free, ctx: 1048576}
   opencode-step-5-preview-free:         {provider: opencode, model: step-5-preview-free, ctx: 400000}
