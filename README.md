@@ -36,6 +36,18 @@ bash install.sh
 
 *(Ensure `~/.local/bin` is in your `PATH`)*
 
+`install.sh` **symlinks** `~/.local/bin/ccp` at `bin/ccp` rather than copying it.
+A copy is the reason this can go wrong invisibly: `ccp` keeps running yesterday's
+build while the checkout has moved on, so it lists a different set of providers
+than the repo defines and new subcommands quietly do nothing. The symptom is a
+`ccp` output that disagrees with the README. If you ever see that, check whether
+`~/.local/bin/ccp` is still a real file:
+
+```bash
+ls -l ~/.local/bin/ccp      # must show '-> .../claude-code-providers/bin/ccp'
+bash install.sh             # re-links it
+```
+
 ### 2. Usage
 
 ```bash

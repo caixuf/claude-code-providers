@@ -12,10 +12,22 @@ echo "    Installing ccp (Claude Code Provider Switcher)       "
 echo "=========================================================="
 
 # 1. Install CLI binary
+# A symlink, not a copy: a copy silently goes stale, and the user keeps running
+# yesterday's version while the repo has moved on. The symptom is subtle —
+# `ccp` listing a different set of providers than the repo defines, and new
+# subcommands quietly doing nothing. `bin/ccp` resolves symlinks when locating
+# the repo it belongs to, so a link always drives the current checkout.
 mkdir -p "$BIN_DIR"
-cp "$SCRIPT_DIR/bin/ccp" "$BIN_DIR/ccp"
-chmod +x "$BIN_DIR/ccp"
-echo "✔ Installed 'ccp' binary to $BIN_DIR/ccp"
+if [[ -e "$BIN_DIR/ccp" && ! -L "$BIN_DIR/ccp" ]]; then
+  if cmp -s "$SCRIPT_DIR/bin/ccp" "$BIN_DIR/ccp"; then
+    ln -sf "$SCRIPT_DIR/bin/ccp" "$BIN_DIR/ccp"
+  else
+    cp "$BIN_DIR/ccp" "$BIN_DIR/ccp.outdated-$(date +%Y%m%d-%H%M%S).bak"
+    echo "  (previous ~/.local/bin/ccp differed from the repo; kept as .outdated-*.bak)"
+  fi
+fi
+ln -sf "$SCRIPT_DIR/bin/ccp" "$BIN_DIR/ccp"
+echo "✔ Linked 'ccp' -> $SCRIPT_DIR/bin/ccp"
 
 # 2. Check PATH
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then

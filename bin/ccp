@@ -13,9 +13,20 @@ ccp_repo_dir() {
   if [ -n "${CCP_REPO_DIR:-}" ] && [ -d "$CCP_REPO_DIR/bridge" ]; then
     echo "$CCP_REPO_DIR"; return
   fi
+  # Resolve symlinks before deriving the path. An installed `ccp` is normally a
+  # symlink at ~/.local/bin/ccp, and BASH_SOURCE would otherwise point there,
+  # whose parent has no bridge/ — the install would silently fall through to a
+  # guessed checkout and edit the wrong tree (or nothing at all).
+  local self="${BASH_SOURCE[0]}"
+  if command -v readlink >/dev/null 2>&1; then
+    local resolved
+    resolved=$(readlink -f "$self" 2>/dev/null || true)
+    [ -n "$resolved" ] && self="$resolved"
+  fi
+
   local c
   for c in \
-    "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)" \
+    "$(cd "$(dirname "$self")/.." 2>/dev/null && pwd)" \
     "$HOME/code/claude-code-providers" \
     "$HOME/.claude-code-providers" \
     "$HOME/claude-code-providers"; do
