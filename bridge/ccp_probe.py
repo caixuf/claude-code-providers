@@ -42,15 +42,42 @@ MODELS_PATH = REPO_DIR / "registry" / "models.yaml"
 DEFAULT_BRIDGE_URL = "http://127.0.0.1:4000"
 DEFAULT_MASTER_KEY = "sk-cmdc-litellm-local"
 
-DEFAULT_PROMPT = "Explain what an API is in 2 sentences."
+def _bulk_prompt(max_tokens: int) -> str:
+    """A prompt whose answer actually FILLS the token budget.
+
+    `max_tokens` is a ceiling, not a target. The old prompt ("Explain what an
+    API is in 2 sentences") made the model answer ~30 tokens and stop, so the
+    tok/s column was computed on a sample small enough that the fixed cost
+    dominated — a provider measured 501 tok/s on one run and 194 on the next,
+    and a real gap of under 10x looked like 35x. Asking for a numbered list
+    whose length scales with the budget makes the model produce roughly the
+    tokens we intend to time; asking for prose does not, because prose has its
+    own idea of when it is finished.
+    """
+    n = max(20, int(max_tokens * 0.8))
+    return ("Output the integers from 1 to %d, in order, separated by commas. "
+            "Output the numbers only — no prose, no summary, no code fence." % n)
+
+
 QUICK_PROMPT = "Count from 1 to 5."
+# Kept for callers that pass an explicit prompt; the timed default is
+# _bulk_prompt(max_tokens) so the answer fills the budget.
+DEFAULT_PROMPT = _bulk_prompt(200)
 PROBE_PROMPT = DEFAULT_PROMPT
 
 DEFAULT_ROUNDS = 2
-DEFAULT_TOKENS = 60
+# A short generation makes the tok/s column mostly noise: at ~20-60 output
+# tokens the fixed cost (TTFT plus session setup) dominates, and the same
+# provider then reads 501 tok/s on one run and 194 on the next — measured on
+# qianfan, same settings, minutes apart. That is enough to make a provider look
+# 35x slower than another when the real gap is under 10x, which is exactly the
+# mistake this default used to invite. A longer sample costs a couple of
+# seconds and buys a number worth ranking on. `-q` keeps the old cheap probe
+# for a liveness check, where only reachability matters.
+DEFAULT_TOKENS = 200
 QUICK_TOKENS = 20
 BENCH_ROUNDS = 3
-BENCH_TOKENS = 100
+BENCH_TOKENS = 1000
 MAX_TOKENS = DEFAULT_TOKENS
 
 # Terminal color codes (safe fallback when not a tty)
@@ -306,6 +333,11 @@ async def _probe_single_round(
     chat-completions probe would test a path the user's session never takes, and
     would 400 on every native catalogue model for lack of a LiteLLM entry.
     """
+    # When the caller did not hand us a prompt of their own, derive one that
+    # scales with the budget — otherwise the model stops after two sentences
+    # and we time a rounding error.
+    if prompt in (DEFAULT_PROMPT, QUICK_PROMPT) and prompt != QUICK_PROMPT:
+        prompt = _bulk_prompt(max_tokens)
     payload = {
         "model": wire_name,
         "messages": [{"role": "user", "content": prompt}],
