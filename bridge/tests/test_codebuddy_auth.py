@@ -228,3 +228,44 @@ def test_missing_refresh_token_is_called_out(tmp_path, capsys):
     assert cb._import(_args(path, env), quiet=False) == 0
     assert "cannot renew itself" in capsys.readouterr().out
     assert cb.read_env_value(env) is not None
+
+
+# ── which gateway a login belongs to ──────────────────────────────────────
+# CodeBuddy runs INTL and CN gateways that do not share tokens. Probing one at
+# the other is a bare `401 invalid_token` — which the prune read as an expired
+# login. The host is derived from the session's own `auth.domain`.
+
+
+def test_api_base_follows_the_logins_domain():
+    assert cb.api_base({"domain": "www.codebuddy.cn"}) == cb.CN_API_BASE
+    assert cb.api_base({"domain": "copilot.tencent.com"}) == cb.CN_API_BASE
+    assert cb.api_base({"domain": "tencent.sso.codebuddy.cn"}) == cb.CN_API_BASE
+    assert cb.api_base({"domain": "www.codebuddy.ai"}) == cb.INTL_API_BASE
+    # Unknown or absent: default to INTL rather than guessing CN.
+    assert cb.api_base({}) == cb.INTL_API_BASE
+    assert cb.api_base(None) == cb.INTL_API_BASE
+
+
+def test_api_base_env_override_wins(monkeypatch):
+    monkeypatch.setenv(cb.API_BASE_ENV, "https://example.test/v2/")
+    assert cb.api_base({"domain": "www.codebuddy.cn"}) == "https://example.test/v2"
+
+
+def test_chat_url_is_the_bases_chat_route():
+    assert cb.chat_url({"domain": "www.codebuddy.cn"}) == (
+        "https://copilot.tencent.com/v2/chat/completions"
+    )
+    assert cb.chat_url({"domain": "www.codebuddy.ai"}) == cb.GATEWAY
+
+
+def test_session_domain_reaches_the_host(tmp_path):
+    """The end-to-end path: a CN login file selects the CN gateway, not the
+    INTL default the module used to hard-code."""
+    path = _session_file(tmp_path / "cn.info")
+    doc = json.loads(path.read_text())
+    doc["auth"]["domain"] = "www.codebuddy.cn"
+    path.write_text(json.dumps(doc))
+
+    sess, _ = cb.find_session(str(path))
+    assert sess is not None and sess["domain"] == "www.codebuddy.cn"
+    assert cb.api_base(sess) == cb.CN_API_BASE

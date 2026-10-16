@@ -46,6 +46,39 @@ profiles:
       sonnet:  {model: deepseek/deepseek-v4.1-flash}
       haiku:   {model: deepseek/deepseek-v4.1-flash}
 
+  # ── CodeBuddy (Tencent coding-copilot subscription) ────────────────────
+  # Bridged, not native: CodeBuddy speaks plain OpenAI chat/completions, so
+  # LiteLLM already does the translation and there is nothing a private
+  # adapter would add. Its three quirks are handled declaratively — the
+  # `hosted_vllm/` prefix in render_config.py (its /v1 and Responses surfaces
+  # 404), the `sanitize_channel` request rule below (the gateway's
+  # client-identity check), and streaming being mandatory (Claude Code always
+  # streams). The credential is the session the CodeBuddy Code CLI holds;
+  # `ccp auth codebuddy` imports it, and `ccp bridge start|restart` re-reads
+  # it so a token the CLI rotated is adopted rather than going stale.
+  #
+  # The account signs into one of two gateways — INTL (www.codebuddy.ai) or CN
+  # (copilot.tencent.com) — which do not share tokens. Which one is derived from
+  # the login's `auth.domain`, not configured; see `api_base()` in
+  # bridge/codebuddy_auth.py.
+  #
+  # One entry point onto the whole fleet; the ladder mixes vendors because no
+  # single one covers all four tiers well.
+  #   default/sonnet : DeepSeek v4.1 Flash — free (0 credits), 1M, multimodal
+  #   opus/fable     : GLM-5.3 — strongest tool-call reliability in the fleet
+  #   haiku          : GLM-5.3-Flash — cheap, fast, still 1M
+  # Switch within the provider with `ccp -m codebuddy-glm` etc. (see aliases).
+  codebuddy:
+    provider: codebuddy
+    native: false
+    primary_tier: default
+    tiers:
+      default: {model: deepseek-v4.1-flash}
+      opus:    {model: glm-5.3}
+      fable:   {model: glm-5.3}
+      sonnet:  {model: deepseek-v4.1-flash}
+      haiku:   {model: glm-5.3-flash}
+
   # ── Native Anthropic-compatible endpoints (no bridge clamp needed) ──
   # These talk straight to the provider's /anthropic endpoint; they are
   # rendered into config.yaml too so `ccp models` can list them, but the
@@ -139,69 +172,6 @@ profiles:
       sonnet:  {model: deepseek-v4.1-flash}
       haiku:   {model: glm-5.3-flash}
 
-  # ── OpenCode Zen free tier, via the local opencode server ──────────────
-  # Also `native: true`: bridge/opencode_bridge.py speaks the Anthropic
-  # Messages API itself, so Claude Code talks to :4110 with no LiteLLM hop.
-  #
-  # The free tier is deliberately gated: zen answers 403 FreeTierError to any
-  # request that does not come from the opencode client, and the gate is a
-  # client contract (UA + x-opencode-session, and now a server-issued
-  # x-opencode-ticket), NOT an API-key check — a fake key answers exactly the
-  # same 403. Verified 2026-10-15: direct calls fail while the very same model
-  # runs fine through `opencode run`. So the adapter never talks to zen; it
-  # drives the real opencode server on this machine (discovered via
-  # ~/.local/state/opencode/service.json) and lets IT make the upstream call.
-  # No spoofed headers, no key.
-  #
-  # Tiers use the ids that actually answer. `deepseek-v4.1-flash-free` is the
-  # headline free model and takes default/sonnet; `space-bunny-free` (1048k)
-  # backs the long-context slots.
-  #
-  # The haiku tier is NOT cat-jam-free, even though that is the small/fast
-  # model: a 3-case tool probe (weather / read-file / small talk, scored on
-  # whether the right tool name came back) had it miss read_file entirely
-  # (2/3), while deepseek-v4.1-flash-free and space-bunny-free went 3/3. Haiku
-  # is the slot Claude Code hits most often, so an unreliable tool-caller there
-  # costs more than the latency it saves. cat-jam-free stays available by alias.
-  opencode:
-    provider: opencode
-    native: true
-    primary_tier: sonnet
-    tiers:
-      default: {model: deepseek-v4.1-flash-free}
-      opus:    {model: space-bunny-free}
-      fable:   {model: space-bunny-free}
-      sonnet:  {model: deepseek-v4.1-flash-free}
-      haiku:   {model: deepseek-v4.1-flash-free}
-
-# ── Google Antigravity CLI (agy), free quota ─────────────────────────
-  # Also `native: true`: bridge/agy_bridge.py speaks the Anthropic Messages
-  # API itself, so Claude Code talks to :4120 with no LiteLLM hop.
-  #
-  # Six models on one Google account, including Claude Sonnet 4.6 and Opus 4.6
-  # — the only route to Anthropic's own models in this repo without an
-  # Anthropic key. Tiers split by role rather than laddering one family: the
-  # flash tiers are the fast lane, opus holds the thinking slot.
-  #
-  # ⚠️ Two measured limits, both load-bearing:
-  # * Tools are prompt-emulated, because agy accepts no tool schemas. Text
-  #   reasoning is reliable; actually *doing* things is not — the model tends
-  #   to reach for its own tool table instead of the one Claude Code sent.
-  # * agy caps input at ~63.5k tokens (gemini) / ~72.9k (claude-sonnet), about
-  #   13k of which is its own system prompt. Past the cap the input is
-  #   truncated *silently*, so `ctx` is the usable budget rather than the
-  #   model's window. See registry/models.yaml for how it was measured.
-  agy:
-    provider: agy
-    native: true
-    primary_tier: sonnet
-    tiers:
-      default: {model: gemini-3.8-flash-low}
-      opus:    {model: claude-opus-4-6-thinking}
-      fable:   {model: claude-sonnet-4-6}
-      sonnet:  {model: gemini-3.8-flash-low}
-      haiku:   {model: gemini-3.8-flash-low}
-
 # ── Short aliases exposed to LiteLLM (config.yaml model_name) ──────────
 # These are the names Claude Code puts in ANTHROPIC_MODEL. The `[1m]` marker
 # is appended automatically for models whose ctx >= 1000000 (the proxy strips
@@ -218,6 +188,28 @@ aliases:
   cline-kimi-k3:                       {provider: cline, model: moonshotai/kimi-k3, ctx: 1048576}
   cline-minimax-m3:                    {provider: cline, model: minimax/minimax-m3, ctx: 1000000}
   cline-qwen3.7-max:                   {provider: cline, model: qwen/qwen3.7-max, ctx: 1000000}
+  # CodeBuddy: the ids `discover_models.py` narrows this account's catalogue to
+  # (see its `only_models`). Unlike cline/qianfan — whose catalogues are mostly
+  # not callable on the plan — every one of these answers, so all are aliased
+  # and reachable as `ccp codebuddy <name>`. ctx is the registry's own number,
+  # not a blanket 1M: the fleet mixes 1M and 200-960k windows. The set is the
+  # CN deployment's; an INTL login carries a different fleet (no MiMo/Step, has
+  # GPT/Gemini) and would need its own `only_models` + aliases.
+  codebuddy:               {provider: codebuddy, model: deepseek-v4.1-flash, ctx: 1000000}
+  codebuddy-deepseek-pro:  {provider: codebuddy, model: deepseek-v4-pro, ctx: 1000000}
+  codebuddy-deepseek-flash: {provider: codebuddy, model: deepseek-v4-flash, ctx: 1000000}
+  codebuddy-glm:           {provider: codebuddy, model: glm-5.3, ctx: 1000000}
+  codebuddy-fast:          {provider: codebuddy, model: glm-5.3-flash, ctx: 1000000}
+  codebuddy-glm-5.2:       {provider: codebuddy, model: glm-5.2, ctx: 1000000}
+  codebuddy-glm-v:         {provider: codebuddy, model: glm-5v-turbo, ctx: 200000}
+  codebuddy-kimi:          {provider: codebuddy, model: kimi-k3-1, ctx: 1000000}
+  codebuddy-kimi-k2.8:     {provider: codebuddy, model: kimi-k2.8-preview, ctx: 1000000}
+  codebuddy-kimi-k2.7:     {provider: codebuddy, model: kimi-k2.7, ctx: 256000}
+  codebuddy-minimax:       {provider: codebuddy, model: minimax-m3, ctx: 512000}
+  codebuddy-mimo:          {provider: codebuddy, model: mimo-v2.6-pro, ctx: 1000000}
+  codebuddy-hunyuan:       {provider: codebuddy, model: hy4-preview, ctx: 960000}
+  codebuddy-step:          {provider: codebuddy, model: step-5-preview, ctx: 1000000}
+  codebuddy-space-bunny:   {provider: codebuddy, model: space-bunny, ctx: 1000000}
   # OpenDesign: hot-swap between the aggregator's rungs with `ccp -m`
   opendesign-deepseek-v4.1-flash:       {provider: opendesign, model: deepseek-v4.1-flash, ctx: 1048000}
   opendesign-deepseek-v4-pro:           {provider: opendesign, model: deepseek-v4-pro, ctx: 1048000}
@@ -229,7 +221,7 @@ aliases:
   trae-glm-5.3:                         {provider: trae, model: glm-5.3, ctx: 168000}
   trae-glm-5.3-flash:                   {provider: trae, model: glm-5.3-flash, ctx: 168000}
   trae-deepseek-v4.1-flash:             {provider: trae, model: DeepSeek-V4.1-Flash, ctx: 168000}
-  trae-deepseek-v4-pro:                 {provider: trae, model: deepseek-V4-Pro, ctx: 168000}
+  trae-deepseek-v4-pro:                 {provider: trae, model: DeepSeek-V4-Pro-Official, ctx: 168000}
   trae-kimi-k3:                         {provider: trae, model: kimi-k3, ctx: 168000}
   trae-minimax-m3:                      {provider: trae, model: minimax-m3, ctx: 184000}
   trae-qwen3.8-max:                     {provider: trae, model: qwen3.8-max, ctx: 168000}
@@ -241,36 +233,6 @@ aliases:
   qianfan-glm-5.3:                      {provider: qianfan, model: glm-5.3, ctx: 1179648}
   qianfan-glm-5.3-flash:                {provider: qianfan, model: glm-5.3-flash, ctx: 1179648}
   qianfan-glm-5.2:                      {provider: qianfan, model: glm-5.2, ctx: 1179648}
-
-  # ── OpenCode Zen free tier (served through the local opencode server) ──
-  # Every one of these is $0 in Zen's own catalogue. The `-free` suffix is part
-  # of the upstream id, so it stays — it is the honest name, and it is what
-  # makes it obvious in a picker that no billing is attached.
-  #
-  # `ctx` here is the needle-verified window (see registry/models.yaml for the
-  # method), NOT Zen's published `limit.context`: that field is wrong in both
-  # directions — deepseek-v4.1-flash-free advertises 200k and read a needle at
-  # 1.6M 汉字, while step-5-preview-free advertises 1M and 503s. Anything at or
-  # above 1M therefore keeps its `[1m]` spelling via the normal render rule.
-  opencode-deepseek-v4.1-flash-free:    {provider: opencode, model: deepseek-v4.1-flash-free, ctx: 1048576}
-  opencode-space-bunny-free:            {provider: opencode, model: space-bunny-free, ctx: 1048576}
-  opencode-cat-jam-free:                {provider: opencode, model: cat-jam-free, ctx: 1048576}
-
-  # ── Antigravity CLI (agy) ────────────────────────────────────────────
-  # Every one of these runs on Google's free quota through the local CLI. The
-  # `-free` suffix is NOT part of these ids — Antigravity meters differently —
-  # so the alias is the honest spelling of what you are actually calling.
-  agy-claude-sonnet-4-6:                {provider: agy, model: claude-sonnet-4-6, ctx: 60000}
-  agy-claude-opus-4-6-thinking:         {provider: agy, model: claude-opus-4-6-thinking, ctx: 60000}
-  agy-gemini-3.8-flash-low:             {provider: agy, model: gemini-3.8-flash-low, ctx: 50000}
-  agy-gemini-3.8-flash-medium:          {provider: agy, model: gemini-3.8-flash-medium, ctx: 50000}
-  agy-gemini-3.8-flash-high:            {provider: agy, model: gemini-3.8-flash-high, ctx: 50000}
-  agy-gpt-oss-120b-medium:              {provider: agy, model: gpt-oss-120b-medium, ctx: 50000}
-  opencode-longcat-2.5-preview-free:    {provider: opencode, model: longcat-2.5-preview-free, ctx: 1048576}
-  opencode-muse-spark-1.3-contributor-free: {provider: opencode, model: muse-spark-1.3-contributor-free, ctx: 1048576}
-  opencode-step-5-preview-free:         {provider: opencode, model: step-5-preview-free, ctx: 400000}
-  opencode-mimo-v2.6-flash-free:        {provider: opencode, model: mimo-v2.6-flash-free, ctx: 400000}
-  opencode-nemotron-3.5-lightning-free: {provider: opencode, model: nemotron-3.5-lightning-free, ctx: 262144}
 
 # ── Accounts: several logins for one provider ──────────────────────────
 # Each extra account becomes its own LiteLLM deployment named
@@ -343,10 +305,9 @@ groups:
 #     removed and the other neutralised with a leading newline. Anthropic's own
 #     API wants the header untouched, so this stays scoped to providers whose
 #     gateway inspects it.
-request_rules: {}
-# The one rule this repo ever carried — codebuddy's `sanitize_channel` client
-# check — went with the provider. See docs/archived-providers.md to restore it
-# alongside codebuddy.
+request_rules:
+  sanitize_channel:
+    - codebuddy
 
 # ── Models that get individual LiteLLM entries (so `ccp -m <name>` works) ─
 # Keep this list short: each entry becomes a selectable model name, and a raw

@@ -74,6 +74,70 @@ PROVIDERS = {
         ],
         "max_output_default": None,
     },
+    # CodeBuddy (Tencent coding-copilot) subscription gateway, authenticated by
+    # the access token the CodeBuddy Code CLI already keeps on disk — run
+    # `ccp auth codebuddy` to copy it into ~/.config/litellm/proxy.env.
+    #
+    # Two deployments, two gateways, no shared token: the INTL site
+    # (www.codebuddy.ai) and the CN site (copilot.tencent.com). `api_base` and
+    # `models_url` below are the INTL defaults; ``resolve_endpoints`` swaps in
+    # the one this login is valid at, read from the session's ``auth.domain``.
+    # Getting this wrong is a bare `401 invalid_token` that looks like an
+    # expired login.
+    #
+    # The catalogue endpoint answers with a REST envelope
+    # ({code, msg, data: {models: [...]}}) instead of a bare OpenAI /models
+    # list, hence ``models_json_path``. It is *account-scoped* and its ids
+    # differ between the two deployments (the CN site carries no GPT/Gemini),
+    # so this table only lists what is common and ``only_models`` narrows each
+    # account's catalogue to the current, worth-picking ids — every CN account
+    # otherwise advertises ~20 legacy rungs (glm-5.0, kimi-k2.5, …) that no
+    # picker should make you read.
+    #
+    # Bridged, not native, on purpose: CodeBuddy speaks plain OpenAI
+    # chat/completions, so LiteLLM already does the translation. Its three
+    # quirks are handled declaratively — ``hosted_vllm/`` in
+    # litellm_model_string_override (the /v1 and Responses surfaces 404),
+    # the ``sanitize_channel`` request rule (the gateway's client-identity
+    # check), and streaming being mandatory (Claude Code always streams).
+    "codebuddy": {
+        "models_url": "https://www.codebuddy.ai/v2/enterprises/personal/models",
+        # LiteLLM appends /chat/completions, and CodeBuddy only serves that
+        # under /v2 — there is no /v1/* upstream at all.
+        "api_base": "https://www.codebuddy.ai/v2",
+        "endpoint_kind": "openai",
+        # See litellm_model_string_override in render_config.py: `openai/` would
+        # be routed to the Responses API (/v2/responses → 404 upstream).
+        "litellm_prefix": "hosted_vllm/",
+        "auth_env": "CODEBUDDY_API_KEY",
+        "models_json_path": ("data", "models"),
+        # Verified to answer on the CN personal plan; these are the ids the
+        # profile's tiers and aliases resolve against (see registry/profiles.yaml).
+        "only_models": [
+            "deepseek-v4.1-flash",
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+            "glm-5.3",
+            "glm-5.3-flash",
+            "glm-5.2",
+            "glm-5v-turbo",
+            "kimi-k3-1",
+            "kimi-k2.8-preview",
+            "kimi-k2.7",
+            "minimax-m3",
+            "mimo-v2.6-pro",
+            "hy4-preview",
+            "step-5-preview",
+            "space-bunny",
+        ],
+        # Ids the gateway routes but a given deployment's catalogue omits.
+        # ctx / max_output / vision come from the CLI's own product.json, which
+        # does list them. `only_models` above decides which survive.
+        "extra_models": [
+            {"name": "deepseek-v4.1-flash-sg", "ctx": 1000000, "max_output": 128000, "vision": True},
+        ],
+        "max_output_default": None,
+    },
     # Native Anthropic-compatible endpoints (no bridge). Rich metadata where
     # the provider exposes it (DeepSeek gives context_window + input_modalities).
     "deepseek": {
@@ -362,6 +426,27 @@ def norm_qianfan(entry: dict, provider: dict, cmap: dict, idx: dict | None = Non
     }
 
 
+def norm_codebuddy(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
+    """CodeBuddy's catalogue is richer than a /models list: every entry carries
+    maxInputTokens / maxOutputTokens / supportsImages / supportsToolCall, so no
+    cost-map cross-check is needed (these ids are gateway-private anyway).
+
+    Also accepts an already-normalized entry (``name`` / ``ctx`` / ``max_output``
+    / ``vision``), which is the shape PROVIDERS[...]["extra_models"] uses for the
+    ids the gateway routes but this account's catalogue does not list.
+    """
+    vision = entry.get("supportsImages")
+    if vision is None:
+        vision = entry.get("vision")
+    return {
+        "name": entry.get("id") or entry.get("name") or "",
+        "ctx": entry.get("maxInputTokens") or entry.get("ctx"),
+        "max_output": entry.get("maxOutputTokens") or entry.get("max_output"),
+        "vision": vision,
+        "endpoint_kind": provider["endpoint_kind"],
+    }
+
+
 def norm_opendesign(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
     """OpenDesign exposes everything the registry needs inside the model entry.
 
@@ -422,6 +507,7 @@ def norm_trae(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) 
 
 NORMALIZERS = {
     "cline": norm_generic,
+    "codebuddy": norm_codebuddy,
     "deepseek": norm_deepseek,
     "minimax": norm_generic,
     "opendesign": norm_opendesign,
@@ -488,6 +574,30 @@ def load_existing_by_provider() -> dict:
     return {p["name"]: (p.get("models") or []) for p in doc.get("providers", [])}
 
 
+def resolve_endpoints(pname: str, pdef: dict) -> dict:
+    """A provider's endpoints, with any deployment-specific one resolved.
+
+    CodeBuddy runs an INTL and a CN gateway that do not share tokens, so its
+    base URL must come from the login rather than the table — a CN token sent to
+    www.codebuddy.ai is a bare 401. Everything else is exactly what the table
+    says. See ``codebuddy_auth.api_base``.
+    """
+    if pname != "codebuddy":
+        return pdef
+    try:
+        sys.path.insert(0, str(BRIDGE_DIR))
+        import codebuddy_auth as cb
+
+        session, _ = cb.find_session(None)
+        base = cb.api_base(session)
+    except Exception:
+        return pdef
+    out = dict(pdef)
+    out["api_base"] = base
+    out["models_url"] = base + "/enterprises/personal/models"
+    return out
+
+
 def build(only: str | None) -> dict:
     cmap = litellm_cost_map()
     cidx = build_suffix_index(cmap)
@@ -506,7 +616,7 @@ def build(only: str | None) -> dict:
     # Seed from the current registry so `--provider X` never drops the others.
     by_prov: dict[str, dict] = {}
     for pname, models in existing_by_prov.items():
-        pdef = PROVIDERS.get(pname, {})
+        pdef = resolve_endpoints(pname, PROVIDERS.get(pname, {}))
         by_prov[pname] = provider_block(
             pname,
             {
@@ -520,6 +630,7 @@ def build(only: str | None) -> dict:
     for pname, pdef in PROVIDERS.items():
         if only and pname != only:
             continue
+        pdef = resolve_endpoints(pname, pdef)
         token = read_token(pdef)
         raw = None
         try:
@@ -544,8 +655,11 @@ def build(only: str | None) -> dict:
         # it would fail at request time.
         if pdef.get("only_models"):
             wanted = set(pdef["only_models"])
+            # `name` covers the already-normalized ``extra_models`` entries,
+            # which carry no `id`/`config_name`; without it an allow-listed id
+            # supplied there would be silently dropped by the narrow step.
             raw = [e for e in raw
-                   if (e.get("id") or e.get("config_name")) in wanted]
+                   if (e.get("id") or e.get("config_name") or e.get("name")) in wanted]
         models = []
         seen: set[str] = set()
         for entry in raw:

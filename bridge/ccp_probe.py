@@ -65,6 +65,24 @@ QUICK_PROMPT = "Count from 1 to 5."
 DEFAULT_PROMPT = _bulk_prompt(200)
 PROBE_PROMPT = DEFAULT_PROMPT
 
+# ── agent readiness ──────────────────────────────────────────────────────────
+# For agent work TTFT is the wrong metric. A model can be fast to emit a token
+# and still never call a tool, which is the failure that actually wastes a turn:
+# reasoning does not advance the task, an action does. So this mode sends a
+# prompt with one obvious action and measures time-to-first-tool-call, plus
+# whether a tool call happens at all.
+AGENT_TOOLS = [{
+    "name": "read_file",
+    "description": "Read a file from disk and return its contents.",
+    "input_schema": {
+        "type": "object",
+        "properties": {"path": {"type": "string", "description": "File to read"}},
+        "required": ["path"],
+    },
+}]
+AGENT_PROMPT = ("Read the file /etc/hostname so I can see the machine name. "
+                "Call the tool now — do not explain first.")
+
 DEFAULT_ROUNDS = 2
 # A short generation makes the tok/s column mostly noise: at ~20-60 output
 # tokens the fixed cost (TTFT plus session setup) dominates, and the same
@@ -426,6 +444,7 @@ async def _probe_single_round(
     max_tokens: int,
     timeout_s: float,
     native: bool = False,
+    tools: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """One streaming round over Anthropic Messages, measuring TTFT / TPS.
 
@@ -446,6 +465,8 @@ async def _probe_single_round(
         "max_tokens": max_tokens,
         "stream": True,
     }
+    if tools:
+        payload["tools"] = tools
     headers = {"Content-Type": "application/json", "anthropic-version": "2023-06-01"}
     if master_key:
         # Both spellings: the bridge wants x-api-key, several vendor endpoints
@@ -458,6 +479,8 @@ async def _probe_single_round(
     t_first = None
     t_think = None      # first reasoning delta
     t_answer = None     # first text delta
+    t_tool = None       # first tool call — the number that matters for agents
+    tool_name = ""
     think_chars = 0
     answer_chars = 0
     completion_tokens = 0
@@ -492,7 +515,12 @@ async def _probe_single_round(
 
                 kind = chunk.get("type")
 
-                if kind == "content_block_delta":
+                if kind == "content_block_start":
+                    blk = chunk.get("content_block") or {}
+                    if blk.get("type") == "tool_use" and t_tool is None:
+                        t_tool = time.perf_counter()
+                        tool_name = blk.get("name") or ""
+                elif kind == "content_block_delta":
                     delta = chunk.get("delta") or {}
                     # Time the two phases apart. On a Flash-class model the first
                     # token is usually `thinking`, so a single TTFT number cannot
@@ -567,6 +595,8 @@ async def _probe_single_round(
                 "ok": True,
                 "status": "OK",
                 "error_msg": "",
+                "tool_ms": round((t_tool - t0) * 1000, 1) if t_tool else None,
+                "tool_name": tool_name,
                 "think_ms": round((t_think - t0) * 1000, 1) if t_think else None,
                 "answer_ms": round((t_answer - t0) * 1000, 1) if t_answer else None,
                 "think_chars": think_chars,
@@ -627,6 +657,7 @@ async def probe_single_model(
     max_tokens: int = DEFAULT_TOKENS,
     prompt: str = DEFAULT_PROMPT,
     semaphore: Optional[asyncio.Semaphore] = None,
+    tools: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Multi-round streaming probe; statistical TTFT, TPS and stability.
 
@@ -652,6 +683,7 @@ async def probe_single_model(
                 max_tokens=max_tokens,
                 timeout_s=timeout_s,
                 native=native,
+                tools=tools,
             )
             round_results.append(res)
             # Short-circuit on permanent fatal errors
@@ -684,6 +716,9 @@ async def probe_single_model(
         _an = [r["answer_ms"] for r in ok_rounds if r.get("answer_ms") is not None]
         avg_think = round(sum(_th) / len(_th), 1) if _th else None
         avg_answer = round(sum(_an) / len(_an), 1) if _an else None
+        _tl = [r["tool_ms"] for r in ok_rounds if r.get("tool_ms") is not None]
+        avg_tool = round(sum(_tl) / len(_tl), 1) if _tl else None
+        acted = any(r.get("tool_name") for r in ok_rounds)
         # Aggregate the way the harness does: total tokens over total decode
         # time, not the mean of per-round rates. Averaging rates lets one
         # unrepresentative round pull the figure as hard as a long one, which
@@ -707,6 +742,8 @@ async def probe_single_model(
             "ttft_ms": avg_ttft,
             "think_ms": avg_think,
             "answer_ms": avg_answer,
+            "tool_ms": avg_tool,
+            "acted": acted,
             "tps": avg_tps,
             "total_ms": avg_total,
             "tokens": avg_tokens,
@@ -729,6 +766,7 @@ async def probe_all(
     rounds: int = DEFAULT_ROUNDS,
     max_tokens: int = DEFAULT_TOKENS,
     prompt: str = DEFAULT_PROMPT,
+    tools: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """Probe every candidate concurrently, each against its own endpoint."""
     sem = asyncio.Semaphore(concurrency)
@@ -745,6 +783,7 @@ async def probe_all(
                 max_tokens=max_tokens,
                 prompt=prompt,
                 semaphore=sem,
+                tools=tools,
             )
             for m in models
         ]
@@ -933,6 +972,61 @@ def print_table(
     return best_model
 
 
+def print_agent_table(results: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Agent readiness: did it act, and how long until it did.
+
+    TTFT says nothing here — reasoning tokens do not advance the task, so a model
+    can emit a token instantly and still never call a tool. `1st tool: NEVER`
+    means it answered the request with prose, which wastes the turn outright.
+    """
+    def key(r):
+        return (0 if r.get("acted") else 1,
+                r.get("tool_ms") if r.get("tool_ms") is not None else 1e9)
+    ordered = sorted(results, key=key)
+
+    print()
+    print(f"{pad_right(bold('Provider'), 12)} {pad_right(bold('Model'), 30)} "
+          f"{pad_left(bold('Think'), 8)} {pad_left(bold('1st tool'), 9)} "
+          f"{pad_left(bold('Total'), 8)}  {bold('verdict')}")
+    print(dim("─" * 92))
+    for r in ordered:
+        if not r.get("available"):
+            print(f"{pad_right(dim(r.get('provider', '-')), 12)} "
+                  f"{pad_right(dim(r.get('display_name', '-')[:30]), 30)} "
+                  f"{pad_left('', 8)} {pad_left(red('NEVER'), 9)} "
+                  f"{pad_left('', 8)}  {red(str(r.get('status', 'fail'))[:40])}")
+            continue
+        th = r.get("think_ms")
+        th_s = "-" if th is None else (f"{th/1000:.1f}s" if th >= 1000 else f"{th:.0f}ms")
+        tl = r.get("tool_ms")
+        if tl is None:
+            tl_s, verdict = red("NEVER"), red("prose only — wastes the turn")
+        else:
+            tl_s = f"{tl/1000:.1f}s" if tl >= 1000 else f"{tl:.0f}ms"
+            tl_s = green(tl_s) if tl <= 3000 else (yellow(tl_s) if tl <= 10000 else red(tl_s))
+            verdict = (green("acts promptly") if tl <= 3000
+                       else yellow("acts, but slowly") if tl <= 10000
+                       else red("too slow to act"))
+        tot = r.get("total_ms", 0) / 1000
+        print(f"{pad_right(cyan(r.get('provider', '-')[:12]), 12)} "
+              f"{pad_right(r.get('display_name', '-')[:30], 30)} "
+              f"{pad_left(th_s, 8)} {pad_left(tl_s, 9)} "
+              f"{pad_left(f'{tot:.1f}s', 8)}  {verdict}")
+
+    acted = [r for r in results if r.get("acted")]
+    stalled = [r for r in results if r.get("available") and not r.get("acted")]
+    print(dim("─" * 92))
+    print(f"Summary: {bold(str(len(acted)))}/{len(results)} called the tool.")
+    if stalled:
+        print(red(f"  never acted: {', '.join(r['provider'] for r in stalled)}"))
+    if acted:
+        best = min(acted, key=lambda r: r["tool_ms"] or 1e9)
+        print(f"🏆 Fastest to act: {green(bold(best['display_name']))} "
+              f"({best['provider']} | {best['tool_ms']/1000:.1f}s | {best.get('tool_name') or 'tool'})")
+    print()
+    return min(acted, key=lambda r: r["tool_ms"] or 1e9) if acted else None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("target", nargs="?", default=None, help="Provider name (trae, qianfan), model alias, or omit for primary tiers")
@@ -947,6 +1041,8 @@ def main() -> int:
     ap.add_argument("--base-url", default=DEFAULT_BRIDGE_URL, help=f"Universal bridge base URL (default: {DEFAULT_BRIDGE_URL})")
     ap.add_argument("-s", "--switch", action="store_true", help="Automatically switch active provider/model to recommended winner")
     ap.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+    ap.add_argument("--agent", action="store_true",
+                    help="Agent readiness: time to first tool call, and whether one comes at all")
 
     args = ap.parse_args()
 
@@ -963,6 +1059,18 @@ def main() -> int:
         rounds = args.rounds if args.rounds is not None else DEFAULT_ROUNDS
         tokens = args.tokens if args.tokens is not None else DEFAULT_TOKENS
         prompt = DEFAULT_PROMPT
+
+    # Agent mode asks a different question, so it brings its own prompt and a
+    # tool schema. One round by default: the point is whether and how fast the
+    # model acts, not how stable that is across repeats.
+    tools = None
+    if args.agent:
+        tools = AGENT_TOOLS
+        prompt = AGENT_PROMPT
+        if args.rounds is None:
+            rounds = 1
+        if args.tokens is None:
+            tokens = 400
 
     candidates = get_configured_models(target=args.target, all_models=args.all)
     if not candidates:
@@ -983,6 +1091,7 @@ def main() -> int:
             rounds=rounds,
             max_tokens=tokens,
             prompt=prompt,
+            tools=tools,
         )
     )
 
@@ -990,7 +1099,8 @@ def main() -> int:
         print(json.dumps(results, indent=2))
         return 0
 
-    best = print_table(results, sort_key=args.sort, rounds=rounds, tokens=tokens)
+    best = (print_agent_table(results) if args.agent
+            else print_table(results, sort_key=args.sort, rounds=rounds, tokens=tokens))
 
     if args.switch and best and best.get("display_name"):
         prov = best.get("provider", "")

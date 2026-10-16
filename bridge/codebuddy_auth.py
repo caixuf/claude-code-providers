@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Import the local CodeBuddy Code login into the bridge's secrets file.
 
-CodeBuddy's gateway (https://www.codebuddy.ai, or https://copilot.tencent.com
-for CN accounts) is not an API-key service: it authenticates the *session* the
-CodeBuddy Code CLI already holds. That session lives on disk as plain JSON:
+CodeBuddy's gateway (https://www.codebuddy.ai for international accounts,
+https://copilot.tencent.com for CN ones) is not an API-key service: it
+authenticates the *session* the CodeBuddy Code CLI already holds. That session
+lives on disk as plain JSON:
 
     ~/.local/share/CodeBuddyExtension/Data/Public/auth/<auth-id>.info
     {"account": {"uid": ...}, "auth": {"accessToken": "eyJ...", "refreshToken": ...,
-                                       "expiresAt": ...}}
+                                       "domain": "www.codebuddy.cn", "expiresAt": ...}}
 
 so `ccp auth codebuddy` reads it and writes
 
@@ -15,6 +16,8 @@ so `ccp auth codebuddy` reads it and writes
 
 into ~/.config/litellm/proxy.env, which the generated LiteLLM config references
 as ``os.environ/CODEBUDDY_API_KEY`` and the systemd unit loads via EnvironmentFile.
+Which of the two gateways to talk to comes from ``auth.domain`` — see
+``api_base()``.
 
 ## The rules this file follows
 
@@ -66,7 +69,42 @@ from pathlib import Path
 
 AUTH_ENV = "CODEBUDDY_API_KEY"
 PROXY_ENV = Path(os.path.expanduser("~/.config/litellm/proxy.env"))
-GATEWAY = "https://www.codebuddy.ai/v2/chat/completions"
+
+# CodeBuddy runs two independent gateways, and a session is valid at exactly the
+# one it was issued by: the international site (www.codebuddy.ai) and the CN site
+# (copilot.tencent.com, behind www.codebuddy.cn / tencent.sso.codebuddy.cn). A
+# token from one is rejected by the other with a bare `401 invalid_token` — no
+# hint that the host is what is wrong. The login records which site it signed
+# into in `auth.domain`, so the host is derived from the session rather than
+# assumed; CODEBUDDY_API_BASE overrides for a non-standard deployment.
+INTL_API_BASE = "https://www.codebuddy.ai/v2"
+CN_API_BASE = "https://copilot.tencent.com/v2"
+API_BASE_ENV = "CODEBUDDY_API_BASE"
+
+_DOMAIN_API_BASES = {
+    "www.codebuddy.ai": INTL_API_BASE,
+    "www.codebuddy.cn": CN_API_BASE,
+    "copilot.tencent.com": CN_API_BASE,
+    "tencent.sso.codebuddy.cn": CN_API_BASE,
+}
+
+# Kept for callers that predate host resolution (and the tests): the INTL chat
+# endpoint. `chat_url()` is what actually picks the right host.
+GATEWAY = INTL_API_BASE + "/chat/completions"
+
+
+def api_base(session: dict | None = None) -> str:
+    """The gateway base this login is actually valid at."""
+    override = os.environ.get(API_BASE_ENV)
+    if override:
+        return override.rstrip("/")
+    domain = ((session or {}).get("domain") or "").strip().lower()
+    return _DOMAIN_API_BASES.get(domain, INTL_API_BASE)
+
+
+def chat_url(session: dict | None = None) -> str:
+    return api_base(session) + "/chat/completions"
+
 
 # Warn this long before the access token lapses, so a session that is about to
 # die is noticed at a bridge restart rather than in the middle of a turn.
@@ -262,13 +300,17 @@ def expiry_info(sess: dict) -> tuple[datetime.datetime | None, str]:
     return when, f"{when:%Y-%m-%d %H:%M} ({span})"
 
 
-def verify(token: str, model: str = "deepseek-v4.1-flash") -> tuple[bool, str]:
+def verify(token: str, model: str = "deepseek-v4.1-flash",
+           session: dict | None = None) -> tuple[bool, str]:
     """Stream one tiny completion. Returns (ok, detail).
 
     The gateway speaks ONLY streaming (a non-stream request is rejected with
     code 11101), and it requires the first message to be a system turn, so this
-    probe sends exactly what the bridge sends.
+    probe sends exactly what the bridge sends. ``session`` selects the host the
+    login is valid at — probing a CN token at the INTL edge is the 401 this
+    would otherwise report as a broken login.
     """
+    url = chat_url(session)
     body = json.dumps(
         {
             "model": model,
@@ -281,7 +323,7 @@ def verify(token: str, model: str = "deepseek-v4.1-flash") -> tuple[bool, str]:
         }
     ).encode()
     req = urllib.request.Request(
-        GATEWAY,
+        url,
         data=body,
         headers={
             "Authorization": f"Bearer {token}",
@@ -360,7 +402,7 @@ def _import(args, *, quiet: bool) -> int:
         print(f"  ⚠ The access token lapses {when:%Y-%m-%d %H:%M}; run `codebuddy` before then.")
 
     if args.verify and not args.no_verify:
-        ok, detail = verify(sess["token"], args.verify_model)
+        ok, detail = verify(sess["token"], args.verify_model, session=sess)
         print(("  Verify:  OK — " if ok else "  Verify:  FAILED — ") + detail)
         if not ok:
             return 1

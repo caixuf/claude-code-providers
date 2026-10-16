@@ -6,6 +6,17 @@ profiles were moved to `~/.claude/providers_disabled/`, the templates to
 `providers/archived/`, and the entries removed from `registry/profiles.yaml`,
 `registry/models.yaml` and `discover_models.py`.
 
+**CodeBuddy was brought back on 2026-10-16** (see its section below). Its
+template is in `providers/` again and its registry/discovery entries are live;
+the notes here are kept as the reference for how its gateway behaves.
+
+**OpenCode Zen and Antigravity (`agy`) were archived on 2026-10-16** — not
+because they broke, but because they were not worth the surface. Unlike every
+other entry here they are *local adapters*, not gateways, so archiving one means
+moving more than a template: its adapter, its systemd unit example and its tests
+went to `bridge/archived/`. Both remain fully reversible; their findings are at
+the bottom of this file.
+
 To bring one back, either `git revert` the prune commit, or:
 
 1. move its template back from `providers/archived/` into `providers/`
@@ -32,13 +43,17 @@ was sound. Top the balance up and the revert restores it unchanged.
 
 ---
 
-## CodeBuddy (Tencent coding-copilot)
+## CodeBuddy (Tencent coding-copilot) — RESTORED 2026-10-16
 
 [CodeBuddy](https://www.codebuddy.ai/cli) (Tencent coding-copilot) is a flat
 subscription that fronts a whole fleet of third-party models — DeepSeek, GLM,
 Kimi, GPT, Gemini, Hunyuan. It has **no API-key product**: the gateway
 authenticates the session the CodeBuddy Code CLI already holds, so `ccp`
 imports that session.
+
+> This provider is live again. The section below is the operator's reference;
+> `ccp auth codebuddy` / `ccp codebuddy` are the commands. See the README's
+> CodeBuddy section for the current, user-facing walkthrough.
 
 ### 1. Import the local CodeBuddy login
 
@@ -113,14 +128,19 @@ declaratively so nothing is hard-coded in the proxy:
 | Streaming is mandatory (non-stream → `400 11101`) | Claude Code always streams, and the bridge is a streaming proxy, so nothing extra is needed — but a plain `curl` against the upstream without `"stream": true` will fail |
 
 Model metadata (context window, output cap, vision) is discovered from
-`GET /v2/enterprises/personal/models`, which is **account-scoped**: `ccp models
-codebuddy` shows exactly what your plan exposes. `discover_models.py` re-adds a
-few ids the gateway routes but the INTL catalogue omits (notably
-`deepseek-v4.1-flash`, the free 1M multimodal one that the default tier uses).
+`GET /v2/enterprises/personal/models` on the account's own gateway, which is
+**account-scoped**: `ccp models codebuddy` shows exactly what your plan exposes.
+The catalogue is wider than it is useful, so `discover_models.py` narrows it with
+`only_models` and every surviving id is aliased.
 
-The CN deployment (`copilot.tencent.com`) works the same way; change
-`models_url`/`api_base` in `bridge/discover_models.py` if your account lives
-there.
+**Two gateways, one login.** The international site (`www.codebuddy.ai`) and the
+CN one (`copilot.tencent.com`) do not share tokens, and the wrong host answers a
+bare `401 invalid_token` — indistinguishable from an expired login, which is what
+the 2026-10-14 prune mistook it for. The host is now derived from the login's
+`auth.domain` (`api_base()` in `bridge/codebuddy_auth.py`), so nothing has to be
+hand-edited per account; `CODEBUDDY_API_BASE` overrides it. The fleets differ —
+the CN plan carries no GPT or Gemini — so `only_models` and the aliases are
+per-deployment choices, not one global list.
 
 ---
 
@@ -155,3 +175,79 @@ Copilot profile perfectly maps Claude Code's model hierarchy:
 
 ---
 
+
+## OpenCode Zen free tier (`opencode`)
+
+Archived 2026-10-16 (adapter + unit + tests now in `bridge/archived/`, template
+and profile/aliases removed). It worked; it was cut for surface area.
+
+opencode publishes `deepseek-v4.1-flash-free` and friends at $0, but the free
+tier is gated to the opencode client itself: a direct call to
+`zen/v1/chat/completions` answers `403 FreeTierError` whatever the credentials,
+and a forged `User-Agent: opencode/…` plus `x-opencode-session` is not enough.
+`opencode_bridge.py` therefore drove the real local opencode service
+(`~/.local/state/opencode/service.json` holds its URL and password) and
+translated its session API into Anthropic Messages on `:4110`. No spoofed
+headers, no key.
+
+Two findings worth keeping:
+
+* **The per-turn overhead was the tool table, not the prompt.** A 44-character
+  turn carried ~6083 tokens of context nobody asked for. Replacing the system
+  text moved it 6083 → 5780, so the prompt was never the bulk — the definitions
+  of the service's ~60 native tools were, injected every turn. Denying those
+  through the session's own `permissions` took the same turn to ~1963, and
+  ~2553 end to end through the bridge.
+* **`read` must stay reachable.** The ruleset opened with `allow *` then denied
+  each tool; denying `read` as well (or a blanket `deny *`) answered
+  `403 FreeTierError` instead of running the turn.
+
+The free-tier id list churns, and the registry drifted from it — measured
+2026-10-16, the gateway's own list was:
+
+```
+big-pickle, cat-jam-free, deepseek-v4.1-flash-free, longcat-2.5-preview-free,
+mimo-v2.6-flash-free, muse-spark-1.3-contributor-free, nemotron-3-ultra-free,
+nemotron-3.5-lightning-free, nemotron-3.5-super-vl-free, space-bunny-free
+```
+
+`step-5-preview-free` (long in the registry) is no longer on it and answers
+`unknown model`. If this is ever restored, re-read that list rather than
+reusing the old one. Reversal: move the adapter back from `bridge/archived/`,
+re-add the `opencode` profile + aliases, and re-add its block to
+`registry/models.yaml` (it was never in `discover_models.py`'s `PROVIDERS` —
+the adapter owns its own catalogue).
+
+---
+
+## Antigravity CLI (`agy`)
+
+Archived 2026-10-16 (adapter + unit + tests in `bridge/archived/`). Like
+opencode: it worked, it was cut for surface area.
+
+`agy_bridge.py` drove the `agy` CLI (`--input-format stream-json`) and served
+Anthropic Messages on `:4120`. Six models on one Google account, including Claude
+Sonnet/Opus 4.6 — the only route to Anthropic's own models here without an
+Anthropic key. That remains its one irreplaceable quality if it is ever wanted
+back.
+
+**The wire protocol cannot carry tool schemas** — a limit of the protocol, not of
+the adapter. Measured: `event=system`, `event=tools` and `event=config` are each
+rejected with `warning: ignoring unsupported stream input message event`, and a
+top-level `tools` field on the user event is accepted without complaint but
+**silently ignored** (the model answered that the named tool did not exist, for a
+tool sent exactly that way). agy's only input is a user message, so the model
+never sees anything but agy's own 60-tool table; Claude Code's tools can only be
+serialised into the prompt as text. Text reasoning was reliable; tool use was
+best-effort by construction.
+
+**Two measured limits, both load-bearing.** agy caps input at ~63.5k tokens
+(gemini) / ~72.9k (claude-sonnet), about 13k of which is its own system prompt;
+past the cap the input is truncated *silently*, so the registry's `ctx` was the
+usable budget rather than the model's window.
+
+Use the **WSL-native** binary (`~/.local/bin/agy`). A Windows `agy.exe` exists
+under the user profile and is not interchangeable: it re-runs the Google OAuth
+flow on every new process and floods the desktop with login prompts. The adapter
+took an absolute path and never resolved through `PATH`, where the Windows copy
+comes first.

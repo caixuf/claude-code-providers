@@ -77,9 +77,16 @@ def read_codebuddy(env_name: str = "CODEBUDDY_API_KEY") -> dict:
     tok = _token(env_name)
     if not tok:
         raise RuntimeError(f"{env_name} not set — run `ccp auth codebuddy`")
-    doc = _post_json(
-        "https://www.codebuddy.ai/v2/billing/meter/get-user-resource", tok, {}
-    )
+    # Same host split as the model calls: a CN login only answers at
+    # copilot.tencent.com, an INTL one at www.codebuddy.ai.
+    try:
+        import codebuddy_auth as cb
+
+        session, _ = cb.find_session(None)
+        base = cb.api_base(session)
+    except Exception:
+        base = "https://www.codebuddy.ai/v2"
+    doc = _post_json(base + "/billing/meter/get-user-resource", tok, {})
     if doc.get("code") != 0:
         raise RuntimeError(f"gateway said code={doc.get('code')} msg={doc.get('msg')}")
     data = ((doc.get("data") or {}).get("Response") or {}).get("Data") or {}
