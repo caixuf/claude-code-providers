@@ -456,6 +456,10 @@ async def _probe_single_round(
 
     t0 = time.perf_counter()
     t_first = None
+    t_think = None      # first reasoning delta
+    t_answer = None     # first text delta
+    think_chars = 0
+    answer_chars = 0
     completion_tokens = 0
     chunks = 0
     cached = 0
@@ -490,12 +494,26 @@ async def _probe_single_round(
 
                 if kind == "content_block_delta":
                     delta = chunk.get("delta") or {}
-                    # `thinking` counts: it is real generation, and on these
-                    # models it is what arrives first.
-                    piece = delta.get("text") or delta.get("thinking") or ""
-                    if piece:
+                    # Time the two phases apart. On a Flash-class model the first
+                    # token is usually `thinking`, so a single TTFT number cannot
+                    # tell a model that answers immediately from one that spends
+                    # 40s reasoning before writing anything — and that difference
+                    # is the whole "thunderous overthinking" complaint. `t_first`
+                    # still tracks whichever came first, so TTFT and TPS keep
+                    # their existing meaning.
+                    if delta.get("thinking"):
                         if t_first is None:
                             t_first = time.perf_counter()
+                        if t_think is None:
+                            t_think = time.perf_counter()
+                        think_chars += len(delta["thinking"] or "")
+                        chunks += 1
+                    elif delta.get("text"):
+                        if t_first is None:
+                            t_first = time.perf_counter()
+                        if t_answer is None:
+                            t_answer = time.perf_counter()
+                        answer_chars += len(delta["text"] or "")
                         chunks += 1
                 elif kind == "message_delta":
                     usage = chunk.get("usage") or {}
@@ -549,6 +567,10 @@ async def _probe_single_round(
                 "ok": True,
                 "status": "OK",
                 "error_msg": "",
+                "think_ms": round((t_think - t0) * 1000, 1) if t_think else None,
+                "answer_ms": round((t_answer - t0) * 1000, 1) if t_answer else None,
+                "think_chars": think_chars,
+                "answer_chars": answer_chars,
                 "ttft_ms": round(ttft_duration * 1000, 1),
                 "tps": round(tps, 1),
                 "decode_ms": round(decode_seconds * 1000, 1),
@@ -655,6 +677,13 @@ async def probe_single_model(
                 break
 
         avg_ttft = round(sum(r["ttft_ms"] for r in ok_rounds) / len(ok_rounds), 1) if ok_rounds else 0.0
+        # `is not None`, not truthiness: a model that answers inside the same
+        # millisecond records 0.0, and `if r.get(...)` would drop it and report
+        # "-" for the fastest case in the table.
+        _th = [r["think_ms"] for r in ok_rounds if r.get("think_ms") is not None]
+        _an = [r["answer_ms"] for r in ok_rounds if r.get("answer_ms") is not None]
+        avg_think = round(sum(_th) / len(_th), 1) if _th else None
+        avg_answer = round(sum(_an) / len(_an), 1) if _an else None
         # Aggregate the way the harness does: total tokens over total decode
         # time, not the mean of per-round rates. Averaging rates lets one
         # unrepresentative round pull the figure as hard as a long one, which
@@ -676,6 +705,8 @@ async def probe_single_model(
             "rounds_passed": successes,
             "rounds_total": rounds,
             "ttft_ms": avg_ttft,
+            "think_ms": avg_think,
+            "answer_ms": avg_answer,
             "tps": avg_tps,
             "total_ms": avg_total,
             "tokens": avg_tokens,
@@ -762,6 +793,7 @@ def print_table(
     col_ttft = 10
     col_tps = 14
     col_tot = 10
+    col_think = 9
     col_ctx = 8
     col_vis = 6
 
@@ -772,11 +804,13 @@ def print_table(
         f"{pad_left(bold('TTFT'), col_ttft)} "
         f"{pad_left(bold('Speed'), col_tps)} "
         f"{pad_left(bold('Total'), col_tot)} "
+        f"{pad_left(bold('Think'), col_think)} "
         f"{pad_left(bold('Context'), col_ctx)} "
         f"{pad_left(bold('Vision'), col_vis)}"
     )
 
-    sep_len = col_prov + col_name + col_stat + col_ttft + col_tps + col_tot + col_ctx + col_vis + 7
+    sep_len = (col_prov + col_name + col_stat + col_ttft + col_tps + col_tot
+               + col_think + col_ctx + col_vis + 8)
     line = dim("─" * sep_len)
 
     print()
@@ -811,6 +845,21 @@ def print_table(
             tps_val = r["tps"]
             tot_val = r["total_ms"]
 
+            # "Think" is the wait before the model writes its first useful
+            # token. A model that reasons for 4s and then answers in 0.1s is
+            # slow to be useful even though its throughput looks fine.
+            think_val = r.get("think_ms")
+            if think_val is None:
+                think_str = "-"                  # the model did not reason at all
+            elif think_val >= 1000:
+                think_str = f"{think_val/1000:.1f}s"
+            else:
+                think_str = f"{think_val:.0f}ms"
+            if think_val is not None and think_val > 5000:
+                think_str = red(think_str)
+            elif think_val is not None and think_val > 1500:
+                think_str = yellow(think_str)
+
             # Color coding for TTFT
             if ttft_val < 600:
                 ttft_str = green(f"{ttft_val:.0f}ms")
@@ -836,6 +885,7 @@ def print_table(
                 f"{pad_left(ttft_str, col_ttft)} "
                 f"{pad_left(tps_str, col_tps)} "
                 f"{pad_left(tot_str, col_tot)} "
+                f"{pad_left(think_str, col_think)} "
                 f"{pad_left(ctx, col_ctx)} "
                 f"{pad_left(vis, col_vis)}"
             )
@@ -852,7 +902,7 @@ def print_table(
                 stat = red(f"✖ {raw_stat[:7]}")
 
             err = r.get("error_msg") or ""
-            max_err_width = col_ttft + col_tps + col_tot + col_ctx + col_vis + 4
+            max_err_width = col_ttft + col_tps + col_tot + col_think + col_ctx + col_vis + 5
             print(
                 f"{pad_right(dim(prov), col_prov)} "
                 f"{pad_right(dim(name), col_name)} "

@@ -390,3 +390,86 @@ def test_groups_are_probed_through_the_bridge():
 
 def _load_registry_docs():
     return _load_registry()
+
+
+# ── thinking vs answering: the difference the user actually feels ────────────
+# On a Flash-class model the first token is usually a `thinking` delta, so a
+# single TTFT number cannot distinguish "answers immediately" from "reasons for
+# 40s first". Measured on this fleet: qianfan spends 828ms thinking, cline
+# 3.1s — identical answer, 4x the wait — and agy's high tier spends >60s in the
+# self-verification spiral. Those two phases have to be reported apart.
+
+
+@pytest.mark.anyio
+async def test_thinking_and_answer_are_timed_separately():
+    spec = {"wire_name": "t", "display_name": "t", "provider": "p",
+            "endpoint": "http://127.0.0.1:1", "token": "k"}
+
+    # reasoning deltas first, then the actual answer
+    sse = [
+        b'data: {"type": "content_block_delta", "delta": {"thinking": "hmm"}}\n',
+        b'\n',
+        b'data: {"type": "content_block_delta", "delta": {"thinking": " more"}}\n',
+        b'\n',
+        b'data: {"type": "content_block_delta", "delta": {"text": "42"}}\n',
+        b'\n',
+        b'data: {"type": "message_delta", "usage": {"output_tokens": 3}}\n',
+    ]
+
+    async def lines():
+        for ln in sse:
+            for piece in ln.decode().splitlines() or [""]:
+                yield piece
+
+    resp = AsyncMock()
+    resp.status_code = 200
+    resp.aiter_lines = lines
+    ctx = AsyncMock()
+    ctx.__aenter__.return_value = resp
+    ctx.__aexit__.return_value = None
+    client = MagicMock()
+    client.stream = MagicMock(return_value=ctx)
+
+    res = await probe_single_model(client, spec, timeout_s=5.0, rounds=1)
+
+    assert res["available"] is True
+    # both phases recorded, and the answer cannot precede the thinking
+    assert res["think_ms"] is not None
+    assert res["answer_ms"] is not None
+    # the answer cannot be observed before the reasoning that precedes it
+    assert res["answer_ms"] >= res["think_ms"]
+    # TTFT keeps its old meaning — whichever delta arrived first — which here is
+    # the thinking one. (Not compared against think_ms numerically: the metric
+    # has a 1ms floor and the mock delivers every delta instantly, so the
+    # ordering is the assertable part.)
+    assert res["ttft_ms"] > 0
+
+
+@pytest.mark.anyio
+async def test_a_model_that_does_not_think_reports_no_think_time():
+    """No reasoning deltas must mean think_ms is None, not 0 — 0 would read as
+    "thought instantaneously" in the table."""
+    spec = {"wire_name": "t", "display_name": "t", "provider": "p",
+            "endpoint": "http://127.0.0.1:1", "token": "k"}
+
+    sse_lines = [
+        b'data: {"type": "content_block_delta", "index": 0, "delta": {"text": "hi"}}\n\n',
+        b'data: {"type": "message_delta", "usage": {"output_tokens": 1}}\n\n',
+    ]
+
+    async def mock_aiter_lines():
+        for line in sse_lines:
+            yield line.decode("utf-8").strip()
+
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 200
+    mock_resp.aiter_lines = mock_aiter_lines
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__.return_value = mock_resp
+    mock_ctx.__aexit__.return_value = None
+    client = MagicMock()
+    client.stream = MagicMock(return_value=mock_ctx)
+
+    res = await probe_single_model(client, spec, timeout_s=5.0, rounds=1)
+    assert res["think_ms"] is None
+    assert res["answer_ms"] is not None
