@@ -375,7 +375,13 @@ def test_a_native_model_absent_from_litellm_is_still_probeable():
     assert "MiniMax-M2" in [c["wire_name"] for c in found]
     for c in found:
         if c["provider"] == "minimax":
-            assert c["endpoint"].startswith("https://api.minimaxi.com/"), c
+            # The property under test is "the vendor endpoint, not the LiteLLM
+            # bridge", so assert the vendor rather than one exact host. Pinning
+            # `api.minimaxi.com` made a legitimate move to the host MiniMax's
+            # own Anthropic-SDK docs specify (`api.minimax.cn`) register as a
+            # bug, which is the opposite of what this guard is for.
+            assert c["endpoint"].startswith("https://api.minimax"), c
+            assert not c["endpoint"].startswith("http://127.0.0.1"), c
         else:
             assert c["endpoint"], c
 
