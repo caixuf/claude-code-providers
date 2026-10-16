@@ -957,12 +957,22 @@ main() {
       # of the command is "which vendor is fastest for this model", so the words
       # have to reach the matcher as one target. Flags (anything starting with
       # `-`) are passed through untouched for argparse.
+      # Separate the model name from the flags. An option that takes a value
+      # (`--timeout 60`) must carry it across, or `60` lands in the model name
+      # and argparse reports the option as missing its argument.
       local -a target=() opts=()
-      local a
+      local a expect_value=0
       for a in "${@:2}"; do
+        if [ "$expect_value" -eq 1 ]; then
+          opts+=("$a"); expect_value=0; continue
+        fi
         case "$a" in
-          -*) opts+=("$a") ;;          # an option: forward to argparse as-is
-          *) target+=("$a") ;;         # words of the model name
+          -*) opts+=("$a")
+              case "$a" in
+                --timeout|--tokens|--rounds|--sort|--concurrency|--base-url|-n)
+                  expect_value=1 ;;
+              esac ;;
+          *) target+=("$a") ;;
         esac
       done
 
