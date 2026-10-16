@@ -1,7 +1,7 @@
 {
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "YOUR_MINIMAX_API_KEY",
-    "ANTHROPIC_BASE_URL": "https://api.minimaxi.com/anthropic",
+    "ANTHROPIC_BASE_URL": "https://api.minimax.cn/anthropic",
     "ANTHROPIC_MODEL": "MiniMax-M3.1-Flash-Preview",
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "MiniMax-M3",
     "ANTHROPIC_DEFAULT_FABLE_MODEL": "MiniMax-M3.1-Flash-Preview",

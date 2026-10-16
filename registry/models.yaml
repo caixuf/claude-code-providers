@@ -67,7 +67,7 @@ providers:
         aliases: []
         tiers: []
   - name: minimax
-    api_base: https://api.minimaxi.com/anthropic
+    api_base: https://api.minimax.cn/anthropic
     endpoint_kind: anthropic
     auth_env: MINIMAX_PLAN_API_KEY
     models:
