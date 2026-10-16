@@ -953,6 +953,19 @@ main() {
       fi
       py_bin=$(ccp_python)
 
+      # `ccp ping deepseek v4.1flash` is one model name in two words — the point
+      # of the command is "which vendor is fastest for this model", so the words
+      # have to reach the matcher as one target. Flags (anything starting with
+      # `-`) are passed through untouched for argparse.
+      local -a target=() opts=()
+      local a
+      for a in "${@:2}"; do
+        case "$a" in
+          -*) opts+=("$a") ;;          # an option: forward to argparse as-is
+          *) target+=("$a") ;;         # words of the model name
+        esac
+      done
+
       local is_json=false
       local do_switch=false
       for arg in "$@"; do
@@ -970,7 +983,7 @@ main() {
       if [ "$do_switch" = true ]; then
         local tmp
         tmp=$(mktemp)
-        "$py_bin" "$repo_dir/bridge/ccp_probe.py" "${@:2}" | tee "$tmp"
+        "$py_bin" "$repo_dir/bridge/ccp_probe.py" "${target[*]-}" "${opts[@]+"${opts[@]}"}" | tee "$tmp"
         local exit_code="${PIPESTATUS[0]}"
         local switch_target
         switch_target=$(grep -E '^SWITCH_TO=' "$tmp" | tail -1 | sed 's/^SWITCH_TO=//')
@@ -990,7 +1003,7 @@ main() {
         fi
         return "$exit_code"
       else
-        "$py_bin" "$repo_dir/bridge/ccp_probe.py" "${@:2}"
+        "$py_bin" "$repo_dir/bridge/ccp_probe.py" "${target[*]-}" "${opts[@]+"${opts[@]}"}"
       fi
       ;;
     models|--models)

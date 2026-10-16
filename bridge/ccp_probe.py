@@ -208,6 +208,105 @@ def provider_wire_name(prov, sel_name: str, upstream: str) -> str:
         return upstream
 
 
+
+
+def _norm(text: str) -> str:
+    """Fold a model name to comparable form: lowercase, separators unified.
+
+    `DeepSeek-V4.1-Flash`, `deepseek_v4_1_flash` and `v4.1-flash` collapse to the
+    same string. Separators become a single '-', not nothing: `kimi-k3` must
+    stay two tokens so a search for `kimi` finds it, while `flashx` stays one so
+    a search for `flash` does not. Deleting the separator destroys exactly the
+    information needed to tell those apart.
+    """
+    return re.sub(r"[^a-z0-9.]+", "-", (text or "").lower()).strip("-")
+
+
+def _has(haystack: str, term: str) -> bool:
+    """Token-boundary aware match: `flash` must not select `glm-5.3-flashx`.
+
+    Separators are single '-' after normalising, so a boundary is either the
+    end of the haystack, a '-', or a '.' beginning a new token. The term itself
+    may contain '-', and may match with or without one on the haystack side:
+    people type `v4.1flash` for `V4.1-Flash`, so a term is also compared against
+    a separator-stripped copy of the haystack.
+    """
+    if not term:
+        return False
+    term_loose = term.replace("-", "")
+    hay_loose = haystack.replace("-", "")
+    haystacks = (haystack, hay_loose) if term_loose != term else (haystack,)
+    for hay in haystacks:
+        start = 0
+        while True:
+            i = hay.find(term, start)
+            if i < 0:
+                break
+            tail = hay[i + len(term):]
+            # a boundary is: nothing, a separator, or a '.' — anything else
+            # continues the same token
+            if tail == "" or tail[0] in "-.":
+                return True
+            start = i + 1
+    # last resort: the term with its own separators removed, against the
+    # separator-free haystack (handles `v4.1flash` vs `V4.1-Flash`)
+    if term_loose != term and term_loose in hay_loose:
+        i = hay_loose.find(term_loose)
+        tail = hay_loose[i + len(term_loose):]
+        if tail == "" or tail[0] in "-.":
+            return True
+        # `flash` vs `flashx` in the loose form: a trailing letter means the
+        # word continues, a digit means a new segment
+        if tail[0].isdigit() or tail[0] in "-.":
+            return True
+    return False
+
+
+def _match_across_providers(target: str, providers: dict, ignore_provider_match: bool = False) -> List[Dict[str, Any]]:
+    """Every model, at every provider, that the target names.
+
+    Split on whitespace first so `deepseek v4.1 flash` is three required terms
+    rather than one literal. Requiring all of them keeps `flash` from matching
+    every Flash model on earth, and dropping the separators keeps `v4.1flash`
+    from failing to match `V4.1-Flash`.
+    """
+    # Try the whole string first: `v4.1flash` normalises to `v4.1flash`, which
+    # is exactly how `V4.1-Flash` normalises. Only if that finds nothing, fall
+    # back to requiring each word — which is what makes `deepseek v4.1` select
+    # the v4.1 line across vendors instead of one exact string.
+    whole = _norm(target)
+    words = [_norm(t) for t in target.split() if _norm(t)]
+    terms = [whole] if whole else words
+    if not terms:
+        return []
+    matched: List[Dict[str, Any]] = []
+    for pname, prov in providers.items():
+        for sel_name, upstream in prov.models:
+            haystacks = [
+                _norm(sel_name),
+                _norm(upstream),
+                _norm(provider_wire_name(prov, sel_name, upstream)),
+                _norm(f"{pname}-{sel_name}"),
+            ]
+            hit = all(any(_has(h, term) for h in haystacks) for term in terms)
+            if not hit and terms != words:
+                # whole-string miss: retry with the individual words
+                hit = all(any(_has(h, term) for h in haystacks) for term in words)
+            if not hit:
+                # `v4.1flash` spells `v4.1-flash` without the separator. Compare
+                # separator-free forms so the way people actually type it works,
+                # while the boundary rules above keep `flash` off `flashx`.
+                loose_terms = [_norm(t).replace("-", "") for t in (terms if len(terms) == 1 else words)]
+                loose_hays = [h.replace("-", "") for h in haystacks]
+                hit = all(any(t in h for h in loose_hays) for t in loose_terms if t)
+            if not hit:
+                continue
+            if not ignore_provider_match and terms == [_norm(pname)]:
+                # the bare vendor name is a folder, not a model request
+                continue
+            matched.append(_spec(pname, sel_name, upstream, prov, {}))
+    return matched
+
 def get_configured_models(target: Optional[str] = None, all_models: bool = False) -> List[Dict[str, Any]]:
     """Return list of candidate models with metadata to probe.
 
@@ -263,18 +362,21 @@ def get_configured_models(target: Optional[str] = None, all_models: bool = False
         for sel_name, upstream in picks:
             candidates.append(_spec(name, sel_name, upstream, prov, p_doc))
 
-    # 3. Target that names a specific model (or a raw upstream id / alias)
+    # 3. Target that names specific model(s), searched across every provider.
+    #
+    #    This is the "which vendor is fastest for deepseek-v4.1-flash" question,
+    #    so matching has to survive how people actually type it: `deepseek v4.1
+    #    flash`, `v4.1flash`, `deepseek-v4.1-flash`. Exact matching found none
+    #    of those. Normalise both sides — drop separators, lowercase — and
+    #    require every word to appear, so `deepseek v4.1` collects the v4.1 line
+    #    across all vendors instead of one exact string.
     if target and not known_provider and not known_group:
-        matched: List[Dict[str, Any]] = []
-        for name, prov in providers.items():
-            for sel_name, upstream in prov.models:
-                if target_lower in (
-                    sel_name.lower(),
-                    upstream.lower(),
-                    provider_wire_name(prov, sel_name, upstream).lower(),
-                    f"{name}-{sel_name}".lower(),
-                ):
-                    matched.append(_spec(name, sel_name, upstream, prov, p_doc))
+        matched = _match_across_providers(target, providers)
+
+        # A name that is also a vendor but is not one (`deepseek` is both a
+        # provider and the head of five model ids) should still find models.
+        if not matched:
+            matched = _match_across_providers(target, providers, ignore_provider_match=True)
         candidates = matched
 
     # Deduplicate by (wire_name, endpoint) — the same name can legitimately

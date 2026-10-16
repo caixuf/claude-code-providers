@@ -299,7 +299,7 @@ def test_print_table(capsys):
 
 def test_every_provider_has_candidates():
     """A provider that cannot be probed is the bug this guards."""
-    for name in ("cline", "deepseek", "minimax", "opendesign", "qianfan", "trae"):
+    for name in ("cline", "codebuddy", "deepseek", "minimax", "opendesign", "qianfan", "trae"):
         found = get_configured_models(target=name)
         assert found, f"{name} yielded no probe candidates"
 
@@ -366,9 +366,18 @@ def test_a_native_model_absent_from_litellm_is_still_probeable():
     Its candidate must still name it and point at the vendor endpoint.
     """
     found = get_configured_models(target="MiniMax-M2")
-    assert len(found) == 1
-    assert found[0]["wire_name"] == "MiniMax-M2"
-    assert found[0]["endpoint"].startswith("https://api.minimaxi.com/")
+    assert found, "the exact id must resolve"
+    # A name is a prefix of its siblings (`MiniMax-M2` vs `MiniMax-M2.1`) and
+    # matching tolerates how people type, so this returns the M2 line rather than
+    # one row — and Trae resells minimax under its own ids. The property that
+    # matters is that each row is probed at *its own* provider's endpoint, which
+    # is what makes the absent-from-LiteLLM case work at all.
+    assert "MiniMax-M2" in [c["wire_name"] for c in found]
+    for c in found:
+        if c["provider"] == "minimax":
+            assert c["endpoint"].startswith("https://api.minimaxi.com/"), c
+        else:
+            assert c["endpoint"], c
 
 
 def test_groups_are_probed_through_the_bridge():
