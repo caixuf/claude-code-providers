@@ -185,6 +185,48 @@ def test_shipped_groups_reference_models_that_resolve():
             assert prov is not None, f"group {gname} references unknown model {member!r}"
 
 
+def test_shipped_aliases_render_to_their_own_registry_model(capsys):
+    """An alias that names a model its provider lacks is answered by another one.
+
+    This shipped once: `trae-deepseek-v4-pro` pointed at `deepseek-V4-Pro` while
+    the catalogue row was `DeepSeek-V4-Pro-Official`. `render_config` keys its
+    lookup on the exact ``(provider, model)`` pair and, on a miss, prints
+    `! alias …: model … not in registry` to stderr and moves on — the render
+    still succeeds and the profile still loads, so nothing else notices.
+
+    So the shipped table is checked through the render itself, which is the code
+    path that does the dropping: every alias must emit a deployment carrying its
+    *own* model's upstream string (not a same-provider sibling that merely shares
+    the alias spelling), and none may be dropped with a warning. The expectation
+    is derived from the alias table rather than pinned, so it keeps holding as
+    aliases come and go. Note the registry key is exact — the trae adapter
+    lowercases both sides for a user typing a name, but the case written in
+    `profiles.yaml` is not forgiving, and that asymmetry is what let the bug slip.
+    """
+    doc, profiles = _load()
+    models, _ = render_config.index_models(doc)
+
+    upstreams: dict[str, set[str]] = {}
+    for name, upstream, _ in _deployments(_render_with(profiles)):
+        upstreams.setdefault(name, set()).add(upstream)
+
+    problems = []
+    for alias, spec in (profiles.get("aliases") or {}).items():
+        if alias not in upstreams:
+            problems.append(
+                f"{alias} -> {spec['provider']}/{spec['model']} produced no deployment"
+            )
+            continue
+        meta = models.get((spec["provider"], spec["model"]), {})
+        want = render_config.litellm_model_string(spec["provider"], spec["model"], meta)
+        if want not in upstreams[alias]:
+            problems.append(f"{alias} emitted {sorted(upstreams[alias])}, expected {want!r}")
+    assert not problems, "aliases did not render to their registry model:\n" + "\n".join(
+        "  " + p for p in problems
+    )
+    assert "not in registry" not in capsys.readouterr().err
+
+
 def test_account_becomes_a_second_deployment_under_the_same_name():
     """An account must NOT fork the model name.
 
