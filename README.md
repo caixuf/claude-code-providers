@@ -4,7 +4,7 @@
 [![Platform: Linux / macOS / WSL](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20WSL-green.svg)]()
 [![Tested on: Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-purple.svg)]()
 
-> **Switch the model behind Claude Code in one command, across seven providers** —
+> **Switch the model behind Claude Code in one command, across six providers** —
 > native Anthropic endpoints, OpenAI-compatible gateways, and a local adapter for
 > a subscription that publishes no API at all.
 
@@ -31,7 +31,6 @@ claude ──> ccp profile ──┬─> vendor's /anthropic endpoint         (n
 | `opendesign/` | DeepSeek-V4.1-Flash (1.05M) | native, Anthropic-native aggregator | 11 |
 | `qianfan/` | DeepSeek-V4.1-Flash (1.44M) | bridged → LiteLLM | 6 |
 | `cline/` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 6 |
-| `codebuddy/` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 15 |
 | `trae/` | Qwen3.8-Max (1M) | local adapter `:4100` | 19 |
 
 Several folders start on the *same* underlying model. That is the point: same
@@ -71,7 +70,7 @@ ccp                                  # list providers; the active one is starred
 ccp qianfan                          # switch to a provider's default model
 ccp trae deepseek-v4.1-flash         # switch provider *and* model
 ccp trae/deepseek-v4.1-flash         # same thing, as a path
-ccp -m codebuddy-glm                 # change model inside the current provider
+ccp -m qianfan-glm-5.3               # change model inside the current provider
 ccp -c                               # show what is active, and where it points
 ccp ping trae -s                     # benchmark this provider's models, switch to the winner
 ccp --rollback                       # undo the last switch
@@ -111,8 +110,7 @@ Discovery merges, in priority order:
 
 1. **The provider's own catalogue** — Qianfan (`context_length`,
    `max_completions_tokens`, `architecture.input_modalities`), OpenDesign
-   (`metadata.context_limit` / `context_budget`), DeepSeek, CodeBuddy
-   (`maxInputTokens` / `supportsImages`), or, for Trae, the CLI the
+   (`metadata.context_limit` / `context_budget`), DeepSeek, or, for Trae, the CLI the
    adapter already drives.
 2. **LiteLLM's bundled model map** (`litellm.model_cost`, ~4500 entries) for
    anything the vendor does not publish.
@@ -134,8 +132,7 @@ call is evidence:
 
 - **`only_models`** narrows a provider whose catalogue is wider than what the
   plan can call. ClinePass advertises 469 models and serves 6; Qianfan lists ~34
-  and serves the GLM/DeepSeek families; CodeBuddy's CN plan lists ~33 of which
-  half are legacy rungs. The registry keeps only the ids verified to answer, and
+  and serves the GLM/DeepSeek families. The registry keeps only the ids verified to answer, and
   every surviving id is aliased — so nothing the registry advertises is
   unreachable from its own folder.
 - **`ctx_default`** overrides a vendor that under-reports its window; Trae's
@@ -157,7 +154,7 @@ call is evidence:
 | `ccp render` | Regenerate config + profiles + clamp/rule maps from the registry |
 | `ccp sync` | Reconcile local profiles with the repo templates |
 | `ccp ping [provider\|model]` | Probe health, TTFT and token speed |
-| `ccp auth [copilot\|codebuddy\|trae]` | Authenticate / import a CLI login |
+| `ccp auth [copilot\|trae]` | Authenticate / import a CLI login |
 | `ccp bridge [status\|restart\|start\|stop\|deploy\|logs]` | Manage the local gateway and adapters |
 | `ccp bridge {start\|stop\|restart}-trae` | Address the local Trae adapter |
 | `ccp accounts …` | Extra logins and routing groups (see below) |
@@ -177,7 +174,7 @@ token instantly and still never act, which is the failure that wastes the turn.
 
 ## 🌉 The bridge
 
-Three of the seven providers speak plain OpenAI `chat/completions` and are
+Three of the six providers speak plain OpenAI `chat/completions` and are
 **bridged**: Claude Code talks to a local gateway that translates on the way out.
 
 ```
@@ -205,7 +202,7 @@ place the request-rewriting layer exists.
 | `strip_1m_model` | Drops the `[1m]` suffix the registry names carry; strict gateways reject it |
 | `strip_1m_beta` | Drops the `anthropic-beta` 1M-context token that triggers `400` upstream |
 | `clamp_max_tokens` | Caps `max_tokens` at the model's discovered output limit, fixing `400 Invalid max_tokens value` |
-| `sanitize_channel` | Satisfies a gateway's client-identity check (CodeBuddy, below). Applies only to providers listed under `request_rules:` in `registry/profiles.yaml`, because stripping Anthropic's billing header anywhere else is a silent prompt mutation |
+| `sanitize_channel` *(currently unused — its only provider, CodeBuddy, is archived again: see [docs/archived-providers.md](docs/archived-providers.md))* | Satisfies a gateway's *client-identity check*: it strips the `x-anthropic-billing-header` block and neutralises Claude Code's identity line wherever a gateway inspects it. Applies **only** to providers listed under `request_rules:` in `registry/profiles.yaml`, because stripping the billing header anywhere else is a silent prompt mutation |
 
 It also closes the stream after a complete `message_stop` and drops trailing
 keepalives.
@@ -298,42 +295,6 @@ to the six verified ids, and the `cline-pass/` prefix is fixed per deployment in
 `render_config.py` (dropping it silently bills pay-as-you-go instead of the flat
 pass). Re-probe before extending that list.
 
-### CodeBuddy (Tencent coding-copilot)
-
-A flat subscription fronting DeepSeek, GLM, Kimi, MiniMax, MiMo, Hunyuan and
-Step. It has **no API-key product**: the gateway authenticates the session the
-CodeBuddy Code CLI already holds.
-
-```bash
-codebuddy          # log in once with the CLI
-ccp auth codebuddy # import the token + verify it streams
-ccp codebuddy      # switch; 15 models as `ccp codebuddy <name>`
-```
-
-`ccp auth codebuddy` reads the plaintext session the CLI writes
-(`~/.local/share/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info`)
-and writes `CODEBUDDY_API_KEY` into `proxy.env`. The **desktop** client seals its
-token in an envelope only that binary can open — import the **CLI** login; the
-command says so when it finds an encrypted file.
-
-**Two gateways, and a session works at exactly one.** CodeBuddy runs an
-international site (`www.codebuddy.ai`) and a CN one (`copilot.tencent.com`,
-behind `www.codebuddy.cn`). They do not share tokens, and a CN token sent to the
-INTL edge answers a bare `401 invalid_token` that looks exactly like an expired
-login. Which to use is derived from the login's own `auth.domain`
-(`api_base()` in `bridge/codebuddy_auth.py`) and follows through to the bridge,
-discovery and the quota reader; `CODEBUDDY_API_BASE` overrides it. The two fleets
-differ — the CN plan carries no GPT or Gemini.
-
-Bridged, not native: CodeBuddy speaks plain OpenAI. Three quirks are handled
-declaratively:
-
-| Constraint | How ccp handles it |
-| :--- | :--- |
-| Only `/v2/chat/completions` exists — `/v1/*` and the OpenAI Responses API 404 | The deployment uses LiteLLM's `hosted_vllm/` prefix instead of `openai/` (which LiteLLM 1.103 would route to `/v2/responses` → 404), fixed per deployment so no other provider is re-routed |
-| A **channel check** rejects a chat with `400 {"code":11128,"msg":"Illegal API invocation from an unapproved channel"}` if it carries Claude Code's `x-anthropic-billing-header` block, or if the first system message *opens* with Claude Code's identity line | The `sanitize_channel` rule drops the billing block and gives a refused opening one leading newline. Both are needed: removing the billing block *promotes* the identity line into the inspected position. Anthropic's own API still gets the original bytes |
-| Streaming is mandatory (non-stream → `400 11101`) | Claude Code always streams and the bridge is a streaming proxy, so nothing extra is needed |
-
 ### Trae CLI
 
 TraeCLI (ByteDance's enterprise coding agent) publishes **no API at all**. A
@@ -393,8 +354,7 @@ and are restricted to what applies to a tool that does **not** own the account:
 
 | Rule | Why |
 | :--- | :--- |
-| **Read, never refresh** | CodeBuddy rotates the refresh token on every refresh and the CLI is its single holder; refreshing here would rotate it out from under the CLI and sign it out |
-| **Adopt a rotated token automatically** | `ccp bridge start\|restart` re-reads the source of truth, so a session the CLI renewed is picked up instead of going stale in `proxy.env`. Silent when the provider is not in use |
+| **Read, never refresh** | A tool that owns the rotating refresh token must stay its only refresher — a second one rotates the token out from under the first and signs it out. That was CodeBuddy's shape (archived); the rule outlives it |
 | **An unreadable store is an error, never empty** | `proxy.env` holds every provider's key; rewriting it from a failed read would drop the rest |
 | **Durable, atomic writes** | Temp file in the same directory, `flush` + `fsync`, then `os.replace`, mode `0600` — a crash must not leave a zeroed secrets file |
 | **Secrets are never resurrected from a backup** | `proxy.env` keeps no `.bak`; a key revoked in the last write must not come back. Config backups are safe — they hold no key |
@@ -406,9 +366,7 @@ own, and lets LiteLLM's cooldown decide which account is out.
 
 ```bash
 ccp auth copilot            # GitHub Copilot device flow
-ccp auth codebuddy          # import the CodeBuddy CLI session
 ccp auth trae               # import the TraeCLI personal access token
-ccp auth codebuddy --status # in-sync / out-of-sync / expiry, changing nothing
 ```
 
 ---
@@ -457,13 +415,12 @@ Members may be aliases, registry ids, or `provider/model`.
 ccp quota              # every provider that publishes a usage API
 ```
 
-CodeBuddy is the only provider here with a billing reader; its host is resolved
-from the login like every other call, and a deployment that does not expose the
-endpoint (the CN gateway answers `403`) is reported rather than guessed at.
+*(No provider in the kept set publishes a usage API, so this prints nothing
+today. CodeBuddy's reader went with it — see docs/archived-providers.md.)*
 Readings are cached for two minutes because these endpoints are rate limited.
 
 > No provider in the current set uses accounts or groups yet — the commands were
-> built for a second CodeBuddy or CommandCode login. They work; the examples
+> built for a second CodeBuddy or CommandCode login, both archived. They work; the examples
 > above are illustrative.
 
 ---
@@ -525,10 +482,9 @@ same provider read 501 tok/s on one run and 194 on the next, minutes apart.
 
 ## 📦 Archived providers
 
-CommandCode (out of credits) and GitHub Copilot (no healthy deployments) are
-archived, along with what it takes to bring one back:
-[`docs/archived-providers.md`](docs/archived-providers.md). That file also keeps
-the CodeBuddy findings as an operator's reference.
+CommandCode (out of credits), GitHub Copilot (no healthy deployments), CodeBuddy,
+OpenCode and Antigravity (`agy`) are archived, along with what it takes to bring
+one back: [`docs/archived-providers.md`](docs/archived-providers.md).
 
 ---
 

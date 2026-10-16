@@ -6,9 +6,13 @@ profiles were moved to `~/.claude/providers_disabled/`, the templates to
 `providers/archived/`, and the entries removed from `registry/profiles.yaml`,
 `registry/models.yaml` and `discover_models.py`.
 
-**CodeBuddy was brought back on 2026-10-16** (see its section below). Its
-template is in `providers/` again and its registry/discovery entries are live;
-the notes here are kept as the reference for how its gateway behaves.
+**CodeBuddy was reinstated on 2026-10-16 and archived again the same day.** It
+works only intermittently: the gateway's channel check refuses real Claude Code
+sessions with `11128 Illegal API invocation from an unapproved channel`, while
+accepting the very same forwarded body when replayed directly. That is the
+"come back from an official client" the message describes, and it is not
+something a proxy can guarantee — so it is out again. Its section below carries
+the diagnosis, because the next person to try this should not re-derive it.
 
 **OpenCode Zen and Antigravity (`agy`) were archived on 2026-10-16** — not
 because they broke, but because they were not worth the surface. Unlike every
@@ -43,7 +47,7 @@ was sound. Top the balance up and the revert restores it unchanged.
 
 ---
 
-## CodeBuddy (Tencent coding-copilot) — RESTORED 2026-10-16
+## CodeBuddy (Tencent coding-copilot) — archived 2026-10-16
 
 [CodeBuddy](https://www.codebuddy.ai/cli) (Tencent coding-copilot) is a flat
 subscription that fronts a whole fleet of third-party models — DeepSeek, GLM,
@@ -51,9 +55,35 @@ Kimi, GPT, Gemini, Hunyuan. It has **no API-key product**: the gateway
 authenticates the session the CodeBuddy Code CLI already holds, so `ccp`
 imports that session.
 
-> This provider is live again. The section below is the operator's reference;
-> `ccp auth codebuddy` / `ccp codebuddy` are the commands. See the README's
-> CodeBuddy section for the current, user-facing walkthrough.
+> Archived: the template, the importer (`bridge/archived/codebuddy_auth.py`) and
+> its tests are under `archived/`; the registry entries and the `ccp auth
+> codebuddy` command are gone. The section below is the operator's reference.
+
+### Why it is out: the channel check is not proxyable
+
+Two things had to be true for it to work, and only the first was fixable:
+
+1. **The two gateways.** The account signs into the CN site
+   (`copilot.tencent.com`, behind `www.codebuddy.cn`), and ccp hard-coded the
+   INTL one (`www.codebuddy.ai`), which answers a foreign token with a bare
+   `401 invalid_token` — indistinguishable from an expired login. Deriving the
+   host from the login's own `auth.domain` fixed that; the token was never bad.
+2. **The channel check.** Even with the host right and the body sanitised, real
+   Claude Code sessions are refused with
+   `400 {"code":11128,"msg":"Illegal API invocation from an unapproved channel"}`
+   — *intermittently*: the same `claude -p` invocation both succeeded and failed
+   minutes apart, and a captured failing body, replayed to the gateway with the
+   upstream model id, was **accepted**. So the trigger is not the body content,
+   and a proxy that only rewrites the body cannot guarantee it. This is the
+   "official client" the message asks for.
+
+Along the way the sanitizer itself turned out to have a real bug, which *is*
+fixed and kept (`bridge/sse_finalize.py`): the identity line was neutralised
+only when it opened the **first** system block, while the gateway inspects
+**every** system block and **every assistant turn**. Identity in a later block,
+or in a past assistant message of a resumed conversation, was refused — verified
+against the live gateway before the fix. Whoever restores this provider starts
+from the corrected rule.
 
 ### 1. Import the local CodeBuddy login
 

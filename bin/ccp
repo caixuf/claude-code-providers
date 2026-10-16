@@ -63,14 +63,14 @@ Usage:
   ccp sync                   Sync local profiles with repository templates
   ccp bridge [action]        Manage local bridge: status, restart, start, stop,
                              deploy, logs, start-trae/stop-trae/restart-trae (the Trae adapter)
-  ccp auth [copilot|codebuddy|trae]
-                             Authenticate a provider (Copilot device flow,
-                             import the CodeBuddy login, or the TraeCLI token)
+  ccp auth [copilot|trae]
+                             Authenticate a provider (Copilot device flow, or the
+                             TraeCLI personal access token)
   ccp accounts [action]      Several logins for one provider, and routing groups:
                              list | add <provider> <suffix> | remove <provider> <suffix>
                              | group add <name> <member...> | group remove <name>
                              (a pool fails over natively when a quota runs out)
-  ccp quota [provider]       What is left on each plan (CodeBuddy credits, …)
+  ccp quota [provider]       What is left on each plan
   ccp -h, --help             Show this help message
 
 In-Session Model Hot-Switching:
@@ -80,21 +80,20 @@ In-Session Model Hot-Switching:
 Examples:
   ccp qianfan                # Switch to Qianfan's default model
   ccp trae kimi-k3           # Switch provider and pick the model in one step
-  ccp -m codebuddy-glm       # Change the active model within the current provider
+  ccp -m qianfan-glm-5.3     # Change the active model within the current provider
   ccp ping                   # 2-round sustained speed & stability test (~60 tokens)
   ccp ping -b                # Deep benchmark (3 rounds, ~100 tokens, strict stress test)
   ccp ping -q                # Quick check (1 round, 20 tokens, fast health ping)
   ccp ping trae -s           # Benchmark Trae models and auto-switch to the winner
   ccp cline deepseek-v4.1-flash  # Switch to ClinePass Token Plan and its default model
-  ccp auth codebuddy         # Import the CodeBuddy Code login token into the bridge
-  ccp codebuddy              # Switch to CodeBuddy (DeepSeek v4.1 Flash / GLM-5.3 / GLM-5.3-Flash)
   ccp auth trae              # Import the TraeCLI personal access token into the bridge
-  ccp accounts add codebuddy a2   # Name a second login, then `ccp render`
+  ccp accounts add qianfan a2     # Name a second login, then `ccp render`
   ccp accounts group add daily qianfan-deepseek-v4.1-flash cline-deepseek-v4.1-flash
   ccp -m group/daily         # One name over several models; fails over when one runs out
 
-Note: CommandCode, GitHub Copilot, OpenCode and Antigravity are archived — see
-docs/archived-providers.md. `ccp auth copilot` still runs the Copilot device flow.
+Note: CommandCode, CodeBuddy, GitHub Copilot, OpenCode and Antigravity are
+archived — see docs/archived-providers.md. `ccp auth copilot` still runs the
+Copilot device flow.
 
 Directories:
   Profiles:  ~/.claude/providers/*.json
@@ -379,22 +378,6 @@ ensure_bridge_running() {
   fi
 }
 
-# Adopt credentials the owning CLI may have rotated since the last import.
-#
-# ccp deliberately does not refresh provider logins itself: for CodeBuddy the
-# CLI is the single holder of the rotating refresh token, and refreshing here
-# would rotate it out from under the CLI. Instead the *source of truth* is
-# re-read on every bridge start, so a session the CLI renewed is picked up
-# rather than silently going stale in proxy.env. Silent when the provider is
-# not in use at all.
-sync_provider_credentials() {
-  local repo_dir py
-  repo_dir=$(ccp_repo_dir)
-  [ -n "$repo_dir" ] && [ -f "$repo_dir/bridge/codebuddy_auth.py" ] || return 0
-  py=$(ccp_python)
-  "$py" "$repo_dir/bridge/codebuddy_auth.py" --if-stale 2>&1 | sed 's/^/  /' || true
-}
-
 # Copy the freshly rendered bridge config into service, because `ccp render`
 # only writes bridge/config.generated.yaml. Without this step `ccp render` +
 # `ccp bridge restart` silently kept serving the previous model list — a new
@@ -489,7 +472,6 @@ manage_bridge() {
       ;;
     restart)
       echo "Restarting bridge services..."
-      sync_provider_credentials
       deploy_bridge_config
       sync_proxy_env
       systemctl --user restart litellm-cmdc.service 2>/dev/null || true
@@ -503,7 +485,6 @@ manage_bridge() {
       ;;
     start)
       echo "Starting bridge services..."
-      sync_provider_credentials
       deploy_bridge_config
       sync_proxy_env
       systemctl --user start litellm-cmdc.service ccp-sse-watchdog.service 2>/dev/null || true
@@ -585,32 +566,6 @@ except Exception as e:
       fi
       return $ret
       ;;
-    codebuddy|cb)
-      local repo_dir py_bin explicit=0
-      repo_dir=$(ccp_repo_dir)
-      if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/codebuddy_auth.py" ]; then
-        echo -e "\033[31mError: repo checkout not found (need bridge/codebuddy_auth.py).\033[0m" >&2
-        return 1
-      fi
-      py_bin=$(ccp_python)
-      # Explicit flags (--status, --no-verify, …) win; otherwise import and prove
-      # the token really streams.
-      if [ "$#" -gt 1 ]; then
-        explicit=1
-        "$py_bin" "$repo_dir/bridge/codebuddy_auth.py" "${@:2}"
-      else
-        echo -e "\033[36m=== CodeBuddy Authentication (import local CLI login) ===\033[0m"
-        "$py_bin" "$repo_dir/bridge/codebuddy_auth.py" --verify
-      fi
-      local ret=$?
-      if [ $ret -eq 0 ] && [ $explicit -eq 0 ]; then
-        echo ""
-        echo -e "\033[32m✔ CodeBuddy credentials ready!\033[0m"
-        echo "Restart bridge:  ccp bridge restart"
-        echo "Switch profile:  ccp codebuddy"
-      fi
-      return $ret
-      ;;
     trae|traecli)
       # TraeCLI keeps its personal access token in ~/.bashrc rather than a
       # keychain. Copy it into the shared secrets file so the bridge works
@@ -627,7 +582,7 @@ except Exception as e:
       return $?
       ;;
     *)
-      echo "Usage: ccp auth [copilot|codebuddy|trae]" >&2
+      echo "Usage: ccp auth [copilot|trae]" >&2
       return 1
       ;;
   esac
@@ -909,7 +864,7 @@ main() {
       manage_bridge "${2:-status}"
       ;;
     auth)
-      # Forward every argument: `ccp auth codebuddy --status` must reach the
+      # Forward every argument: `ccp auth trae --status` must reach the
       # helper, not be trimmed to the provider name.
       auth_provider "${@:2}"
       ;;

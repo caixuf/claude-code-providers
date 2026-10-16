@@ -12,7 +12,7 @@ PAT is the only durable secret. This command copies it into
 lives in, and the one the systemd units load via ``EnvironmentFile`` — so the
 bridge works without depending on an interactive shell.
 
-Rules this follows (same as bridge/codebuddy_auth.py)
+Rules this follows (same as bridge/archived/codebuddy_auth.py)
 ----------------------------------------------------
 * **Read, never refresh.** The PAT is long-lived and not rotated by ccp; the
   bridge exchanges it for a JWT itself. There is nothing here that could

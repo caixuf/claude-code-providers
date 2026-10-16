@@ -300,6 +300,73 @@ def test_sanitize_channel_noop_otherwise():
     # nothing to do -> untouched, and the cheap early-out keeps other providers intact
     clean = b'{"system":[{"type":"text","text":"hello"}],"messages":[]}'
     assert sanitize_channel_markers(clean) == (clean, [])
+
+
+def test_sanitize_channel_neutralises_identity_in_a_later_system_block():
+    """The gateway scans *every* system block, not just the opening of `system`.
+
+    Verified against the live gateway: a request whose first block is ordinary
+    and whose second block opens with the identity is refused with 11128, while
+    the same body with the identity first is accepted. Neutralising only the
+    opening therefore left real sessions refused.
+    """
+    import json
+
+    from sse_finalize import sanitize_channel_markers
+
+    body = json.dumps({
+        "system": [
+            {"type": "text", "text": "You are an interactive CLI tool."},
+            {"type": "text", "text": IDENTITY_TUI},
+        ],
+        "messages": [{"role": "user", "content": "hi"}],
+    }).encode()
+    out, applied = sanitize_channel_markers(body)
+    assert applied == ["claude-identity"]
+    system = json.loads(out)["system"]
+    assert system[0]["text"] == "You are an interactive CLI tool."  # untouched
+    assert system[1]["text"] == "\n" + IDENTITY_TUI
+
+
+def test_sanitize_channel_neutralises_identity_in_an_assistant_turn():
+    """A resumed conversation carries the line in a past assistant message, and
+    the gateway inspects those too. User turns are not inspected, so they stay
+    byte-identical rather than being mutated for nothing."""
+    import json
+
+    from sse_finalize import sanitize_channel_markers
+
+    body = json.dumps({
+        "system": [{"type": "text", "text": "You are an interactive CLI tool."}],
+        "messages": [
+            {"role": "user", "content": IDENTITY_TUI + "\nand this is the user"},
+            {"role": "assistant", "content": [{"type": "text", "text": IDENTITY_TUI}]},
+            {"role": "user", "content": "carry on"},
+        ],
+    }).encode()
+    out, applied = sanitize_channel_markers(body)
+    assert applied == ["claude-identity"]
+    msgs = json.loads(out)["messages"]
+    assert msgs[0]["content"] == IDENTITY_TUI + "\nand this is the user"  # user: untouched
+    assert msgs[1]["content"][0]["text"] == "\n" + IDENTITY_TUI
+
+
+def test_sanitize_channel_catches_identity_repeated_in_both_places():
+    """The real failure was the identity in `system` *and* earlier in a message:
+    the first was neutralised, the second was not, and the request was refused."""
+    import json
+
+    from sse_finalize import sanitize_channel_markers
+
+    body = json.dumps({
+        "system": [{"type": "text", "text": IDENTITY_TUI}, {"type": "text", "text": "prompt"}],
+        "messages": [{"role": "assistant", "content": IDENTITY_TUI}],
+    }).encode()
+    out, applied = sanitize_channel_markers(body)
+    assert applied == ["claude-identity"]
+    doc = json.loads(out)
+    assert doc["system"][0]["text"] == "\n" + IDENTITY_TUI
+    assert doc["messages"][0]["content"] == "\n" + IDENTITY_TUI
     assert sanitize_channel_markers(b"") == (b"", [])
     assert sanitize_channel_markers(b"not json") == (b"not json", [])
     # marker present but only in a field we do not walk -> still a no-op

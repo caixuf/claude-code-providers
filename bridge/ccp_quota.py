@@ -9,7 +9,6 @@ Not every provider publishes a usage API, and ccp does not invent one. Each
 provider below declares the endpoint and the shape of its answer; a provider
 with no entry is reported as "no usage API" rather than guessed at.
 
-  codebuddy   POST /v2/billing/meter/get-user-resource  (credits, cycle window)
   cline       GET  /api/v1/users/me                     (identity only today)
   others      — no public usage endpoint
 
@@ -18,7 +17,7 @@ A reading is cached briefly, because these endpoints are rate limited and
 
 Usage:
   python3 ccp_quota.py            # every provider that can be read
-  python3 ccp_quota.py codebuddy  # just one
+  python3 ccp_quota.py cline      # just one
   python3 ccp_quota.py --json     # machine-readable
 """
 from __future__ import annotations
@@ -42,9 +41,18 @@ sys.path.insert(0, str(BRIDGE_DIR))
 
 
 def _token(env_name: str) -> str | None:
-    import codebuddy_auth as cb
-
-    return cb.read_env_value(PROXY_ENV, env_name)
+    """A key from the environment, else from the shared secrets file."""
+    v = os.environ.get(env_name)
+    if v:
+        return v
+    try:
+        for line in PROXY_ENV.read_text().splitlines():
+            line = line.strip()
+            if line.startswith(env_name + "="):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return None
 
 
 def _post_json(url: str, token: str, body: dict | None = None) -> dict:
@@ -72,42 +80,6 @@ def _get_json(url: str, token: str) -> dict:
 #       {"name":…, "used":float, "total":float, "unit":str, "resets":str|None}]}
 
 
-def read_codebuddy(env_name: str = "CODEBUDDY_API_KEY") -> dict:
-    """CodeBuddy bills in credits over a cycle; the answer is a REST envelope."""
-    tok = _token(env_name)
-    if not tok:
-        raise RuntimeError(f"{env_name} not set — run `ccp auth codebuddy`")
-    # Same host split as the model calls: a CN login only answers at
-    # copilot.tencent.com, an INTL one at www.codebuddy.ai.
-    try:
-        import codebuddy_auth as cb
-
-        session, _ = cb.find_session(None)
-        base = cb.api_base(session)
-    except Exception:
-        base = "https://www.codebuddy.ai/v2"
-    doc = _post_json(base + "/billing/meter/get-user-resource", tok, {})
-    if doc.get("code") != 0:
-        raise RuntimeError(f"gateway said code={doc.get('code')} msg={doc.get('msg')}")
-    data = ((doc.get("data") or {}).get("Response") or {}).get("Data") or {}
-    windows = []
-    for acc in data.get("Accounts") or []:
-        total = _num(acc.get("CycleCapacitySizePrecise") or acc.get("CapacitySize"))
-        used = _num(acc.get("CycleCapacityUsedPrecise") or acc.get("CapacityUsed"))
-        if total is None:
-            continue
-        windows.append(
-            {
-                "name": acc.get("PackageName") or acc.get("SubProductName") or "plan",
-                "used": used or 0.0,
-                "total": total,
-                "unit": acc.get("OriginUnit") or "credit",
-                "resets": acc.get("CycleEndTime") or None,
-            }
-        )
-    return {"provider": "codebuddy", "account": env_name, "windows": windows}
-
-
 def read_cline(env_name: str = "CLINE_API_KEY") -> dict:
     """Cline exposes identity but no published balance endpoint."""
     tok = _token(env_name)
@@ -119,7 +91,6 @@ def read_cline(env_name: str = "CLINE_API_KEY") -> dict:
 
 
 READERS = {
-    "codebuddy": read_codebuddy,
     "cline": read_cline,
 }
 

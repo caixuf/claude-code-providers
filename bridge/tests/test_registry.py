@@ -394,10 +394,10 @@ def test_opendesign_is_registered_and_discovered():
 
 
 # ── request rewrites ──────────────────────────────────────────────────────
-# One rule ships — codebuddy's `sanitize_channel` client check — and it must be
-# scoped to codebuddy alone. Stripping Anthropic's billing header anywhere but
-# the gateway that demands it is a silent prompt mutation, so "scoped" means
-# exactly the names codebuddy emitted, no more.
+# The one rule ccp ever shipped — codebuddy's `sanitize_channel` client check —
+# was archived with that provider, so the table is empty. These tests pin that:
+# an empty table must stay a no-op, and must not start rewriting requests for
+# the providers that remain.
 
 
 def _emitted_and_rules():
@@ -409,22 +409,21 @@ def _emitted_and_rules():
     return models, profiles, emitted, render_config.render_request_rules(profiles, emitted)
 
 
-def test_sanitize_channel_rewrites_only_codebuddy():
-    """The rule must cover codebuddy's names and leave every other provider's
-    requests byte-identical."""
+def test_request_rules_are_empty_and_rewrite_nothing():
+    """Nothing in the kept set may have its request rewritten.
+
+    Stripping Anthropic's billing header anywhere but the gateway that demands
+    it is a silent prompt mutation, so an empty table has to mean *empty*.
+    """
     from sse_finalize import norm_model_key
 
     models, profiles, emitted, rules = _emitted_and_rules()
-    assert (profiles.get("request_rules") or {}).get("sanitize_channel") == ["codebuddy"]
-
+    assert (profiles.get("request_rules") or {}) == {}
+    assert rules.get("sanitize_channel") in (None, [])
+    # non-vacuous: providers really did emit names to check against
+    assert any(names for names in emitted.values()), "nothing was emitted at all"
     listed = {norm_model_key(n) for n in (rules.get("sanitize_channel") or [])}
-    cb = emitted.get("codebuddy") or set()
-    assert cb, "codebuddy emitted no names to rewrite"
-    assert listed == {norm_model_key(n) for n in cb}, "the rule is not exactly codebuddy's set"
-
     for pname, names in emitted.items():
-        if pname == "codebuddy":
-            continue
         for name in names:
             assert norm_model_key(name) not in listed, f"{pname}/{name} would be rewritten"
 

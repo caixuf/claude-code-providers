@@ -299,7 +299,7 @@ def test_print_table(capsys):
 
 def test_every_provider_has_candidates():
     """A provider that cannot be probed is the bug this guards."""
-    for name in ("cline", "codebuddy", "deepseek", "minimax", "opendesign", "qianfan", "trae"):
+    for name in ("cline", "deepseek", "minimax", "opendesign", "qianfan", "trae"):
         found = get_configured_models(target=name)
         assert found, f"{name} yielded no probe candidates"
 

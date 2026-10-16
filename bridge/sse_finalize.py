@@ -194,17 +194,6 @@ def _opens_with_identity(text: str) -> bool:
     return head.startswith(CLAUDE_IDENTITY_OPENINGS)
 
 
-def _first_text_block(content):
-    """The first text-bearing piece of an Anthropic ``system``/``content`` value."""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        for blk in content:
-            if isinstance(blk, dict) and isinstance(blk.get("text"), str):
-                return blk["text"]
-    return None
-
-
 def _clean_content(content):
     """Return ``(content, changed)`` with billing-header blocks/lines removed.
 
@@ -233,16 +222,23 @@ def _clean_content(content):
 
 
 def _neutralize_identity(content):
-    """Return ``(content, changed)`` with a refused opening made harmless.
+    """Return ``(content, changed)`` with every refused opening made harmless.
 
-    Prepends one stable newline to the first text-bearing piece of ``system``
-    when it opens with Claude Code's identity. Content is otherwise untouched.
+    Prepends one stable newline to *each* text-bearing piece that opens with
+    Claude Code's identity — not only the opening of the first one. The gateway
+    inspects every system block and every assistant turn for that line, so a
+    request is rejected for an identity carried in a later ``system`` block (or
+    in a past assistant message) even when the first block was already
+    neutralised. Which position carries it varies by Claude Code version and
+    invocation, so all of them are handled.
     """
-    text = _first_text_block(content)
-    if text is None or not _opens_with_identity(text):
-        return content, False
     if isinstance(content, str):
+        if not _opens_with_identity(content):
+            return content, False
         return CHANNEL_SAFE_PREFIX + content, True
+    if not isinstance(content, list):
+        return content, False
+    changed = False
     blocks = []
     for blk in content:
         if (
@@ -251,8 +247,9 @@ def _neutralize_identity(content):
             and _opens_with_identity(blk["text"])
         ):
             blk = dict(blk, text=CHANNEL_SAFE_PREFIX + blk["text"])
+            changed = True
         blocks.append(blk)
-    return blocks, True
+    return blocks, changed
 
 
 def sanitize_channel_markers(body: bytes) -> tuple[bytes, list[str]]:
@@ -310,6 +307,20 @@ def sanitize_channel_markers(body: bytes) -> tuple[bytes, list[str]]:
             doc["system"], hit = _neutralize_identity(doc["system"])
             if hit:
                 applied.append("claude-identity")
+        # ...and in every assistant turn. The check scans those too, and a
+        # resumed conversation carries the line in a past assistant message:
+        # neutralising only `system` left exactly that request refused, which is
+        # the failure the interactive TUI hit on a long session. User turns are
+        # not inspected by the gateway, so they are left byte-identical.
+        for msg in doc.get("messages") or []:
+            if (
+                isinstance(msg, dict)
+                and msg.get("role") == "assistant"
+                and "content" in msg
+            ):
+                msg["content"], hit = _neutralize_identity(msg["content"])
+                if hit and "claude-identity" not in applied:
+                    applied.append("claude-identity")
 
     if not applied:
         return body, []

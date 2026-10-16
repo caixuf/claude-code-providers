@@ -82,12 +82,12 @@ def test_write_registry_round_trips_through_the_real_file(tmp_path, monkeypatch)
     monkeypatch.setattr(ca, "PROFILES_YAML", target)
 
     ca.write_registry(
-        {"codebuddy": {"a2": {"auth_env": "CODEBUDDY_API_KEY_2"}}},
-        {"daily": {"members": ["codebuddy"], "routing_strategy": "least-busy"}},
+        {"qianfan": {"a2": {"auth_env": "QIANFAN_API_KEY_2"}}},
+        {"daily": {"members": ["qianfan"], "routing_strategy": "least-busy"}},
     )
     accounts, groups = ca.load_registry()
-    assert accounts == {"codebuddy": {"a2": {"auth_env": "CODEBUDDY_API_KEY_2"}}}
-    assert groups == {"daily": {"members": ["codebuddy"], "routing_strategy": "least-busy"}}
+    assert accounts == {"qianfan": {"a2": {"auth_env": "QIANFAN_API_KEY_2"}}}
+    assert groups == {"daily": {"members": ["qianfan"], "routing_strategy": "least-busy"}}
     assert target.read_text().count("#") == SAMPLE.count("#")
     # no temp file left behind
     assert sorted(p.name for p in tmp_path.iterdir()) == ["profiles.yaml"]
@@ -97,14 +97,14 @@ def test_write_registry_round_trips_through_the_real_file(tmp_path, monkeypatch)
 
 
 def _args(**kw):
-    base = {"provider": "codebuddy", "suffix": "a2", "token": "tok", "label": None,
+    base = {"provider": "qianfan", "suffix": "a2", "token": "tok", "label": None,
             "auth_env": None, "proxy_env": "/dev/null"}
     base.update(kw)
     return argparse.Namespace(**base)
 
 
 def test_env_var_name_is_derived_from_provider_and_suffix():
-    assert ca.env_var_for("codebuddy", "a2") == "CODEBUDDY_API_KEY_A2"
+    assert ca.env_var_for("qianfan", "a2") == "QIANFAN_API_KEY_A2"
     assert ca.env_var_for("cmdc", "edu") == "CMDC_API_KEY_EDU"
 
 
@@ -117,10 +117,10 @@ def test_add_writes_credential_and_registry(tmp_path, monkeypatch):
 
     assert ca.cmd_add(_args(proxy_env=str(env))) == 0
     accounts, _ = ca.load_registry()
-    assert accounts["codebuddy"]["a2"]["auth_env"] == "CODEBUDDY_API_KEY_A2"
+    assert accounts["qianfan"]["a2"]["auth_env"] == "QIANFAN_API_KEY_A2"
     # the secret went to the env file, never into the committed registry
     assert "tok" not in target.read_text()
-    assert "CODEBUDDY_API_KEY_A2=tok" in env.read_text()
+    assert "QIANFAN_API_KEY_A2=tok" in env.read_text()
     assert os.stat(env).st_mode & 0o777 == 0o600
 
 
@@ -155,7 +155,7 @@ def test_remove_drops_the_account_but_leaves_the_secret_alone(tmp_path, monkeypa
     assert ca.cmd_remove(_args(proxy_env=str(env))) == 0
     accounts, _ = ca.load_registry()
     assert not accounts, "the provider entry is dropped once its last account goes"
-    assert "CODEBUDDY_API_KEY_A2=tok" in env.read_text(), "secret left for the user to remove"
+    assert "QIANFAN_API_KEY_A2=tok" in env.read_text(), "secret left for the user to remove"
 
 
 # ── group commands ────────────────────────────────────────────────────────
@@ -165,7 +165,7 @@ def test_group_add_validates_the_strategy(tmp_path, monkeypatch):
     target = tmp_path / "profiles.yaml"
     target.write_text(SAMPLE)
     monkeypatch.setattr(ca, "PROFILES_YAML", target)
-    ns = argparse.Namespace(name="daily", members=["codebuddy"], strategy="nonsense",
+    ns = argparse.Namespace(name="daily", members=["qianfan"], strategy="nonsense",
                             fallback=None)
     with pytest.raises(ca.AccountsError, match="unknown strategy"):
         ca.cmd_group_add(ns)
@@ -177,12 +177,12 @@ def test_group_add_records_members_and_fallback(tmp_path, monkeypatch):
     target = tmp_path / "profiles.yaml"
     target.write_text(SAMPLE)
     monkeypatch.setattr(ca, "PROFILES_YAML", target)
-    ns = argparse.Namespace(name="daily", members=["codebuddy", "cmdc-deepseek-fast"],
+    ns = argparse.Namespace(name="daily", members=["qianfan", "cmdc-deepseek-fast"],
                             strategy="usage-based-routing-v2", fallback=["cmdc-deepseek-pro"])
     assert ca.cmd_group_add(ns) == 0
     _, groups = ca.load_registry()
     assert groups["daily"] == {
-        "members": ["codebuddy", "cmdc-deepseek-fast"],
+        "members": ["qianfan", "cmdc-deepseek-fast"],
         "routing_strategy": "usage-based-routing-v2",
         "fallback": ["cmdc-deepseek-pro"],
     }
@@ -193,58 +193,11 @@ def test_group_add_records_members_and_fallback(tmp_path, monkeypatch):
 
 def test_quota_cache_round_trip(tmp_path, monkeypatch):
     monkeypatch.setattr(cq, "CACHE_DIR", tmp_path)
-    assert cq.cached("codebuddy") is None
-    cq.store("codebuddy", {"provider": "codebuddy", "windows": []})
-    assert cq.cached("codebuddy")["provider"] == "codebuddy"
+    assert cq.cached("qianfan") is None
+    cq.store("qianfan", {"provider": "qianfan", "windows": []})
+    assert cq.cached("qianfan")["provider"] == "qianfan"
     # an expired entry is ignored
-    assert cq.cached("codebuddy", max_age=-1) is None
-
-
-def test_codebuddy_reader_normalises_the_rest_envelope(monkeypatch):
-    """The real answer is {code, msg, data:{Response:{Data:{Accounts:[…]}}}}."""
-    payload = {
-        "code": 0,
-        "msg": "OK",
-        "data": {
-            "Response": {
-                "Data": {
-                    "Accounts": [
-                        {
-                            "PackageName": "Bonus Pack",
-                            "OriginUnit": "credit",
-                            "CycleCapacitySizePrecise": "250",
-                            "CycleCapacityUsedPrecise": "174.14999991",
-                            "CycleEndTime": "2026-10-24 08:59:35",
-                        },
-                        {  # no capacity -> skipped rather than reported as 0/0
-                            "PackageName": "Odd",
-                        },
-                    ]
-                }
-            }
-        },
-    }
-    monkeypatch.setattr(cq, "_token", lambda env: "tok")
-    monkeypatch.setattr(cq, "_post_json", lambda url, tok, body=None: payload)
-    res = cq.read_codebuddy()
-    assert len(res["windows"]) == 1
-    w = res["windows"][0]
-    assert w["name"] == "Bonus Pack" and w["total"] == 250.0
-    assert round(w["used"], 2) == 174.15
-    assert w["resets"] == "2026-10-24 08:59:35"
-
-
-def test_codebuddy_reader_surfaces_a_gateway_error(monkeypatch):
-    monkeypatch.setattr(cq, "_token", lambda env: "tok")
-    monkeypatch.setattr(cq, "_post_json", lambda url, tok, body=None: {"code": 11128, "msg": "nope"})
-    with pytest.raises(RuntimeError, match="11128"):
-        cq.read_codebuddy()
-
-
-def test_codebuddy_reader_requires_a_credential(monkeypatch):
-    monkeypatch.setattr(cq, "_token", lambda env: None)
-    with pytest.raises(RuntimeError, match="ccp auth codebuddy"):
-        cq.read_codebuddy()
+    assert cq.cached("qianfan", max_age=-1) is None
 
 
 def test_bar_is_proportional_and_clamped():

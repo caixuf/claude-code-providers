@@ -18,10 +18,9 @@ file never is.
 
 Usage:
   python3 ccp_accounts.py list
-  python3 ccp_accounts.py add codebuddy a2 --from-cli     # import the CLI's login
-  python3 ccp_accounts.py add codebuddy a2 --token sk-…   # or give a token
-  python3 ccp_accounts.py remove codebuddy a2
-  python3 ccp_accounts.py group add daily codebuddy codebuddy-fast --strategy usage-based-routing-v2
+  python3 ccp_accounts.py add qianfan a2 --token sk-…
+  python3 ccp_accounts.py remove qianfan a2
+  python3 ccp_accounts.py group add daily qianfan-deepseek-v4.1-flash --strategy usage-based-routing-v2
   python3 ccp_accounts.py group remove daily
 """
 from __future__ import annotations
@@ -31,6 +30,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 BRIDGE_DIR = Path(__file__).resolve().parent
@@ -131,36 +131,63 @@ def load_registry() -> tuple[dict, dict]:
 
 
 def env_var_for(provider: str, suffix: str) -> str:
-    """CODEBUDDY_API_KEY_2 for ('codebuddy', '2'), CODEBUDDY_API_KEY_EDU for …"""
+    """QIANFAN_API_KEY_2 for ('qianfan', '2'), QIANFAN_API_KEY_EDU for …"""
     return f"{provider.upper()}_API_KEY_{suffix.upper()}"
 
 
-def set_secret(env_path: Path, key: str, value: str) -> None:
-    import codebuddy_auth as cb
-
-    cb.write_env_value(env_path, value, key=key)
-
-
 def read_secret(env_path: Path, key: str) -> str | None:
-    import codebuddy_auth as cb
+    """A key from the shared secrets file, or None."""
+    try:
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if line.startswith(key + "="):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except OSError:
+        return None
+    return None
 
-    return cb.read_env_value(env_path, key=key)
 
+def set_secret(env_path: Path, key: str, value: str) -> None:
+    """Replace ``key``'s line, keeping every other provider's entry intact.
 
-def import_from_cli() -> tuple[str, str]:
-    """(token, label) from the local CodeBuddy CLI login."""
-    sys.path.insert(0, str(BRIDGE_DIR))
-    import codebuddy_auth as cb
+    Durable and atomic — temp file in the same directory, fsync, then
+    os.replace, mode 0600 — because this file holds every provider's key.
+    """
+    if env_path.is_file():
+        try:
+            lines = env_path.read_text().splitlines()
+        except OSError as e:
+            raise AccountsError(f"cannot read {env_path}: {e} (refusing to overwrite)")
+    else:
+        lines = []
+    out, replaced = [], False
+    for line in lines:
+        if line.strip().startswith(key + "="):
+            if not replaced:
+                out.append(f"{key}={value}")
+                replaced = True
+            continue
+        out.append(line)
+    if not replaced:
+        if out and out[-1].strip():
+            out.append("")
+        out.append(f"{key}={value}")
 
-    sess, checked = cb.find_session(None)
-    if sess is None:
-        raise AccountsError(cb.describe_no_session(checked))
-    _, expiry = cb.expiry_info(sess)
-    if expiry == "EXPIRED":
-        raise AccountsError(
-            "the CodeBuddy CLI login has expired; run `codebuddy` once to renew it"
-        )
-    return sess["token"], sess.get("nickname") or ""
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(env_path.parent), prefix="." + env_path.name + ".")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write("\n".join(out) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, env_path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 # ── commands ──────────────────────────────────────────────────────────────
@@ -206,10 +233,12 @@ def cmd_add(args) -> int:
         raise AccountsError(f"{provider} already has an account named {suffix!r}")
 
     env = args.auth_env or env_var_for(provider, suffix)
-    if args.token:
-        token, label = args.token, (args.label or "")
-    else:
-        token, label = import_from_cli()
+    if not args.token:
+        raise AccountsError(
+            "an account needs --token: ccp no longer imports a login itself "
+            "(that was CodeBuddy's, and its provider is archived)"
+        )
+    token, label = args.token, (args.label or "")
 
     env_path = Path(os.path.expanduser(args.proxy_env))
     set_secret(env_path, env, token)
@@ -282,7 +311,6 @@ def main() -> int:
     a.add_argument("provider")
     a.add_argument("suffix", help="short name, e.g. a2 or edu")
     a.add_argument("--token", help="the credential itself")
-    a.add_argument("--from-cli", action="store_true", help="import the CLI's login (default)")
     a.add_argument("--auth-env", help="override the env var name")
     a.add_argument("--label", help="a human note, stored in the registry")
     a.set_defaults(func=cmd_add)

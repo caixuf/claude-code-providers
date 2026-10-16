@@ -46,38 +46,6 @@ profiles:
       sonnet:  {model: deepseek/deepseek-v4.1-flash}
       haiku:   {model: deepseek/deepseek-v4.1-flash}
 
-  # ── CodeBuddy (Tencent coding-copilot subscription) ────────────────────
-  # Bridged, not native: CodeBuddy speaks plain OpenAI chat/completions, so
-  # LiteLLM already does the translation and there is nothing a private
-  # adapter would add. Its three quirks are handled declaratively — the
-  # `hosted_vllm/` prefix in render_config.py (its /v1 and Responses surfaces
-  # 404), the `sanitize_channel` request rule below (the gateway's
-  # client-identity check), and streaming being mandatory (Claude Code always
-  # streams). The credential is the session the CodeBuddy Code CLI holds;
-  # `ccp auth codebuddy` imports it, and `ccp bridge start|restart` re-reads
-  # it so a token the CLI rotated is adopted rather than going stale.
-  #
-  # The account signs into one of two gateways — INTL (www.codebuddy.ai) or CN
-  # (copilot.tencent.com) — which do not share tokens. Which one is derived from
-  # the login's `auth.domain`, not configured; see `api_base()` in
-  # bridge/codebuddy_auth.py.
-  #
-  # One entry point onto the whole fleet; the ladder mixes vendors because no
-  # single one covers all four tiers well.
-  #   default/sonnet : DeepSeek v4.1 Flash — free (0 credits), 1M, multimodal
-  #   opus/fable     : GLM-5.3 — strongest tool-call reliability in the fleet
-  #   haiku          : GLM-5.3-Flash — cheap, fast, still 1M
-  # Switch within the provider with `ccp -m codebuddy-glm` etc. (see aliases).
-  codebuddy:
-    provider: codebuddy
-    native: false
-    primary_tier: default
-    tiers:
-      default: {model: deepseek-v4.1-flash}
-      opus:    {model: glm-5.3}
-      fable:   {model: glm-5.3}
-      sonnet:  {model: deepseek-v4.1-flash}
-      haiku:   {model: glm-5.3-flash}
 
   # ── Native Anthropic-compatible endpoints (no bridge clamp needed) ──
   # These talk straight to the provider's /anthropic endpoint; they are
@@ -188,28 +156,6 @@ aliases:
   cline-kimi-k3:                       {provider: cline, model: moonshotai/kimi-k3, ctx: 1048576}
   cline-minimax-m3:                    {provider: cline, model: minimax/minimax-m3, ctx: 1000000}
   cline-qwen3.7-max:                   {provider: cline, model: qwen/qwen3.7-max, ctx: 1000000}
-  # CodeBuddy: the ids `discover_models.py` narrows this account's catalogue to
-  # (see its `only_models`). Unlike cline/qianfan — whose catalogues are mostly
-  # not callable on the plan — every one of these answers, so all are aliased
-  # and reachable as `ccp codebuddy <name>`. ctx is the registry's own number,
-  # not a blanket 1M: the fleet mixes 1M and 200-960k windows. The set is the
-  # CN deployment's; an INTL login carries a different fleet (no MiMo/Step, has
-  # GPT/Gemini) and would need its own `only_models` + aliases.
-  codebuddy:               {provider: codebuddy, model: deepseek-v4.1-flash, ctx: 1000000}
-  codebuddy-deepseek-pro:  {provider: codebuddy, model: deepseek-v4-pro, ctx: 1000000}
-  codebuddy-deepseek-flash: {provider: codebuddy, model: deepseek-v4-flash, ctx: 1000000}
-  codebuddy-glm:           {provider: codebuddy, model: glm-5.3, ctx: 1000000}
-  codebuddy-fast:          {provider: codebuddy, model: glm-5.3-flash, ctx: 1000000}
-  codebuddy-glm-5.2:       {provider: codebuddy, model: glm-5.2, ctx: 1000000}
-  codebuddy-glm-v:         {provider: codebuddy, model: glm-5v-turbo, ctx: 200000}
-  codebuddy-kimi:          {provider: codebuddy, model: kimi-k3-1, ctx: 1000000}
-  codebuddy-kimi-k2.8:     {provider: codebuddy, model: kimi-k2.8-preview, ctx: 1000000}
-  codebuddy-kimi-k2.7:     {provider: codebuddy, model: kimi-k2.7, ctx: 256000}
-  codebuddy-minimax:       {provider: codebuddy, model: minimax-m3, ctx: 512000}
-  codebuddy-mimo:          {provider: codebuddy, model: mimo-v2.6-pro, ctx: 1000000}
-  codebuddy-hunyuan:       {provider: codebuddy, model: hy4-preview, ctx: 960000}
-  codebuddy-step:          {provider: codebuddy, model: step-5-preview, ctx: 1000000}
-  codebuddy-space-bunny:   {provider: codebuddy, model: space-bunny, ctx: 1000000}
   # OpenDesign: hot-swap between the aggregator's rungs with `ccp -m`
   opendesign-deepseek-v4.1-flash:       {provider: opendesign, model: deepseek-v4.1-flash, ctx: 1048000}
   opendesign-deepseek-v4-pro:           {provider: opendesign, model: deepseek-v4-pro, ctx: 1048000}
@@ -242,17 +188,16 @@ aliases:
 # accounts are called and where their credentials live.
 #
 # Credentials go in ~/.config/litellm/proxy.env as `<auth_env>=<token>`
-# (never in this file). Populate them with `ccp accounts add codebuddy <suffix>`,
-# which imports the login exactly like `ccp auth codebuddy` does.
+# (never in this file). Populate them with `ccp accounts add <provider> <suffix> --token …`.
 #
 # The bare model name always exists and always uses the provider's primary
 # auth_env, so removing every account here restores the single-account
 # behaviour with no other change.
 accounts: {}
-# Example — two CodeBuddy logins behind one pool:
+# Example — two logins for one provider behind a pool:
 #   accounts:
-#     codebuddy:
-#       a2: {auth_env: CODEBUDDY_API_KEY_2, label: "second account"}
+#     qianfan:
+#       a2: {auth_env: QIANFAN_API_KEY_2, label: "second account"}
 
 # ── Routing groups: one name, several models ───────────────────────────
 # A group is a LiteLLM model_name shared by several deployments. `members`
@@ -287,9 +232,9 @@ groups:
 # Example — cheap-first, escalating to a different vendor when both are out:
 #   groups:
 #     daily:
-#       members: [codebuddy, codebuddy-fast, cmdc-deepseek-fast]
+#       members: [qianfan-deepseek-v4.1-flash, cline-deepseek-v4.1-flash]
 #       routing_strategy: usage-based-routing-v2
-#       fallback: cmdc-deepseek-pro
+#       fallback: opendesign-deepseek-v4-pro
 
 # ── Per-provider request rewrites (bridge/sse_watchdog.py) ─────────────
 # Expanded by `ccp render` into bridge/request_rules.json, which maps each rule
@@ -305,9 +250,9 @@ groups:
 #     removed and the other neutralised with a leading newline. Anthropic's own
 #     API wants the header untouched, so this stays scoped to providers whose
 #     gateway inspects it.
-request_rules:
-  sanitize_channel:
-    - codebuddy
+request_rules: {}
+# The one rule this repo ever carried — codebuddy's `sanitize_channel` client
+# check — went with the provider. See docs/archived-providers.md to restore it.
 
 # ── Models that get individual LiteLLM entries (so `ccp -m <name>` works) ─
 # Keep this list short: each entry becomes a selectable model name, and a raw
