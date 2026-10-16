@@ -1,7 +1,7 @@
 {
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "YOUR_OPENCODE_API_KEY",
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:4110",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:4000",
     "ANTHROPIC_MODEL": "deepseek-v4.1-flash-free",
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "space-bunny-free",
     "ANTHROPIC_DEFAULT_FABLE_MODEL": "space-bunny-free",

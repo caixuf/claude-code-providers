@@ -861,6 +861,29 @@ switch_provider() {
   # would keep qianfan's URL.
   cp "$src" "$SETTINGS_FILE"
   if [ -n "$model" ]; then
+    # A 200 and a completion are not proof: MiniMax answers a request for
+    # MiniMax-M3.1 with one from M3. Check what actually served, and say so
+    # rather than letting the session silently run a different model.
+    if [ -z "$SKIP_VERIFY" ]; then
+      local verdict
+      # `set -e` is on: verify exits non-zero when the name is downgraded, and a
+      # bare `verdict=$(...)` would abort the whole switch on that — which is
+      # the opposite of what a warning should do. `|| true` keeps the verdict.
+      verdict=$("$py" "$repo_dir/bridge/ccp_pick.py" verify "$provider" "$model" 2>/dev/null || true)
+      # Fields are TAB-separated: MISMATCH <asked> <served>. Split with cut
+      # rather than ${v%%TAB*} — a literal tab in this file is invisible and
+      # gets eaten by editors and heredocs alike.
+      local tag
+      tag=$(printf '%s' "$verdict" | cut -f1)
+      if [ "$tag" = "MISMATCH" ]; then
+        local asked served
+        asked=$(printf '%s' "$verdict" | cut -f2)
+        served=$(printf '%s' "$verdict" | cut -f3)
+        echo -e "\033[33m! $asked is not served here\033[0m" >&2
+        echo -e "  the endpoint answered as \"$served\" instead." >&2
+        echo -e "  Switching anyway; SKIP_VERIFY=1 silences this." >&2
+      fi
+    fi
     set_active_model "$wire_model" "$wire_ctx" >/dev/null
   fi
 

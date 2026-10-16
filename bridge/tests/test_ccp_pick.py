@@ -6,12 +6,18 @@ addressed by the alias that LiteLLM actually accepts. Getting it wrong writes a
 model name the endpoint rejects, and the session only fails later.
 """
 
+import io
+import json
+import os
 import pathlib
 import subprocess
 import sys
 
 import pytest
 import yaml
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "bridge"))
+import ccp_pick as cp  # noqa: E402
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 PICK = REPO / "bridge" / "ccp_pick.py"
@@ -178,3 +184,60 @@ def test_folders_command_lists_one_line_per_provider():
         assert kind in {"native", "bridged"}
         assert int(count) > 0
         assert default
+
+# ── verification: the catalogue is a claim, the response is the evidence ──────
+# MiniMax answers a request for `MiniMax-M3.1` with HTTP 200 and a completion
+# from M3, and echoes the name it was asked for in some paths. So "it returned
+# 200" proves nothing; only the `model` field in the body does.
+
+
+def test_same_model_tolerates_the_1m_marker_and_case():
+    assert cp._same_model("qianfan-deepseek-v4.1-flash[1m]", "qianfan-deepseek-v4.1-flash")
+    assert cp._same_model("MiniMax-M3", "minimax-M3")
+    assert cp._same_model("openai/deepseek-v4.1-flash", "deepseek-v4.1-flash")
+
+
+def test_same_model_rejects_a_different_model():
+    assert not cp._same_model("MiniMax-M3", "MiniMax-M3.1-Flash-Preview")
+    assert not cp._same_model("claude-haiku-5.5", "MiniMax-M3")
+
+
+def test_verify_cache_key_includes_the_credential(monkeypatch, tmp_path):
+    """The same model name means different things under different keys.
+
+    MiniMax's standard key serves M3 for MiniMax-M3.1; the M Plan key serves
+    M3.1. A cache keyed on provider+model alone would carry the old verdict
+    across a key change and report a downgrade that stopped being true.
+    """
+    monkeypatch.setattr(cp, "_installed", lambda p: {
+        "ANTHROPIC_BASE_URL": "http://127.0.0.1:1", "ANTHROPIC_AUTH_TOKEN": "key-one"})
+    monkeypatch.setattr(cp, "VERIFY_CACHE", tmp_path / "v.json")
+    cp.verify("minimax", "M")           # fails to connect, but records a key
+    stored = json.loads((tmp_path / "v.json").read_text())
+    assert len(stored) == 1
+    assert "key-one" not in next(iter(stored))  # the digest stands in for it
+
+    monkeypatch.setattr(cp, "_installed", lambda p: {
+        "ANTHROPIC_BASE_URL": "http://127.0.0.1:1", "ANTHROPIC_AUTH_TOKEN": "key-two"})
+    cp.verify("minimax", "M")
+    assert len(json.loads((tmp_path / "v.json").read_text())) == 2
+
+
+def test_verify_reports_no_profile_rather_than_claiming_a_downgrade(monkeypatch):
+    monkeypatch.setattr(cp, "_installed", lambda p: {})
+    served, note = cp.verify("minimax", "MiniMax-M3")
+    assert served is None
+    assert "no profile" in note
+
+
+def test_verify_flags_the_200_with_nothing_in_it(monkeypatch):
+    """Trae at 1.25M tokens answers 200 with an empty body and zero usage —
+    a silent failure that looks exactly like success to a status-code check."""
+    monkeypatch.setattr(cp, "_installed", lambda p: {
+        "ANTHROPIC_BASE_URL": "http://127.0.0.1:1", "ANTHROPIC_AUTH_TOKEN": "k"})
+    monkeypatch.setattr(cp, "VERIFY_CACHE", pathlib.Path(os.devnull))
+    monkeypatch.setattr(cp.urllib.request, "urlopen", lambda *a, **k: io.BytesIO(
+        json.dumps({"model": "q", "content": [], "usage": {"output_tokens": 0}}).encode()))
+    served, note = cp.verify("trae", "q")
+    assert served == "q"
+    assert "empty" in note

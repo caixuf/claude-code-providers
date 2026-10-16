@@ -311,9 +311,14 @@ def test_native_providers_are_probed_not_skipped():
     assert all(c["native"] for c in deepseek)
 
     minimax = get_configured_models(target="minimax")
-    assert len(minimax) == 8
+    names = [c["wire_name"] for c in minimax]
     # A native endpoint wants the vendor's own id — no alias prefix, no [1m].
-    assert "MiniMax-M3" in [c["wire_name"] for c in minimax]
+    assert "MiniMax-M3" in names
+    # Read from the catalogue per key rather than pinned: MiniMax lists 8 ids
+    # under the standard key and 9 under the M Plan one, which is where
+    # MiniMax-M3.1-Flash-Preview comes from.
+    assert "MiniMax-M3.1-Flash-Preview" in names, names
+    assert len(names) == len(set(names))
 
 
 def test_bridged_providers_use_the_alias_litellm_accepts():

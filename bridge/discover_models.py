@@ -84,11 +84,21 @@ PROVIDERS = {
         "profile_file": "~/.claude/providers/deepseek.json",
         "max_output_default": 393216,
     },
+    # MiniMax's catalogue is a function of the key, and the difference matters:
+    # the standard key gets 8 ids with no M3.1 in them, the M Plan key gets 9
+    # and MiniMax-M3.1-Flash-Preview is among them. So read it online per key
+    # rather than pinning a list that goes stale — but do not trust it further
+    # than that. The endpoint does not reject a name it does not serve: asking
+    # for MiniMax-M3.1 returns 200 and a completion from M3. `ccp_pick verify`
+    # is what catches that, by reading the `model` field the response carries
+    # back.
     "minimax": {
         "models_url": "https://api.minimaxi.com/v1/models",
         "api_base": "https://api.minimaxi.com/anthropic",
         "endpoint_kind": "anthropic",
-        "auth_env": "MINIMAX_API_KEY",
+        # The M Plan key, not the standard one: only it serves M3.1. The
+        # standard key answers MiniMax-M3.1 with a completion from M3.
+        "auth_env": "MINIMAX_PLAN_API_KEY",
         "profile_file": "~/.claude/providers/minimax.json",
         "max_output_default": None,
     },
@@ -547,6 +557,17 @@ def build(only: str | None) -> dict:
             # preserve human edits
             norm["aliases"] = prior.get("aliases", [])
             norm["tiers"] = prior.get("tiers", [])
+            # A catalogue can omit the window entirely — MiniMax lists
+            # MiniMax-M3.1-Flash-Preview with no ctx and no output cap, while
+            # its published M Plan figures are 1M / 512K. Discovery must not
+            # answer "I don't know" here and must not overwrite a value that
+            # was filled in deliberately: `hints` records that a human set it.
+            hints = prior.get("hints") or {}
+            for field in ("ctx", "max_output", "vision"):
+                if norm.get(field) is None and hints.get(field) is not None:
+                    norm[field] = hints[field]
+            if hints:
+                norm["hints"] = hints
             models.append(norm)
         models.sort(key=lambda m: m["name"])
         fill_variant_siblings(models)

@@ -66,8 +66,11 @@ profiles:
     provider: minimax
     native: true
     primary_tier: default
+    # M3.1-Flash-Preview is the one to start on: it is the current Flash-tier
+    # model (1M context, 512K output, multimodal) and the catalogue only lists
+    # it for the M Plan key, which is the auth_env for this provider.
     tiers:
-      default: {model: MiniMax-M3}
+      default: {model: MiniMax-M3.1-Flash-Preview}
       opus:    {model: MiniMax-M3}
       sonnet:  {model: MiniMax-M3}
       haiku:   {model: MiniMax-M3}
