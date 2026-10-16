@@ -433,19 +433,31 @@ deploy_bridge_config() {
 manage_bridge() {
   local action="${1:-status}"
   case "$action" in
-    start-trae|stop-trae|restart-trae)
-      # Addresses the Trae adapter only. It deliberately does NOT deploy
-      # config.generated.yaml: the adapter needs no LiteLLM config, and pushing
+    start-trae|stop-trae|restart-trae|start-opencode|stop-opencode|restart-opencode|start-agy|stop-agy|restart-agy)
+      # Addresses one local adapter only. It deliberately does NOT deploy
+      # config.generated.yaml: the adapters need no LiteLLM config, and pushing
       # one here would touch the running universal bridge for no benefit.
-      systemctl --user "${action%-trae}" ccp-trae-bridge.service 2>/dev/null || {
-        echo -e "\033[31mNo ccp-trae-bridge.service installed. See README → Trae CLI.\033[0m" >&2
+      #
+      # The three adapters are independent of each other and of LiteLLM: each
+      # is its own process on its own port, driven by a local CLI or service.
+      # `trae` was the only one originally; opencode and agy are the same shape
+      # (a CLI or daemon fronted by an Anthropic adapter), so they share it.
+      local adapter="${action#*-}" adapter="${adapter%-*}"  # strip verb, strip suffix
+      case "$adapter" in
+        trae)     unit=ccp-trae-bridge.service;     port=4100; label=Trae ;;
+        opencode) unit=ccp-opencode-bridge.service; port=4110; label=opencode ;;
+        agy)      unit=ccp-agy-bridge.service;      port=4120; label=agy ;;
+        *) echo "Unknown adapter '$adapter'." >&2; return 1 ;;
+      esac
+      systemctl --user "${action%%-*}" "$unit" 2>/dev/null || {
+        echo -e "\033[31mNo $unit installed. See README → $label.\033[0m" >&2
         return 1
       }
       sleep 1
-      if check_bridge_port 4100; then
-        echo -e "\033[32m✔ Trae bridge active (:4100)\033[0m"
+      if check_bridge_port "$port"; then
+        echo -e "\033[32m✔ $label bridge active (:$port)\033[0m"
       else
-        echo -e "\033[31m✗ Trae bridge down — systemctl --user status ccp-trae-bridge.service\033[0m"
+        echo -e "\033[31m✗ $label bridge down — systemctl --user status $unit\033[0m"
       fi
       ;;
     status)
@@ -466,13 +478,23 @@ manage_bridge() {
         echo -e "  LiteLLM  (:4001):   \033[31mSTOPPED\033[0m"
       fi
 
-      # The Trae adapter is independent of the above two — it never goes
-      # through LiteLLM — so report it separately rather than implying the
-      # universal bridge covers it.
+      # The adapters are independent of the above two — none goes through
+      # LiteLLM — so report them separately rather than implying the universal
+      # bridge covers them.
       if check_bridge_port 4100; then
         echo -e "  Trae     (:4100):   \033[32mRUNNING\033[0m"
       else
-        echo -e "  Trae     (:4100):   \033[31mSTOPPED\033[0m  (ccp auth trae; ccp bridge start trae)"
+        echo -e "  Trae     (:4100):   \033[31mSTOPPED\033[0m  (ccp auth trae; ccp bridge start-trae)"
+      fi
+      if check_bridge_port 4110; then
+        echo -e "  opencode (:4110):   \033[32mRUNNING\033[0m"
+      else
+        echo -e "  opencode (:4110):   \033[31mSTOPPED\033[0m  (ccp bridge start-opencode)"
+      fi
+      if check_bridge_port 4120; then
+        echo -e "  agy      (:4120):   \033[32mRUNNING\033[0m"
+      else
+        echo -e "  agy      (:4120):   \033[31mSTOPPED\033[0m  (ccp bridge start-agy)"
       fi
       ;;
     restart)
@@ -483,6 +505,9 @@ manage_bridge() {
       systemctl --user restart litellm-cmdc.service 2>/dev/null || true
       sleep 1.5
       systemctl --user restart ccp-sse-watchdog.service 2>/dev/null || true
+      for u in ccp-trae-bridge ccp-opencode-bridge ccp-agy-bridge; do
+        systemctl --user restart "$u.service" 2>/dev/null || true
+      done
       sleep 0.5
       manage_bridge status
       ;;
@@ -492,6 +517,11 @@ manage_bridge() {
       deploy_bridge_config
       sync_proxy_env
       systemctl --user start litellm-cmdc.service ccp-sse-watchdog.service 2>/dev/null || true
+      # Adapters, where installed: each is optional and independent, so a
+      # unit that was never installed must not fail the whole start.
+      for u in ccp-trae-bridge ccp-opencode-bridge ccp-agy-bridge; do
+        systemctl --user start "$u.service" 2>/dev/null || true
+      done
       sleep 1
       manage_bridge status
       ;;
@@ -502,13 +532,21 @@ manage_bridge() {
     stop)
       echo "Stopping bridge services..."
       systemctl --user stop ccp-sse-watchdog.service litellm-cmdc.service 2>/dev/null || true
+      # Adapters stop too: they are listeners holding their own ports, and a
+      # "stopped" bridge that is still answering is not stopped.
+      for u in ccp-trae-bridge ccp-opencode-bridge ccp-agy-bridge; do
+        systemctl --user stop "$u.service" 2>/dev/null || true
+      done
       manage_bridge status
       ;;
     logs)
-      journalctl --user -u ccp-sse-watchdog.service -u litellm-cmdc.service -f -n 50
+      journalctl --user -u ccp-sse-watchdog.service -u litellm-cmdc.service \
+        -u ccp-trae-bridge.service -u ccp-opencode-bridge.service \
+        -u ccp-agy-bridge.service -f -n 50
       ;;
     *)
-      echo "Usage: ccp bridge [status|restart|start|stop|deploy|logs|start-trae|stop-trae|restart-trae]"
+      echo "Usage: ccp bridge [status|restart|start|stop|deploy|logs]"
+      echo "       ccp bridge {start|stop|restart}-{trae|opencode|agy}   # a single local adapter"
       ;;
   esac
 }

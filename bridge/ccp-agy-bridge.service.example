@@ -1,0 +1,22 @@
+[Unit]
+Description=CCP agy bridge (Antigravity CLI as an Anthropic endpoint)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/code/claude-code-providers/bridge
+ExecStart=/usr/bin/env python3 %h/code/claude-code-providers/bridge/agy_bridge.py --serve --port 4120
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+# agy_bridge pins AGY_BIN to an absolute path and refuses a Windows build on
+# purpose (that one raises a Google OAuth prompt per process). It is not on the
+# unit's PATH and must not be — see the comment there.
+Environment=AGY_BIN=%h/.local/bin/agy
+# The CLI talks to Google; behind a proxy the eligibility check and the model
+# call both need it. no_proxy keeps loopback traffic (and any local upstream)
+# off the proxy rather than routing 127.0.0.1 through it.
+EnvironmentFile=-%h/.config/litellm/proxy.env
+
+[Install]
+WantedBy=default.target

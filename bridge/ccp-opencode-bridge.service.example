@@ -1,0 +1,25 @@
+[Unit]
+Description=CCP opencode bridge (opencode Zen free tier as an Anthropic endpoint)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/code/claude-code-providers/bridge
+ExecStart=/usr/bin/env python3 %h/code/claude-code-providers/bridge/opencode_bridge.py --serve --port 4110
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+# opencode_bridge locates the `opencode` binary with shutil.which() to
+# autostart the daemon, and a systemd unit inherits a PATH that does not
+# include npm-global. Without this the bridge starts fine and then reports
+# "opencode binary not found" the first time it has to recover the service.
+Environment=PATH=%h/.npm-global/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Opencode binds an ephemeral port per start and publishes it in
+# ~/.local/state/opencode/service.json. The bridge re-reads that file on every
+# use, so it must be readable by the unit's user (it is — same $HOME).
+#
+# This bridge needs no credential of its own: it drives the local opencode
+# service, which holds the session. Nothing is read from proxy.env here.
+
+[Install]
+WantedBy=default.target
