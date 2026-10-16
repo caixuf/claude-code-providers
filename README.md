@@ -598,6 +598,60 @@ intact and needs no background job.
 
 ---
 
+## 🆓 Using OpenCode Zen's free tier with Claude Code
+
+opencode publishes `deepseek-v4.1-flash-free` and friends at $0, but the free
+tier is gated to the opencode client itself: a direct call to
+`zen/v1/chat/completions` answers `403 FreeTierError` whatever the credentials,
+and a forged `User-Agent: opencode/…` plus `x-opencode-session` is not enough
+either. `bridge/opencode_bridge.py` therefore drives the real local opencode
+service (`~/.local/state/opencode/service.json` holds its URL and password) and
+translates its session API into Anthropic Messages on `:4120`.
+
+Two things cost real time here and are worth keeping:
+
+* **The per-turn overhead was the tool table, not the prompt.** A 44-character
+  turn carried ~6083 tokens of context we never asked for. Replacing the
+  agent's system text with a single line moved it 6083 → 5780, so the prompt
+  was never the bulk — the definitions of the service's ~60 native tools were,
+  injected every turn even though the caller cannot use them (agy's protocol
+  takes no tool schemas; see below). Denying those tools through the session's
+  own `permissions` removes them from the prompt: the same turn then reads
+  ~1963, and ~2553 end to end through the bridge.
+* **`read` must stay reachable.** The ruleset opens with `allow *` and then
+  denies each tool — that shape was measured to work, because these are
+  override lists rather than a default-deny policy. Denying `read` as well
+  (or a blanket `deny *`) answers `403 FreeTierError` instead of running the
+  turn.
+
+With that in place Claude Code can call tools through the bridge, verified end
+to end with `claude -p` running a Bash tool call, not just with a curl of the
+bridge.
+
+## 🛰️ Using the Antigravity CLI (`agy`)
+
+`bridge/agy_bridge.py` drives the `agy` CLI (`--input-format stream-json`) and
+serves Anthropic Messages on `:4120`.
+
+**The wire protocol cannot carry tool schemas**, which is a limit of the
+protocol rather than of this adapter. Measured: `event=system`, `event=tools`
+and `event=config` are each rejected with `warning: ignoring unsupported stream
+input message event`, and a top-level `tools` field on the user event is
+accepted without complaint but **silently ignored** — the model answered
+"当前可用的工具中未找到名为 get_ocean_temperature 的工具" for a tool that had
+just been sent exactly that way. agy's only input is a user message, so the
+model never sees anything but agy's own 60-tool table, and Claude Code's tools
+can only be serialised into the prompt as text and parsed back out. Text
+reasoning is reliable; tool use is best-effort by construction.
+
+Use the **WSL-native** binary (`~/.local/bin/agy`). A Windows `agy.exe` exists
+under the user profile and is not interchangeable: it re-runs the Google OAuth
+flow on every new process and floods the desktop with login prompts. The bridge
+takes an absolute path and never resolves through `PATH`, where the Windows copy
+comes first.
+
+---
+
 ## 📊 Benchmark & Performance Insights
 
 In automated multi-turn engineering benchmarks across complex automotive codebases, all supported models achieved stellar performance under Claude Code:
@@ -612,6 +666,72 @@ In automated multi-turn engineering benchmarks across complex automotive codebas
 | **`claude-cmdc-deepseek`** | `deepseek-v4.1-flash` | **11.8 / 12** | **58.4 tok/s** | Best overall consistency in deep multi-turn sessions |
 | **`claude-cline-deepseek`** | `deepseek-v4.1-flash` | **12.0 / 12** | **69.8 tok/s** | High speed, flat monthly quota |
 | **`claude-minimax-m3`** | `MiniMax-M3` | **10.8 / 12** | **58.9 tok/s** | Lowest latency, concise and direct answers |
+
+### Where each vendor's DeepSeek actually lands
+
+`ccp ping <provider>` on this machine, identical prompt and settings for every
+row (2 rounds, ~200 output tokens per round — the traps below explain why the
+sample size decides whether the number means anything):
+
+| Provider | Model | TTFT | tok/s | Total | Context |
+| :--- | :--- | ---: | ---: | ---: | ---: |
+| **qianfan** | `deepseek-v4-pro` | **759 ms** | 67.3 | 3.7 s | 1.4M |
+| **qianfan** | `deepseek-v4.1-flash` | **781 ms** | 204.0 | 1.8 s | 1.4M |
+| **qianfan** | `deepseek-v4-flash` | **957 ms** | 218.2 | 1.9 s | 1.4M |
+| cline | `deepseek-v4-pro` | 1.5 s | 84.6 | 3.9 s | 1M |
+| cline | `deepseek-v4.1-flash` | 1.6 s | 183.1 | 2.7 s | 1M |
+| opendesign | `deepseek-v4-flash` | 2.2 s | 121.0¹ | 10.2 s | 1M |
+| opendesign | `deepseek-v4.1-flash` | 2.4 s | 100.4¹ | 11.0 s | 1M |
+| opencode | `deepseek-v4.1-flash-free` | 3.7 s | 285.3 | 5.4 s | 1M |
+| trae | `DeepSeek-V4.1-Flash` | 4.1 s | 156.9 | 4.6 s | 1M |
+| trae | `DeepSeek-V4-Flash-Official` | 5.3 s | 363.8 | 7.4 s | 1M |
+| trae | `DeepSeek-V4-Pro-Official` | 8.0 s | 88.7 | 8.8 s | 1M |
+
+¹ OpenDesign buffers: it stalls, then releases the whole answer at once, so its
+decode window is not measurable from the client. Those rounds are scored
+against the whole request and flagged `buffered`. The same model read
+**591 tok/s** under the previous formula — a figure its own 11 s total cannot
+support (200 tokens over an 11 s request is under 20 tok/s; the old code was
+dividing by a decode window that never existed).
+
+Qianfan wins on first token by roughly 2x against everything else, which is the
+number that matters for an agent: that latency is paid on every turn.
+
+### How the speed number is computed
+
+`ccp ping` follows the harness's own session readout, which is short enough to
+copy exactly:
+
+```js
+tps = stats.decodeTokens / (stats.decodeMs / 1e3)
+```
+
+Both counters accumulate across steps, `decodeMs` runs from the first token to
+the last, and tool execution time is tracked separately so it never enters the
+denominator. `ccp ping` therefore sums tokens and decode windows across rounds
+instead of averaging per-round rates — averaging lets one unrepresentative
+round pull the figure as hard as a long one, which is how the same provider
+read 501 tok/s on one run and 194 on the next, minutes apart.
+
+**Three traps this section exists to prevent:**
+
+1. **A short sample measures nothing.** At ~20 output tokens the fixed cost
+   dominates, and a real gap of under 10x came out looking like 35x. `-q`
+   keeps that cheap probe for liveness only; never rank on it.
+2. **Buffering inflates the rate.** A server that stalls and then dumps gives a
+   decode window of nearly zero. Buffered rounds use the whole request instead
+   and are marked, so the figure errs low rather than high — but a buffered
+   number and a streaming number are not the same measurement, which is why
+   the flag is kept rather than hidden.
+3. **A ceiling is not a target.** `max_tokens` does not make a model produce
+   that many tokens. The old probe asked to "explain an API in 2 sentences",
+   so it stopped at ~30 regardless of the budget; the timed prompt is now a
+   numbered list whose length scales with `max_tokens`.
+
+Provider-specific limits found the hard way — the OpenCode bridge's ~6k tokens
+of native tool definitions, and why the agy CLI cannot carry tool schemas at
+all — are recorded in their own sections above, and in the bridge sources with
+the measurements that established them.
 
 ---
 
