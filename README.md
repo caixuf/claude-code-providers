@@ -169,9 +169,10 @@ call is evidence:
 | `ccp quota [provider]` | What is left on each plan |
 | `ccp -t` / `ccp --test` | Quick round-trip through Claude Code |
 
-`ccp ping` rounds: default 2 rounds (~200 output tokens), `-q` 1 round (~20, for
-liveness only), `-b` 3 rounds (~100, stricter). `--sort` picks the ranking key and
-`-s` switches to the winner.
+`ccp ping` rounds: default 2 rounds (~200 output tokens), `-q` 1 round (~64, for
+liveness only), `-b` 3 rounds (~1000, stricter). `--sort` picks the ranking key and
+`-s` switches to the winner. The per-round timeout follows the token budget, so a
+slow model is not reported as a dead one.
 
 `ccp ping --agent` asks a different question: it sends one prompt with an obvious
 action and times **the first tool call**, reporting `NEVER` when the model answers
@@ -478,35 +479,38 @@ Readings are cached for two minutes because these endpoints are rate limited.
 row (2 rounds, ~200 output tokens per round):
 
 | Provider | Model | TTFT | tok/s | Total | Context |
-| :--- | :--- | ---: | ---: | ---: | ---: |
-| **minimax** | `MiniMax-M3.1-Flash` | **454 ms** | 111.9 | **2.2 s** | 1M |
-| minimax | `MiniMax-M3` | 2.7 s | 102.2 | 4.6 s | 1M |
-| cline | `deepseek-v4-pro` | 1.5 s | 84.6 | 3.9 s | 1M |
-| cline | `deepseek-v4.1-flash` | 1.6 s | 183.1 | 2.7 s | 1M |
-| opendesign | `deepseek-v4-flash` | 2.2 s | 121.0¹ | 10.2 s | 1M |
-| opendesign | `deepseek-v4.1-flash` | 2.4 s | 100.4¹ | 11.0 s | 1M |
-| trae | `DeepSeek-V4.1-Flash` | 4.1 s | 156.9 | 4.6 s | 1M |
-| trae | `DeepSeek-V4-Flash-Official` | 5.3 s | 363.8 | 7.4 s | 1M |
-| trae | `DeepSeek-V4-Pro-Official` | 8.0 s | 88.7 | 8.8 s | 1M |
+| :--- | :--- | ---: | ---: | ---: | :---: |
+| **opendesign** | `deepseek-v4-flash` | 1.4 s | **309.6** | **2.0 s** | 1M |
+| opendesign | `deepseek-v4.1-flash` | 1.7 s | 279.3 | 2.4 s | 1M |
+| cline | `deepseek-v4-pro` | **1.3 s** | 107.2 | 3.2 s | 1M |
+| cline | `deepseek-v4.1-flash` | 2.0 s | 165.7 | 3.2 s | 1M |
+| minimax | `MiniMax-M3` | 2.4 s | 92.4 | 4.4 s | 1M |
+| minimax | `MiniMax-M3.1-Flash` | 4.7 s | 42.5² | 5.7 s | 1M |
+| trae | `DeepSeek-V4.1-Flash` | 3.4 s | 63.8² | 3.5 s | 1M |
+| trae | `DeepSeek-V4-Flash-Official` | 3.9 s | 166.5 | 5.0 s | 1M |
+| trae | `DeepSeek-V4-Pro-Official` | 6.4 s | 45.5² | 6.6 s | 1M |
 
-¹ OpenDesign buffers: it stalls, then releases the whole answer at once, so its
-decode window is not measurable from the client. Those rounds are scored against
-the whole request and flagged `buffered`. The same model once read **591 tok/s**
-under a formula that divided by a decode window that never existed — a figure its
-own 11 s total cannot support.
+² **No decode window to measure**: the model thinks for seconds and then
+releases the whole answer at once, so the speed is scored against the whole
+request. Those figures are not comparable with the streaming rows, and the
+probe says so under the table. The same model once read **591 tok/s** under a
+formula that divided by a decode window that never existed — a figure its own
+11 s total cannot support.
 
-MiniMax-M3.1-Flash owns both ends that matter: the lowest first token (454 ms,
-against 1.5 s for the next best) and the shortest total (2.2 s). Both are paid on
-every turn, so on this fleet it is the fastest provider to actually finish a turn
-— the figure the `Think` column explains, since M3.1-Flash spends that 454 ms
-reasoning before it writes anything. MiniMax-M3 is the same family with thinking
-off by default and reads 2.7 s to first token: nearly 6x the wait for the same
-answer.
+**This is one run, and the reasoning models swing.** `MiniMax-M3.1-Flash`
+read 838 ms / 148.7 tok/s in a run minutes after the 4.7 s / 42.5 tok/s
+above: how long a model thinks before it answers is erratic — the same
+prompt produced 24, 422 or 494 reasoning tokens in three attempts. Rank on
+the total, and read the `Think` column as part of the answer: it is the
+wait paid on every turn, before the first useful token exists.
 
-Trae is the slowest to start — 4.1–8.0 s before the first token — but fast once
-it is decoding: `DeepSeek-V4-Flash-Official` moves 363.8 tok/s. Total time is the
-column an agent feels, which is why the 2.7 s cline row beats trae's 7.4 s one
-despite half the throughput.
+OpenDesign finishes a turn fastest here — `deepseek-v4-flash` in 2.0 s at
+309.6 tok/s, and `deepseek-v4.1-flash` half a second behind it. Cline has
+the first token (1.3 s) and pays for it in generation time. Trae is the
+slowest to start — 3.4–6.4 s before the first token — and fast only once it
+is decoding: `DeepSeek-V4-Flash-Official` moves 166.5 tok/s. Total time is
+the column an agent feels, which is why the 3.2 s cline row beats trae's
+3.5 s one despite half the throughput.
 
 ### How the speed number is computed
 
@@ -528,18 +532,44 @@ same provider read 501 tok/s on one run and 194 on the next, minutes apart.
    dominates, and a real gap of under 10× looked like 35×. `-q` is for liveness
    only; never rank on it.
 2. **Buffering inflates the rate.** A server that stalls and then dumps gives a
-   decode window of nearly zero. Buffered rounds use the whole request and are
-   marked, so the figure errs low rather than high.
+   decode window of nearly zero. Such rounds use the whole request instead, and
+   the probe names them under the table, so the figure errs low rather than
+   high.
 3. **A ceiling is not a target.** `max_tokens` does not make a model produce that
    many tokens; the probe's prompt length scales with `max_tokens` so it does not
    stop at 30 regardless of the budget.
 
+**The answer has to fit inside the budget.** The probe asks for a numbered list
+sized at 40% of `max_tokens`, not 80%. Each number costs two or three tokens
+once the separators are counted, and a model that reasons before it answers
+spends part of the same budget on the reasoning. At 160 items and 200 tokens
+the answer itself did not fit: the model was cut off mid-thought and produced
+nothing — and the probe, which was counting the reasoning deltas as an answer,
+reported a healthy 183 tok/s for a round in which the model had not said a
+word. ClinePass returned `500 empty response content` about 65% of the time on
+that shape. Half the budget for the answer leaves room to reason; the answer
+is still long enough to time.
+
+**A round that produced no answer is a failed round.** The stream was well
+formed and the upstream was happy, so nothing in the transport said "error" —
+but the user gets nothing, and a speed measured on a round without an answer
+describes the reasoning, not the answer. Such a round is now reported as
+`No Answer`, and the summary names it:
+
+```
+  ⚠ rounds that failed: group/pro (1/2 — no answer within the budget)
+```
+
+The quick check needed the same treatment: 20 tokens is less than the
+reasoning alone costs on this fleet (19–45 tokens), so `-q` could never
+succeed against a reasoning model and reported it as down. It now asks for 64.
+
 **The deadline follows the budget.** The per-round timeout scales with
-`--tokens` (about 8 s of headroom per token, 15 s floor, 90 s ceiling) instead
+`--tokens` (five seconds of headroom per token, 15 s floor, 240 s ceiling) instead
 of a flat 10 s. Trae's first byte alone ran past 17 s on the 200-token probe,
-and a flat 10 s cut it off mid-answer — so the row read as a failure when the
-model was merely slow, and "trae is down" is a conclusion a user acts on.
-`--timeout` still overrides it.
+and 100 s at 1000 tokens; a flat 10 s cut it off mid-answer — so the row read
+as a failure when the model was merely slow, and "trae is down" is a
+conclusion a user acts on. `--timeout` still overrides it.
 
 **A failed row says what failed.** The status keeps the whole code (`HTTP 502`,
 not `HTTP 50` — the old seven-character cut turned a gateway error into a code

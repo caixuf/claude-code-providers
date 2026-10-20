@@ -54,8 +54,18 @@ def _bulk_prompt(max_tokens: int) -> str:
     whose length scales with the budget makes the model produce roughly the
     tokens we intend to time; asking for prose does not, because prose has its
     own idea of when it is finished.
+
+    The list is sized at 40% of the budget, not 80%. Each number costs two
+    or three tokens once the separators are counted, and a model that reasons
+    before it answers spends part of the same budget on the reasoning: at
+    160 items and 200 tokens the answer alone did not fit, the model was cut
+    off mid-thought, and ClinePass answered `500 empty response content`
+    about 65% of the time. The probe then reported a healthy speed for a
+    model that had produced no answer at all. Half the budget for the answer
+    leaves room for the reasoning, and the answer is still long enough to
+    time.
     """
-    n = max(20, int(max_tokens * 0.8))
+    n = max(20, int(max_tokens * 0.4))
     return ("Output the integers from 1 to %d, in order, separated by commas. "
             "Output the numbers only — no prose, no summary, no code fence." % n)
 
@@ -94,7 +104,11 @@ DEFAULT_ROUNDS = 2
 # seconds and buys a number worth ranking on. `-q` keeps the old cheap probe
 # for a liveness check, where only reachability matters.
 DEFAULT_TOKENS = 200
-QUICK_TOKENS = 20
+# The quick check used 20 tokens, which no reasoning model can answer in: the
+# reasoning alone runs 19-45 tokens on this fleet, so the round was cut off
+# before a single word came out and the provider was reported as down. 64
+# leaves room for the reasoning and still answers in a couple of seconds.
+QUICK_TOKENS = 64
 BENCH_ROUNDS = 3
 BENCH_TOKENS = 1000
 MAX_TOKENS = DEFAULT_TOKENS
@@ -112,12 +126,13 @@ def default_timeout(tokens: int) -> float:
     acts on.
 
     The deadline therefore follows the budget: five seconds of headroom per
-    token, floored at 15s and capped at 240s. The floor keeps the quick
-    probe quick; the cap keeps a mistyped `--tokens` from hanging. The
-    timeout is the gap between bytes, not the whole round, so a slow but
-    steady stream is never cut.
+    token, floored at 30s and capped at 240s. The floor is what the reasoning
+    models need — MiniMax-M3.1-Flash spent 15.1 s before its first token in
+    one run, and a 15 s deadline cut it off and called it dead. The cap keeps
+    a mistyped `--tokens` from hanging. The timeout is the gap between bytes,
+    not the whole round, so a slow but steady stream is never cut.
     """
-    return max(15.0, min(240.0, tokens / 5.0))
+    return max(30.0, min(240.0, tokens / 5.0))
 
 
 # Terminal color codes (safe fallback when not a tty)
@@ -617,17 +632,55 @@ async def _probe_single_round(
             total_duration = max(t_end - t0, 0.001)
             ttft_duration = max(t_first - t0, 0.001) if t_first else total_duration
 
+            # A round that produced reasoning but no answer is not a success.
+            # The stream was well formed, the upstream was happy, and the
+            # model generated a plausible number of tokens — but it never
+            # said anything, and the user gets nothing. Counting the
+            # thinking deltas as an answer reported a healthy speed for a
+            # model that had not answered: 18 of 20 probe rounds against
+            # ClinePass ended this way, and the row said "✔ 2/2". The
+            # budget is the usual reason (the model reasoned until it was
+            # cut off), so the round is reported as what it is rather than
+            # folded into the success rate.
+            if not answer_chars and not tool_name:
+                return {
+                    "ok": False,
+                    "status": "No Answer",
+                    "error_msg": "budget spent on thinking; no answer was produced",
+                    "tool_ms": round((t_tool - t0) * 1000, 1) if t_tool else None,
+                    "tool_name": tool_name,
+                    "think_ms": round((t_think - t0) * 1000, 1) if t_think else None,
+                    "answer_ms": None,
+                    "think_chars": think_chars,
+                    "answer_chars": 0,
+                    "ttft_ms": round(ttft_duration * 1000, 1),
+                    "tps": 0.0,
+                    "total_ms": round(total_duration * 1000, 1),
+                    "tokens": 0,
+                    "cached_tokens": cached,
+                }
+
             tokens = completion_tokens or chunks or 1
             stream_interval = (t_end - t_first) if t_first else 0.0
 
             # Guard against server-side buffering: a server that waits seconds
             # then dumps every token at once makes stream_interval tiny while the
             # real generation spanned total_duration.
-            is_buffered = (
-                chunks <= 3
-                or (total_duration > 1.2 and stream_interval < 0.25)
+            #
+            # Two different things end up here. A server that *stalled* and
+            # then dumped has no decode window at all, and its speed is not
+            # comparable with a streaming one — that is worth telling the
+            # reader about. A round that simply produced three chunks or
+            # fewer (the quick check asks for a five-word answer) has too
+            # little output to time, which is a different remark: the speed
+            # is meaningless, but nothing is broken. Both fall back to the
+            # whole request for the arithmetic; only the first is a note
+            # about the provider.
+            stalled = (
+                (total_duration > 1.2 and stream_interval < 0.25)
                 or (total_duration > 2.0 and (ttft_duration / total_duration) > 0.85)
             )
+            is_buffered = chunks <= 3 or stalled
 
             # Two clocks, two meanings. When the server streams, the honest
             # denominator is the decode window itself — first token to last —
@@ -659,6 +712,7 @@ async def _probe_single_round(
                 "decode_ms": round(decode_seconds * 1000, 1),
                 "decode_tokens": decode_tokens,
                 "buffered": is_buffered,
+                "stalled": stalled,
                 "total_ms": round(total_duration * 1000, 1),
                 "tokens": tokens,
                 "cached_tokens": cached,
@@ -790,6 +844,13 @@ async def probe_single_model(
         avg_total = round(sum(r["total_ms"] for r in ok_rounds) / len(ok_rounds), 1) if ok_rounds else 0.0
         avg_tokens = round(sum(r["tokens"] for r in ok_rounds) / len(ok_rounds)) if ok_rounds else 0
         cached = max((r["cached_tokens"] for r in ok_rounds), default=0)
+        # A round that buffered is scored against the whole request, because
+        # there was no decode window to measure. That number is not
+        # comparable with a streaming one, and the flag has to reach the
+        # reader: a footnote in a document is not a flag. Only a round that
+        # actually stalled is worth the reader's attention — a round with
+        # three chunks simply had too little output to time.
+        buffered = any(r.get("stalled") for r in ok_rounds)
 
         return {
             **model_spec,
@@ -797,6 +858,7 @@ async def probe_single_model(
             "status": status_str,
             "rounds_passed": successes,
             "rounds_total": rounds,
+            "no_answer_rounds": sum(1 for r in round_results if r.get("status") == "No Answer"),
             "ttft_ms": avg_ttft,
             "think_ms": avg_think,
             "answer_ms": avg_answer,
@@ -806,6 +868,7 @@ async def probe_single_model(
             "total_ms": avg_total,
             "tokens": avg_tokens,
             "cached_tokens": cached,
+            "buffered": buffered,
             "error_msg": last_err,
         }
 
@@ -1041,6 +1104,32 @@ def print_table(
     rounds_info = f"{rounds} rounds, ~{tokens} tok" if rounds > 1 else f"1 round, ~{tokens} tok"
 
     print(f"Summary: {bold(str(avail_count))}/{total_count} models responsive ({rounds_info}).")
+
+    # A model that answered in one round and failed in the other still shows
+    # as "⚠ 1/2" with a speed, and the speed alone does not say what went
+    # wrong in the other round. Say it here.
+    partial = [r for r in results
+               if r.get("available") and r.get("rounds_passed", 0) < r.get("rounds_total", rounds)]
+    if partial:
+        parts = []
+        for r in partial:
+            name = r.get("display_name", "-")
+            n = r.get("rounds_passed", 0)
+            tot = r.get("rounds_total", rounds)
+            if r.get("no_answer_rounds"):
+                why = "no answer within the budget"
+            else:
+                why = (r.get("error_msg") or r.get("status") or "a round failed").split("\n")[0]
+            parts.append(f"{name} ({n}/{tot} — {why})")
+        print(yellow(f"  ⚠ rounds that failed: {', '.join(parts)}"))
+
+    # A stalled round has no decode window: the server thinks for seconds and
+    # then releases the whole answer at once, so the speed was scored against
+    # the whole request and is not comparable with the streaming rows.
+    buf = [r for r in results if r.get("available") and r.get("buffered")]
+    if buf:
+        names = ", ".join(f"{r.get('provider')}/{r.get('display_name', '-')}" for r in buf)
+        print(yellow(f"  ⚠ speed measured against the whole request (no decode window to measure): {names}"))
 
     if best_model:
         passed = best_model.get("rounds_passed", 1)

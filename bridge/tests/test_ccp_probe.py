@@ -563,9 +563,139 @@ def test_timeout_follows_the_token_budget():
     """
     from ccp_probe import default_timeout
 
-    assert default_timeout(20) >= 15.0
+    assert default_timeout(20) >= 30.0
     assert default_timeout(200) > 23.0
     assert default_timeout(1000) > 76.0
     # A slow budget gets more time, not less, and a mistyped one cannot hang.
     assert default_timeout(1000) > default_timeout(200)
     assert default_timeout(10_000_000) <= 240.0
+
+
+# ── a round that produced no answer is not a success ─────────────────────────
+# The stream was well formed and the upstream was happy, so the probe counted
+# the reasoning deltas as an answer and reported "✔ 2/2" with a healthy
+# tok/s for a model that had not said a word. 18 of 20 probe rounds against
+# ClinePass ended that way: the answer did not fit the budget, the model was
+# cut off mid-thought, and the row claimed a speed anyway.
+
+
+@pytest.mark.anyio
+async def test_a_thinking_only_round_is_not_a_success():
+    from ccp_probe import _probe_single_round
+
+    sse_lines = [
+        b'data: {"type": "content_block_delta", "index": 0, "delta": {"thinking": "hmm"}}',
+        b'data: {"type": "content_block_delta", "index": 0, "delta": {"thinking": "more"}}',
+        b'data: {"type": "message_delta", "usage": {"output_tokens": 200}}',
+    ]
+
+    async def mock_aiter_lines():
+        for line in sse_lines:
+            yield line.decode("utf-8").strip()
+
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 200
+    mock_resp.aiter_lines = mock_aiter_lines
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__.return_value = mock_resp
+    mock_ctx.__aexit__.return_value = None
+    client = MagicMock()
+    client.stream = MagicMock(return_value=mock_ctx)
+
+    res = await _probe_single_round(
+        client=client, wire_name="m", base_url="http://127.0.0.1:4000",
+        master_key="k", prompt="hi", max_tokens=200, timeout_s=5.0,
+    )
+
+    assert res["ok"] is False
+    assert res["status"] == "No Answer"
+    assert "no answer" in res["error_msg"]
+    # No speed is reported for a round that produced nothing.
+    assert res["tps"] == 0.0
+
+
+@pytest.mark.anyio
+async def test_a_tool_call_counts_as_an_answer():
+    """In agent mode the answer is the action, not prose."""
+    from ccp_probe import _probe_single_round
+
+    sse_lines = [
+        b'data: {"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "name": "read_file"}}',
+        b'data: {"type": "message_delta", "usage": {"output_tokens": 12}}',
+    ]
+
+    async def mock_aiter_lines():
+        for line in sse_lines:
+            yield line.decode("utf-8").strip()
+
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 200
+    mock_resp.aiter_lines = mock_aiter_lines
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__.return_value = mock_resp
+    mock_ctx.__aexit__.return_value = None
+    client = MagicMock()
+    client.stream = MagicMock(return_value=mock_ctx)
+
+    res = await _probe_single_round(
+        client=client, wire_name="m", base_url="http://127.0.0.1:4000",
+        master_key="k", prompt="hi", max_tokens=200, timeout_s=5.0,
+        tools=[{"name": "read_file", "description": "d", "input_schema": {"type": "object"}}],
+    )
+
+    assert res["ok"] is True
+    assert res["tool_name"] == "read_file"
+
+
+def test_the_requested_answer_fits_inside_the_budget():
+    """The list must leave room for the reasoning, not spend the budget.
+
+    At 160 items and 200 tokens the answer itself did not fit, so the model
+    was cut off mid-thought and the round produced nothing. Half the budget
+    for the answer leaves room to reason and still answers.
+    """
+    from ccp_probe import _bulk_prompt
+
+    prompt = _bulk_prompt(200)
+    assert "1 to 80" in prompt
+    # The floor keeps a tiny budget asking for something real.
+    assert "1 to 20" in _bulk_prompt(20)
+    # The answer scales with the budget, it does not stay at 20.
+    assert "1 to 200" in _bulk_prompt(500)
+
+
+def test_the_quick_check_leaves_room_for_reasoning():
+    """20 tokens is less than the reasoning alone needs on this fleet."""
+    from ccp_probe import QUICK_TOKENS
+
+    assert QUICK_TOKENS >= 48
+
+
+def test_a_buffered_round_is_flagged_to_the_reader(capsys):
+    """A buffered round has no decode window; the speed is not comparable.
+
+    The flag existed per round and never reached the output, so a reader
+    could not tell a streaming speed from one scored against the whole
+    request.
+    """
+    from ccp_probe import print_table
+
+    results = [{
+        "provider": "opendesign",
+        "display_name": "deepseek-v4-flash",
+        "available": True,
+        "status": "2/2",
+        "rounds_passed": 2,
+        "rounds_total": 2,
+        "ttft_ms": 1200.0,
+        "tps": 287.0,
+        "total_ms": 2000.0,
+        "ctx": "1M",
+        "vision": True,
+        "buffered": True,
+    }]
+
+    print_table(results, sort_key="speed", rounds=2, tokens=200)
+    out = capsys.readouterr().out
+    assert "no decode window" in out
+    assert "deepseek-v4-flash" in out

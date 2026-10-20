@@ -84,7 +84,7 @@ Examples:
   ccp -m cline-glm-5.3       # Change the active model within the current provider
   ccp ping                   # 2-round sustained speed & stability test (~200 tokens)
   ccp ping -b                # Deep benchmark (3 rounds, ~1000 tokens, strict stress test)
-  ccp ping -q                # Quick check (1 round, 20 tokens, fast health ping)
+  ccp ping -q                # Quick check (1 round, 64 tokens, fast health ping)
   ccp ping trae -s           # Benchmark Trae models and auto-switch to the winner
   ccp cline deepseek-v4.1-flash  # Switch to ClinePass Token Plan and its default model
   ccp auth trae              # Import the TraeCLI personal access token into the bridge
