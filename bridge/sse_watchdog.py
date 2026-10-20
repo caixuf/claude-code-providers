@@ -31,6 +31,7 @@ from sse_finalize import (  # noqa: E402
     strip_1m_beta,
     strip_1m_model,
 )
+from loopback import ensure_loopback_bypass, loopback_mounts  # noqa: E402
 
 HOP = {
     "connection",
@@ -272,7 +273,13 @@ def build_app(
     app.state.clamp_map = clamp_map or {}
     app.state.clamp_fallback = clamp_fallback
     app.state.request_rules = request_rules or {}
-    app.state.client = httpx.AsyncClient(timeout=None)
+    # The upstream is LiteLLM on this machine. A request to 127.0.0.1 that
+    # the HTTP proxy answers for comes back 502 with an empty body, and the
+    # bridge then looks broken while both processes are perfectly healthy.
+    # The proxy env a service inherits is not the one a shell has, so the
+    # bypass is enforced here.
+    ensure_loopback_bypass()
+    app.state.client = httpx.AsyncClient(timeout=None, mounts=loopback_mounts())
     return app
 
 

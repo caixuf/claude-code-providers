@@ -246,6 +246,39 @@ A service that publishes no API gets its own small Anthropic-speaking process,
 
 Nothing in the running `:4000`/`:4001` deployment changes for it.
 
+### The loopback never goes through the HTTP proxy
+
+`:4000`, `:4001` and `:4100` are on this machine. A request to `127.0.0.1`
+that the HTTP proxy answers for leaves the box, the proxy cannot route a
+loopback destination, and it replies **`502` with an empty body** — which
+reads exactly like a dead provider while the process behind it is healthy.
+
+The trap is the spelling of `no_proxy`. Windows hands WSL a wildcard form
+(`127.*`) and *no* HTTP stack understands it: curl, urllib and httpx read
+exact hosts, domain suffixes and CIDR blocks, never `*`. So the loopback gets
+proxied anyway.
+
+`bridge/loopback.py` therefore enforces the bypass in the tool, next to the
+sockets — the env is normalised (`127.0.0.1`, `::1`, `localhost` as exact
+entries) and httpx pins the loopback to a direct transport. A tool cannot
+depend on the shell it was launched from: non-interactive shells skip
+`~/.bashrc`, a systemd service never reads it, and a shell that was already
+open when the fix landed keeps the broken value.
+
+`ccp` warns when the *shell* still has the broken spelling, because
+everything else in the shell — Claude Code itself, `curl`, `python` — reads
+`no_proxy` and would send its own loopback calls to the proxy:
+
+```
+⚠ no_proxy has no exact 127.0.0.1 entry ('127.*').
+```
+
+Fix it in the shell with:
+
+```bash
+export no_proxy="127.0.0.1,::1,localhost,$no_proxy"
+```
+
 ---
 
 ## 🔌 Providers
@@ -500,6 +533,18 @@ same provider read 501 tok/s on one run and 194 on the next, minutes apart.
 3. **A ceiling is not a target.** `max_tokens` does not make a model produce that
    many tokens; the probe's prompt length scales with `max_tokens` so it does not
    stop at 30 regardless of the budget.
+
+**The deadline follows the budget.** The per-round timeout scales with
+`--tokens` (about 8 s of headroom per token, 15 s floor, 90 s ceiling) instead
+of a flat 10 s. Trae's first byte alone ran past 17 s on the 200-token probe,
+and a flat 10 s cut it off mid-answer — so the row read as a failure when the
+model was merely slow, and "trae is down" is a conclusion a user acts on.
+`--timeout` still overrides it.
+
+**A failed row says what failed.** The status keeps the whole code (`HTTP 502`,
+not `HTTP 50` — the old seven-character cut turned a gateway error into a code
+that does not exist), and an empty body is named rather than left blank: a
+gateway error on a loopback endpoint is the proxy answering for it.
 
 ---
 

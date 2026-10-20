@@ -39,6 +39,8 @@ CACHE_TTL = 120  # seconds; these endpoints are rate limited
 
 sys.path.insert(0, str(BRIDGE_DIR))
 
+from loopback import ensure_loopback_bypass  # noqa: E402
+
 
 def _token(env_name: str) -> str | None:
     """A key from the environment, else from the shared secrets file."""
@@ -165,6 +167,11 @@ def render(results: list[dict]) -> None:
 
 
 def main() -> int:
+    # The usage APIs are on the public internet, but a loopback endpoint must
+    # never be handed to the HTTP proxy: the proxy cannot route it and answers
+    # 502 with an empty body, which is indistinguishable from a dead API.
+    ensure_loopback_bypass()
+
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("provider", nargs="?", help="only this provider")
     ap.add_argument("--json", action="store_true", help="machine-readable output")

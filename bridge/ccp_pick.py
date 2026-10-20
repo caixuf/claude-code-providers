@@ -41,6 +41,9 @@ import urllib.request
 
 import yaml
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from loopback import ensure_loopback_bypass  # noqa: E402
+
 ONE_M = 1_000_000
 
 
@@ -398,6 +401,12 @@ def _same_model(served: str, asked: str) -> bool:
 
 
 def main() -> int:
+    # `verify` calls the installed profile's endpoint, and for the bridged
+    # providers that endpoint is the loopback bridge. A proxy answering on
+    # behalf of 127.0.0.1 replies 502 with an empty body, which reads like
+    # a dead provider — so the loopback never goes through the proxy.
+    ensure_loopback_bypass()
+
     ap = argparse.ArgumentParser(prog="ccp_pick")
     sub = ap.add_subparsers(dest="cmd", required=True)
 

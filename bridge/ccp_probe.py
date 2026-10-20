@@ -34,6 +34,7 @@ import yaml
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from ccp_pick import _providers  # noqa: E402  (same derivation as `ccp`/switch)
+from loopback import ensure_loopback_bypass, is_loopback_url, loopback_mounts  # noqa: E402
 
 REPO_DIR = pathlib.Path(__file__).resolve().parent.parent
 PROFILES_PATH = REPO_DIR / "registry" / "profiles.yaml"
@@ -97,6 +98,27 @@ QUICK_TOKENS = 20
 BENCH_ROUNDS = 3
 BENCH_TOKENS = 1000
 MAX_TOKENS = DEFAULT_TOKENS
+
+
+def default_timeout(tokens: int) -> float:
+    """Per-round timeout that fits the work the probe asked for.
+
+    The probe's prompt scales with the token budget (160 integers at the
+    default 200), and the slower adapters need a long first byte before
+    they say anything at all. Measured on this machine, Trae's first byte
+    ran 6-23s at 200 tokens and 76s at 1000, with 117s in the round. A
+    flat 10s cut them off mid-answer, so the row read as a failure when
+    the model was simply slow — and "trae is down" is a conclusion a user
+    acts on.
+
+    The deadline therefore follows the budget: five seconds of headroom per
+    token, floored at 15s and capped at 240s. The floor keeps the quick
+    probe quick; the cap keeps a mistyped `--tokens` from hanging. The
+    timeout is the gap between bytes, not the whole round, so a slow but
+    steady stream is never cut.
+    """
+    return max(15.0, min(240.0, tokens / 5.0))
+
 
 # Terminal color codes (safe fallback when not a tty)
 USE_COLOR = sys.stdout.isatty()
@@ -429,10 +451,39 @@ def _err_detail(body: bytes) -> str:
         return body.decode("utf-8", "replace")[:120]
     err = doc.get("error") if isinstance(doc, dict) else None
     if isinstance(err, dict):
-        return str(err.get("message") or "")[:120]
+        return _clean_message(str(err.get("message") or ""))
     if isinstance(err, str):
-        return err[:120]
-    return str(doc.get("message") or "")[:120]
+        return _clean_message(err)
+    return _clean_message(str(doc.get("message") or ""))
+
+
+# LiteLLM prefixes its exceptions with the exception class, twice, before
+# the part that says anything: "litellm.InternalServerError:
+# InternalServerError: OpenAIException - Error code: 500 - {'error':
+# 'empty response content'}". The first 60 characters of that are all
+# noise, and the column was cut there.
+_LITELLM_PREFIX = re.compile(r"^(?:litellm\.[A-Za-z]+(?:Error|Exception):\s*)+")
+
+
+def _clean_message(msg: str) -> str:
+    """Drop the repeated exception-class prefix, keep the cause."""
+    return _LITELLM_PREFIX.sub("", msg or "").strip()[:120]
+
+
+def _blank_body_hint(status: int, base_url: str) -> str:
+    """Name the failure when the response body is empty.
+
+    An empty body is the signature of a proxy answering on the upstream's
+    behalf: a proxy cannot route a loopback destination, so it replies 502
+    with nothing in it, and the client sees a gateway error with no
+    explanation. "empty body" alone would leave the reader guessing, so
+    say where the answer came from.
+    """
+    if status in (502, 504):
+        if is_loopback_url(base_url):
+            return "empty body: proxy answered for a loopback URL"
+        return "empty body: gateway/proxy error"
+    return f"empty body (HTTP {status})"
 
 
 async def _probe_single_round(
@@ -491,10 +542,12 @@ async def _probe_single_round(
         async with client.stream("POST", url, json=payload, headers=headers, timeout=timeout_s) as resp:
             if resp.status_code != 200:
                 detail = _err_detail(await resp.aread())
+                if not detail:
+                    detail = _blank_body_hint(resp.status_code, base_url)
                 return {
                     "ok": False,
                     "status": f"HTTP {resp.status_code}",
-                    "error_msg": detail.split("\n")[0][:60],
+                    "error_msg": detail.split("\n")[0],
                     "ttft_ms": 0.0,
                     "tps": 0.0,
                     "total_ms": 0.0,
@@ -552,7 +605,7 @@ async def _probe_single_round(
                     return {
                         "ok": False,
                         "status": "Stream Error",
-                        "error_msg": str(err.get("message") or err)[:60],
+                        "error_msg": _clean_message(str(err.get("message") or err)),
                         "ttft_ms": 0.0,
                         "tps": 0.0,
                         "total_ms": 0.0,
@@ -689,6 +742,11 @@ async def probe_single_model(
             # Short-circuit on permanent fatal errors
             if not res["ok"] and res["status"] in ("Unreachable", "HTTP 400", "HTTP 401", "HTTP 404"):
                 break
+            # A gateway error is the proxy's answer, not the model's: the same
+            # request will bounce the same way 150ms later, and waiting for a
+            # second round only delays the report the user is waiting for.
+            if not res["ok"] and res["status"] in ("HTTP 502", "HTTP 504"):
+                break
             if r_idx < rounds - 1:
                 await asyncio.sleep(0.15)
 
@@ -762,23 +820,30 @@ async def probe_all(
     base_url: str = DEFAULT_BRIDGE_URL,
     master_key: str = DEFAULT_MASTER_KEY,
     concurrency: int = 8,
-    timeout_s: float = 10.0,
+    timeout_s: float = 0.0,
     rounds: int = DEFAULT_ROUNDS,
     max_tokens: int = DEFAULT_TOKENS,
     prompt: str = DEFAULT_PROMPT,
     tools: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """Probe every candidate concurrently, each against its own endpoint."""
+    # The bridge and the Trae adapter live on this machine, and a request to
+    # 127.0.0.1 must never be handed to the HTTP proxy: the proxy cannot
+    # route a loopback destination and answers 502 with an empty body, which
+    # reads exactly like a dead provider. Windows' inherited `no_proxy` uses
+    # wildcard spellings that no HTTP stack understands, so the bypass is
+    # enforced here rather than trusted from the environment.
+    ensure_loopback_bypass()
     sem = asyncio.Semaphore(concurrency)
     limits = httpx.Limits(max_keepalive_connections=concurrency, max_connections=concurrency * 2)
-    async with httpx.AsyncClient(limits=limits) as client:
+    async with httpx.AsyncClient(limits=limits, mounts=loopback_mounts()) as client:
         tasks = [
             probe_single_model(
                 client=client,
                 model_spec=m,
                 base_url=base_url,
                 master_key=master_key,
-                timeout_s=timeout_s,
+                timeout_s=timeout_s or default_timeout(max_tokens),
                 rounds=rounds,
                 max_tokens=max_tokens,
                 prompt=prompt,
@@ -817,6 +882,26 @@ def sort_results(results: List[Dict[str, Any]], sort_key: str = "default") -> Li
     return sorted(results, key=key_fn)
 
 
+def _status_label(raw_stat: str) -> str:
+    """A status short enough for the column, complete enough to read.
+
+    The old code cut the status to seven characters, which turned "HTTP 502"
+    into "HTTP 50" — a code that does not exist, on the one failure the user
+    most needs to read. Codes are short; the label is what has to give.
+    """
+    text = (raw_stat or "Fail").strip()
+    if text.startswith("HTTP "):
+        code = text[5:].split(" ")[0].strip()
+        return f"✖ HTTP {code}" if code else "✖ HTTP"
+    if text == "Stream Error":
+        return "✖ StreamErr"
+    if text == "Unreachable":
+        return "✖ Unreach"
+    if len(text) > 10:
+        text = text[:10]
+    return f"✖ {text}"
+
+
 def print_table(
     results: List[Dict[str, Any]],
     sort_key: str = "default",
@@ -828,7 +913,7 @@ def print_table(
 
     col_prov = 12
     col_name = 28
-    col_stat = 10
+    col_stat = 12
     col_ttft = 10
     col_tps = 14
     col_tot = 10
@@ -938,7 +1023,7 @@ def print_table(
             elif "Timeout" in raw_stat:
                 stat = red("✖ Timeout")
             else:
-                stat = red(f"✖ {raw_stat[:7]}")
+                stat = red(_status_label(raw_stat))
 
             err = r.get("error_msg") or ""
             max_err_width = col_ttft + col_tps + col_tot + col_think + col_ctx + col_vis + 5
@@ -1036,7 +1121,8 @@ def main() -> int:
     ap.add_argument("-q", "--quick", action="store_true", help=f"Quick mode: 1 round, {QUICK_TOKENS} tokens (fast check)")
     ap.add_argument("-b", "--bench", action="store_true", help=f"Benchmark mode: {BENCH_ROUNDS} rounds, {BENCH_TOKENS} tokens (rigorous test)")
     ap.add_argument("--sort", choices=["speed", "ttft", "total", "default"], default="speed", help="Sort order (default: speed)")
-    ap.add_argument("--timeout", type=float, default=10.0, help="Per-round timeout in seconds (default: 10.0)")
+    ap.add_argument("--timeout", type=float, default=None,
+                    help="Per-round timeout in seconds (default: scales with --tokens)")
     ap.add_argument("--concurrency", type=int, default=8, help="Max concurrent model probes (default: 8)")
     ap.add_argument("--base-url", default=DEFAULT_BRIDGE_URL, help=f"Universal bridge base URL (default: {DEFAULT_BRIDGE_URL})")
     ap.add_argument("-s", "--switch", action="store_true", help="Automatically switch active provider/model to recommended winner")
@@ -1077,6 +1163,11 @@ def main() -> int:
         print(f"No models found matching target '{args.target}'. Run 'ccp models' to see options.", file=sys.stderr)
         return 1
 
+    # The deadline follows the work: a probe that asks for more tokens needs
+    # a longer first byte, and cutting it short reports a slow model as a
+    # dead one.
+    timeout_s = args.timeout if args.timeout is not None else default_timeout(tokens)
+
     if not args.json:
         label = args.target if args.target else ("all models" if args.all else "primary provider tiers")
         mode_label = f"{rounds} rounds, ~{tokens} tokens"
@@ -1087,7 +1178,7 @@ def main() -> int:
             models=candidates,
             base_url=args.base_url,
             concurrency=args.concurrency,
-            timeout_s=args.timeout,
+            timeout_s=timeout_s,
             rounds=rounds,
             max_tokens=tokens,
             prompt=prompt,

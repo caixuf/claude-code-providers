@@ -42,6 +42,9 @@ BRIDGE_DIR = Path(__file__).resolve().parent
 REPO_DIR = BRIDGE_DIR.parent
 REGISTRY_PATH = REPO_DIR / "registry" / "models.yaml"
 
+sys.path.insert(0, str(BRIDGE_DIR))
+from loopback import ensure_loopback_bypass  # noqa: E402
+
 # Provider definitions. ``auth_file`` points at the deployed litellm config or
 # env so we can read the token without hard-coding secrets here.
 PROVIDERS = {
@@ -627,6 +630,11 @@ def to_yaml(doc: dict) -> str:
 
 
 def main() -> None:
+    # One provider's api_base is the loopback Trae bridge, and a proxy
+    # answering for 127.0.0.1 replies 502 with an empty body — an empty
+    # catalogue, silently. Keep the loopback out of the proxy.
+    ensure_loopback_bypass()
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--provider", default=None)
     ap.add_argument("--dry-run", action="store_true")

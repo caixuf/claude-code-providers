@@ -478,3 +478,94 @@ async def test_a_model_that_does_not_think_reports_no_think_time():
     res = await probe_single_model(client, spec, timeout_s=5.0, rounds=1)
     assert res["think_ms"] is None
     assert res["answer_ms"] is not None
+
+
+# ── the report has to name the failure it found ──────────────────────────────
+# `ccp ping` printed "✖ HTTP 50" for a gateway error: the status was cut to
+# seven characters, which turned "HTTP 502" into a code that does not exist,
+# and the body the proxy sent was empty, so the row carried no reason at all.
+# The reader was left with a number that means nothing and no explanation.
+
+
+def test_status_label_keeps_the_whole_code():
+    from ccp_probe import _status_label
+
+    assert _status_label("HTTP 502") == "✖ HTTP 502"
+    assert _status_label("HTTP 500") == "✖ HTTP 500"
+    assert _status_label("HTTP 404") == "✖ HTTP 404"
+    # "HTTP 50" is not a status anyone can act on.
+    assert "HTTP 50" != _status_label("HTTP 502")
+
+
+def test_status_label_fits_the_column():
+    from ccp_probe import _status_label
+
+    for status in ("HTTP 502", "HTTP 500", "HTTP 404", "Unreachable", "Timeout", "Stream Error"):
+        assert len(_status_label(status)) <= 12
+
+
+def test_empty_body_is_explained_not_left_blank():
+    from ccp_probe import _blank_body_hint
+
+    # A proxy answering for a loopback destination is the case that matters:
+    # the body is empty and the code alone says nothing about who answered.
+    hint = _blank_body_hint(502, "http://127.0.0.1:4000")
+    assert "loopback" in hint
+    assert "proxy" in hint
+    assert "empty body" in _blank_body_hint(500, "http://127.0.0.1:4000")
+
+
+def test_litellm_prefix_is_stripped_from_the_message():
+    from ccp_probe import _err_detail
+
+    body = json.dumps({
+        "type": "error",
+        "error": {
+            "type": "api_error",
+            "message": ("litellm.InternalServerError: litellm.InternalServerError: "
+                        "OpenAIException - Error code: 500 - {'error': 'empty response content'}"),
+        },
+    }).encode()
+    detail = _err_detail(body)
+    assert not detail.startswith("litellm.InternalServerError")
+    assert "empty response content" in detail
+
+
+def test_gateway_error_does_not_wait_for_a_second_round():
+    """A 502 is the proxy's answer; the same request bounces the same way."""
+    import asyncio
+
+    from ccp_probe import probe_single_model as probe
+
+    calls = []
+
+    async def fake_round(**kwargs):
+        calls.append(1)
+        return {
+            "ok": False, "status": "HTTP 502", "error_msg": "empty body",
+            "ttft_ms": 0.0, "tps": 0.0, "total_ms": 0.0, "tokens": 0, "cached_tokens": 0,
+        }
+
+    with patch("ccp_probe._probe_single_round", side_effect=fake_round):
+        asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
+            probe(MagicMock(), {"wire_name": "x", "display_name": "x", "provider": "p"},
+                  timeout_s=1.0, rounds=3)
+        )
+    assert len(calls) == 1
+
+
+def test_timeout_follows_the_token_budget():
+    """A probe that asks for more tokens needs a longer first byte.
+
+    Measured on this machine: Trae's first byte ran 6-23s at 200 tokens and
+    76s at 1000 (117s for the whole round). A flat 10s cut reported a slow
+    model as a dead one.
+    """
+    from ccp_probe import default_timeout
+
+    assert default_timeout(20) >= 15.0
+    assert default_timeout(200) > 23.0
+    assert default_timeout(1000) > 76.0
+    # A slow budget gets more time, not less, and a mistyped one cannot hang.
+    assert default_timeout(1000) > default_timeout(200)
+    assert default_timeout(10_000_000) <= 240.0

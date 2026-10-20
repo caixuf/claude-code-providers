@@ -55,7 +55,8 @@ Usage:
   ccp -r, --rollback [N]     Roll back to the Nth most recent backup (default: 1)
   ccp -t, --test [name]      Quick test: send a ping through Claude Code
   ccp ping [provider|model]  Probe model health, TTFT & token speed (options:
-                             -q/--quick, -b/--bench, -n/--rounds, --sort, -s/--switch,
+                             -q/--quick, -b/--bench, -n/--rounds, --tokens, --sort,
+                             --timeout, -s/--switch,
                              --agent: time to the first tool call, not the first token)
   ccp models [provider]      List models with context / output cap / vision
   ccp render                 Regenerate config + profiles from the registry
@@ -81,8 +82,8 @@ Examples:
   ccp minimax                # Switch to MiniMax's default model (M3.1-Flash)
   ccp trae kimi-k3           # Switch provider and pick the model in one step
   ccp -m cline-glm-5.3       # Change the active model within the current provider
-  ccp ping                   # 2-round sustained speed & stability test (~60 tokens)
-  ccp ping -b                # Deep benchmark (3 rounds, ~100 tokens, strict stress test)
+  ccp ping                   # 2-round sustained speed & stability test (~200 tokens)
+  ccp ping -b                # Deep benchmark (3 rounds, ~1000 tokens, strict stress test)
   ccp ping -q                # Quick check (1 round, 20 tokens, fast health ping)
   ccp ping trae -s           # Benchmark Trae models and auto-switch to the winner
   ccp cline deepseek-v4.1-flash  # Switch to ClinePass Token Plan and its default model
@@ -280,6 +281,48 @@ check_bridge_port() {
   timeout 1 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/$port" 2>/dev/null
 }
 
+# Is the bridge actually serving, or merely listening?
+#
+# An open port proves something accepted a connection; it does not prove the
+# thing behind it answers. LiteLLM can hold :4001 and return 500 to every
+# request, and the watchdog can hold :4000 while its own call upstream is
+# being answered by the HTTP proxy — the request leaves the machine, the
+# proxy cannot route a loopback destination, and it replies 502 with an
+# empty body. The symptom in both cases is the same: the bridge "is down"
+# while the process is healthy. So the check asks the bridge, the way a
+# client does: over the loopback, with no proxy in between.
+#
+# /health is not the endpoint for this — LiteLLM answers it with a 500 of
+# its own on this installation. /v1/models is free, needs no model call,
+# and still proves that the watchdog forwards, that LiteLLM is up and that
+# it loaded a config.
+bridge_health() {
+  local url="$1"
+  local code
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 --noproxy '*' \
+          -H "Authorization: Bearer sk-cmdc-litellm-local" \
+          "$url/v1/models" 2>/dev/null) || code=""
+  [ "$code" = "200" ]
+}
+
+# A loopback request that the proxy answers for comes back 502 with an empty
+# body. ccp's own tools now keep the loopback out of the proxy, but anything
+# else in the shell — Claude Code itself, curl, python — still reads
+# `no_proxy`, and the wildcard spellings Windows hands down (`127.*`) mean
+# nothing to them. Say so once, here, where the user is about to trust the
+# bridge.
+warn_if_loopback_proxied() {
+  local np="${no_proxy:-${NO_PROXY:-}}"
+  [ -n "$np" ] || return 0
+  case ",${np}," in
+    *",127.0.0.1,"*) return 0 ;;
+  esac
+  echo -e "  \033[33m⚠ no_proxy has no exact 127.0.0.1 entry ('${np}').\033[0m" >&2
+  echo -e "    \033[33mTools that read it (Claude Code, curl, python) will send\033[0m" >&2
+  echo -e "    \033[33mloopback calls to the proxy and get an empty 502.\033[0m" >&2
+  echo -e "    \033[33mFix: export no_proxy=\"127.0.0.1,::1,localhost,\$no_proxy\"\033[0m" >&2
+}
+
 sync_proxy_env() {
   local cfg_dir="$HOME/.config/litellm"
   local env_file="$cfg_dir/proxy.env"
@@ -326,6 +369,7 @@ ensure_bridge_running() {
   local url="$1"
   if [[ "$url" =~ (127\.0\.0\.1|localhost):4000 ]]; then
     sync_proxy_env
+    warn_if_loopback_proxied
     local p4000=0 p4001=0
     check_bridge_port 4000 && p4000=1
     check_bridge_port 4001 && p4001=1
@@ -344,8 +388,17 @@ ensure_bridge_running() {
       else
         echo -e "  \033[31m⚠ Notice: Bridge services could not be reached. Run 'ccp bridge restart'\033[0m"
       fi
-    else
+    elif bridge_health "http://127.0.0.1:4000"; then
       echo -e "  \033[32m✔ Universal Bridge healthy (SSE Watchdog :4000 -> LiteLLM :4001)\033[0m"
+    else
+      # Both ports answer, the bridge does not. Say which half is broken
+      # instead of claiming the whole thing is healthy.
+      if bridge_health "http://127.0.0.1:4001"; then
+        echo -e "  \033[31m✖ LiteLLM (:4001) serves, but the watchdog (:4000) does not answer.\033[0m" >&2
+      else
+        echo -e "  \033[31m✖ Universal Bridge is listening but not serving (LiteLLM :4001 does not answer).\033[0m" >&2
+      fi
+      echo -e "    \033[31mRun 'ccp bridge restart' and check: systemctl --user status litellm-cmdc.service\033[0m" >&2
     fi
   fi
 
@@ -354,6 +407,7 @@ ensure_bridge_running() {
   # contract as the universal bridge so `ccp trae` works from a cold shell.
   if [[ "$url" =~ (127\.0\.0\.1|localhost):4100 ]]; then
     sync_proxy_env
+    warn_if_loopback_proxied
     if check_bridge_port 4100; then
       echo -e "  \033[32m✔ Trae bridge healthy (:4100)\033[0m"
       return 0
