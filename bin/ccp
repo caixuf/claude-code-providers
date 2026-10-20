@@ -78,21 +78,21 @@ In-Session Model Hot-Switching:
   Sonnet, and Haiku tiers mapped to your provider's top models!
 
 Examples:
-  ccp qianfan                # Switch to Qianfan's default model
+  ccp minimax                # Switch to MiniMax's default model (M3.1-Flash)
   ccp trae kimi-k3           # Switch provider and pick the model in one step
-  ccp -m qianfan-glm-5.3     # Change the active model within the current provider
+  ccp -m cline-glm-5.3       # Change the active model within the current provider
   ccp ping                   # 2-round sustained speed & stability test (~60 tokens)
   ccp ping -b                # Deep benchmark (3 rounds, ~100 tokens, strict stress test)
   ccp ping -q                # Quick check (1 round, 20 tokens, fast health ping)
   ccp ping trae -s           # Benchmark Trae models and auto-switch to the winner
   ccp cline deepseek-v4.1-flash  # Switch to ClinePass Token Plan and its default model
   ccp auth trae              # Import the TraeCLI personal access token into the bridge
-  ccp accounts add qianfan a2     # Name a second login, then `ccp render`
-  ccp accounts group add daily qianfan-deepseek-v4.1-flash cline-deepseek-v4.1-flash
+  ccp accounts add cline a2       # Name a second login, then `ccp render`
+  ccp accounts group add daily cline-deepseek-v4.1-flash opendesign-deepseek-v4.1-flash
   ccp -m group/daily         # One name over several models; fails over when one runs out
 
-Note: CommandCode, CodeBuddy, GitHub Copilot, OpenCode and Antigravity are
-archived — see docs/archived-providers.md. `ccp auth copilot` still runs the
+Note: CommandCode, CodeBuddy, GitHub Copilot, OpenCode, Antigravity and Qianfan
+are archived — see docs/archived-providers.md. `ccp auth copilot` still runs the
 Copilot device flow.
 
 Directories:
@@ -681,7 +681,7 @@ sync_providers() {
   mkdir -p "$PROVIDERS_DIR"
   mkdir -p "$CLAUDE_DIR/providers_disabled"
 
-  for obsolete in cmdc-space-bunny.json longcat.json u2flash.json unisound.json openrouter.json minmax.json; do
+  for obsolete in cmdc-space-bunny.json longcat.json u2flash.json unisound.json openrouter.json minmax.json qianfan.json; do
     if [ -f "$PROVIDERS_DIR/$obsolete" ]; then
       mv "$PROVIDERS_DIR/$obsolete" "$CLAUDE_DIR/providers_disabled/"
       echo -e "  \033[33m-- Archived obsolete profile $obsolete to ~/.claude/providers_disabled/\033[0m"
@@ -801,8 +801,8 @@ switch_provider() {
 
   # Always install the provider profile first — it carries the base URL, the
   # tier fallbacks and the credentials. Only the model line is overridden
-  # afterwards, otherwise switching to `trae kimi-k3` from a qianfan session
-  # would keep qianfan's URL.
+  # afterwards, otherwise switching to `trae kimi-k3` from a cline session
+  # would keep cline's URL.
   cp "$src" "$SETTINGS_FILE"
   if [ -n "$model" ]; then
     # A 200 and a completion are not proof: MiniMax answers a request for

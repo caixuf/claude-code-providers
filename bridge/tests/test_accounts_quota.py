@@ -82,12 +82,12 @@ def test_write_registry_round_trips_through_the_real_file(tmp_path, monkeypatch)
     monkeypatch.setattr(ca, "PROFILES_YAML", target)
 
     ca.write_registry(
-        {"qianfan": {"a2": {"auth_env": "QIANFAN_API_KEY_2"}}},
-        {"daily": {"members": ["qianfan"], "routing_strategy": "least-busy"}},
+        {"cline": {"a2": {"auth_env": "CLINE_API_KEY_A2"}}},
+        {"daily": {"members": ["cline"], "routing_strategy": "least-busy"}},
     )
     accounts, groups = ca.load_registry()
-    assert accounts == {"qianfan": {"a2": {"auth_env": "QIANFAN_API_KEY_2"}}}
-    assert groups == {"daily": {"members": ["qianfan"], "routing_strategy": "least-busy"}}
+    assert accounts == {"cline": {"a2": {"auth_env": "CLINE_API_KEY_A2"}}}
+    assert groups == {"daily": {"members": ["cline"], "routing_strategy": "least-busy"}}
     assert target.read_text().count("#") == SAMPLE.count("#")
     # no temp file left behind
     assert sorted(p.name for p in tmp_path.iterdir()) == ["profiles.yaml"]
@@ -97,14 +97,14 @@ def test_write_registry_round_trips_through_the_real_file(tmp_path, monkeypatch)
 
 
 def _args(**kw):
-    base = {"provider": "qianfan", "suffix": "a2", "token": "tok", "label": None,
+    base = {"provider": "cline", "suffix": "a2", "token": "tok", "label": None,
             "auth_env": None, "proxy_env": "/dev/null"}
     base.update(kw)
     return argparse.Namespace(**base)
 
 
 def test_env_var_name_is_derived_from_provider_and_suffix():
-    assert ca.env_var_for("qianfan", "a2") == "QIANFAN_API_KEY_A2"
+    assert ca.env_var_for("cline", "a2") == "CLINE_API_KEY_A2"
     assert ca.env_var_for("cmdc", "edu") == "CMDC_API_KEY_EDU"
 
 
@@ -117,10 +117,10 @@ def test_add_writes_credential_and_registry(tmp_path, monkeypatch):
 
     assert ca.cmd_add(_args(proxy_env=str(env))) == 0
     accounts, _ = ca.load_registry()
-    assert accounts["qianfan"]["a2"]["auth_env"] == "QIANFAN_API_KEY_A2"
+    assert accounts["cline"]["a2"]["auth_env"] == "CLINE_API_KEY_A2"
     # the secret went to the env file, never into the committed registry
     assert "tok" not in target.read_text()
-    assert "QIANFAN_API_KEY_A2=tok" in env.read_text()
+    assert "CLINE_API_KEY_A2=tok" in env.read_text()
     assert os.stat(env).st_mode & 0o777 == 0o600
 
 
@@ -155,7 +155,7 @@ def test_remove_drops_the_account_but_leaves_the_secret_alone(tmp_path, monkeypa
     assert ca.cmd_remove(_args(proxy_env=str(env))) == 0
     accounts, _ = ca.load_registry()
     assert not accounts, "the provider entry is dropped once its last account goes"
-    assert "QIANFAN_API_KEY_A2=tok" in env.read_text(), "secret left for the user to remove"
+    assert "CLINE_API_KEY_A2=tok" in env.read_text(), "secret left for the user to remove"
 
 
 # ── group commands ────────────────────────────────────────────────────────
@@ -165,7 +165,7 @@ def test_group_add_validates_the_strategy(tmp_path, monkeypatch):
     target = tmp_path / "profiles.yaml"
     target.write_text(SAMPLE)
     monkeypatch.setattr(ca, "PROFILES_YAML", target)
-    ns = argparse.Namespace(name="daily", members=["qianfan"], strategy="nonsense",
+    ns = argparse.Namespace(name="daily", members=["cline"], strategy="nonsense",
                             fallback=None)
     with pytest.raises(ca.AccountsError, match="unknown strategy"):
         ca.cmd_group_add(ns)
@@ -177,14 +177,14 @@ def test_group_add_records_members_and_fallback(tmp_path, monkeypatch):
     target = tmp_path / "profiles.yaml"
     target.write_text(SAMPLE)
     monkeypatch.setattr(ca, "PROFILES_YAML", target)
-    ns = argparse.Namespace(name="daily", members=["qianfan", "cmdc-deepseek-fast"],
-                            strategy="usage-based-routing-v2", fallback=["cmdc-deepseek-pro"])
+    ns = argparse.Namespace(name="daily", members=["cline", "opendesign"],
+                            strategy="usage-based-routing-v2", fallback=["opendesign-deepseek-v4-pro"])
     assert ca.cmd_group_add(ns) == 0
     _, groups = ca.load_registry()
     assert groups["daily"] == {
-        "members": ["qianfan", "cmdc-deepseek-fast"],
+        "members": ["cline", "opendesign"],
         "routing_strategy": "usage-based-routing-v2",
-        "fallback": ["cmdc-deepseek-pro"],
+        "fallback": ["opendesign-deepseek-v4-pro"],
     }
 
 
@@ -193,11 +193,11 @@ def test_group_add_records_members_and_fallback(tmp_path, monkeypatch):
 
 def test_quota_cache_round_trip(tmp_path, monkeypatch):
     monkeypatch.setattr(cq, "CACHE_DIR", tmp_path)
-    assert cq.cached("qianfan") is None
-    cq.store("qianfan", {"provider": "qianfan", "windows": []})
-    assert cq.cached("qianfan")["provider"] == "qianfan"
+    assert cq.cached("cline") is None
+    cq.store("cline", {"provider": "cline", "windows": []})
+    assert cq.cached("cline")["provider"] == "cline"
     # an expired entry is ignored
-    assert cq.cached("qianfan", max_age=-1) is None
+    assert cq.cached("cline", max_age=-1) is None
 
 
 def test_bar_is_proportional_and_clamped():

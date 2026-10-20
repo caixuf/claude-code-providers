@@ -4,9 +4,9 @@
 [![Platform: Linux / macOS / WSL](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20WSL-green.svg)]()
 [![Tested on: Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-purple.svg)]()
 
-> **Switch the model behind Claude Code in one command, across six providers** —
-> native Anthropic endpoints, OpenAI-compatible gateways, and a local adapter for
-> a subscription that publishes no API at all.
+> **Switch the model behind Claude Code in one command, across five providers** —
+> native Anthropic endpoints, one OpenAI-compatible gateway, and a local adapter
+> for a subscription that publishes no API at all.
 
 Claude Code speaks one protocol (`/v1/messages`, Anthropic Messages) and expects
 one shape of model metadata. `ccp` makes every provider look like that: a
@@ -27,9 +27,8 @@ claude ──> ccp profile ──┬─> vendor's /anthropic endpoint         (n
 | Folder | Lands on (default) | How it is reached | Models |
 | :--- | :--- | :--- | ---: |
 | `deepseek/` | DeepSeek-V4-Flash (1M) | native Anthropic | 2 |
-| `minimax/` | MiniMax-M3.1-Flash-Preview (1M) | native Anthropic | 9 |
+| `minimax/` | MiniMax-M3.1-Flash (1M) | native Anthropic | 2 |
 | `opendesign/` | DeepSeek-V4.1-Flash (1.05M) | native, Anthropic-native aggregator | 11 |
-| `qianfan/` | DeepSeek-V4.1-Flash (1.44M) | bridged → LiteLLM | 6 |
 | `cline/` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 6 |
 | `trae/` | Qwen3.8-Max (1M) | local adapter `:4100` | 19 |
 
@@ -67,10 +66,11 @@ repo. Provider profiles are generated from `providers/*.json.example`.
 
 ```bash
 ccp                                  # list providers; the active one is starred
-ccp qianfan                          # switch to a provider's default model
+ccp cline                            # switch to a provider's default model
+ccp -m cline-glm-5.3                 # change model inside the current provider
+ccp minimax MiniMax-M3.1-Flash       # native Anthropic: the vendor's own id, no bridge
 ccp trae deepseek-v4.1-flash         # switch provider *and* model
 ccp trae/deepseek-v4.1-flash         # same thing, as a path
-ccp -m qianfan-glm-5.3               # change model inside the current provider
 ccp -c                               # show what is active, and where it points
 ccp ping trae -s                     # benchmark this provider's models, switch to the winner
 ccp --rollback                       # undo the last switch
@@ -93,7 +93,7 @@ would 404 upstream.
 How a folder's contents are spelled depends on how it is reached, and
 `bridge/ccp_pick.py` is what keeps that honest: a **native** folder lists the
 vendor's own ids, a **bridged** one lists the LiteLLM alias with the provider
-prefix stripped. That is why `ccp trae kimi-k3` and `ccp qianfan glm-5.3` read
+prefix stripped. That is why `ccp trae kimi-k3` and `ccp cline glm-5.3` read
 the way they do.
 
 ### One registry, discovered not typed
@@ -108,10 +108,11 @@ ccp render                # regenerate config + profiles from the registry
 
 Discovery merges, in priority order:
 
-1. **The provider's own catalogue** — Qianfan (`context_length`,
-   `max_completions_tokens`, `architecture.input_modalities`), OpenDesign
-   (`metadata.context_limit` / `context_budget`), DeepSeek, or, for Trae, the CLI the
-   adapter already drives.
+1. **The provider's own catalogue** — OpenDesign (`metadata.context_limit` /
+   `context_budget` / `architecture.input_modalities`), DeepSeek
+   (`context_window`, `input_modalities`), Cline and MiniMax (ids only, so the
+   rules below carry what the catalogue omits), or, for Trae, the CLI the adapter
+   already drives.
 2. **LiteLLM's bundled model map** (`litellm.model_cost`, ~4500 entries) for
    anything the vendor does not publish.
 3. A tiny defaults table for the handful of facts neither knows.
@@ -127,14 +128,21 @@ apply. `ccp render` joins the two into:
 | `bridge/request_rules.json` | model → request rewrites, read by the watchdog |
 | `providers/<name>.json.example` | profile with the right `CLAUDE_CODE_MAX_CONTEXT_TOKENS` |
 
-Two discovery rules are load-bearing, because a catalogue is a *claim* and only a
+Three discovery rules are load-bearing, because a catalogue is a *claim* and only a
 call is evidence:
 
-- **`only_models`** narrows a provider whose catalogue is wider than what the
-  plan can call. ClinePass advertises 469 models and serves 6; Qianfan lists ~34
-  and serves the GLM/DeepSeek families. The registry keeps only the ids verified to answer, and
-  every surviving id is aliased — so nothing the registry advertises is
-  unreachable from its own folder.
+- **`only_models`** narrows a provider whose catalogue is wider than the set ccp
+  curates. ClinePass advertises 469 models and serves 6 — every Google, OpenAI,
+  Anthropic and xAI id answers `model not found` when called. MiniMax lists 9 ids
+  and the M2.x ones still answer, but only 2 are on the vendor's documented
+  supported set for the Anthropic-compatible interface, so the allow-list keeps
+  those two. Every surviving id stays reachable from its own folder — as an alias
+  on the bridged path, as its own upstream id on a native one.
+- **`hints`** records a capability fact the catalogue does not carry, for a vendor
+  whose `/v1/models` returns ids only. MiniMax is pinned that way: the
+  `only_models` allow-list above for the two current ids, plus per-model `hints`
+  for context, output cap and vision. `ccp discover` therefore neither
+  re-introduces a retired id nor loses those numbers.
 - **`ctx_default`** overrides a vendor that under-reports its window; Trae's
   catalogue says 96k–184k and the real answer is 1M (the measurement is in the
   Trae section below).
@@ -174,8 +182,10 @@ token instantly and still never act, which is the failure that wastes the turn.
 
 ## 🌉 The bridge
 
-Three of the six providers speak plain OpenAI `chat/completions` and are
+One provider, `cline/`, speaks plain OpenAI `chat/completions` and is
 **bridged**: Claude Code talks to a local gateway that translates on the way out.
+Every other folder takes one of the other two paths — an Anthropic-native endpoint
+or the Trae local adapter — both covered below.
 
 ```
 claude ──> :4000 sse_watchdog ──> :4001 LiteLLM ──> upstream OpenAI gateway
@@ -243,16 +253,28 @@ Nothing in the running `:4000`/`:4001` deployment changes for it.
 ### Native Anthropic endpoints
 
 `deepseek/` and `minimax/` point straight at the vendor's `/anthropic` endpoint —
-no bridge, no rewrites. Their `/models` responses are rich
-(`context_window`, `input_modalities`, and for MiniMax a plan-specific id list),
-so discovery is exact.
+no bridge, no rewrites. DeepSeek's `/models` is rich (`context_window`,
+`input_modalities`); MiniMax's is not, and that asymmetry is handled by discovery
+(see the `hints` rule above).
 
-MiniMax is worth a note: the catalogue is a function of the key. A standard key
-gets 8 ids with no M3.1; the **M Plan** key gets 9 and `MiniMax-M3.1-Flash-Preview`
-is among them. ccp reads the catalogue per key rather than pinning a list — but
-does not trust it further than that. The endpoint does not reject a name it does
-not serve (asking for `MiniMax-M3.1` returns 200 and a completion from `M3`), so
-`ccp verify` reads the `model` field the response carries back.
+MiniMax is worth a note. Its [Anthropic-compatible interface](https://platform.minimax.io/docs/api-reference/text-anthropic-api)
+officially supports exactly two models — `MiniMax-M3.1-Flash` and `MiniMax-M3` —
+and the catalogue still lists the M2.x family, which is legacy here and reachable
+through the standard MiniMax API instead. Both current models are 1M-context
+multimodal (text / image / video input), with a 524288 output cap (probed:
+`max_tokens=524288` → 200, `524289` → 400 `does not support max tokens > 524288`).
+`M3.1-Flash` takes the default and fable tiers and always thinks —
+`thinking: {"type":"disabled"}` answers 400 — exposing `output_config.effort` from
+`low` to `max` (default `max`); `M3` takes opus/sonnet/haiku, thinks off by
+default, and enables it with `adaptive`.
+
+`ccp` keeps a curated set rather than the whole catalogue, so the registry is
+pinned to those two, and the M2.x rungs are gone from it. A catalogue is a claim,
+not evidence: the endpoint does not reject a name it does not serve — asking for
+`MiniMax-M3.1` returns 200 with a completion from `M3` in the body — so
+`ccp <provider> <model>` verifies the pick by reading the `model` field the
+response carries back (`bridge/ccp_pick.py verify`) and warns instead of letting
+the session quietly run a different model. `SKIP_VERIFY=1` silences it.
 
 ### OpenDesign
 
@@ -270,19 +292,6 @@ price. Its `/v1/models` is unusually complete
 > found`. `render_config.py` therefore keeps aliases and the marker bridged-only.
 > DeepSeek and MiniMax only appeared to work because their tiers happened to use
 > ids with no alias — they were one rename away from the same failure.
-
-### Qianfan (百度千帆 Token Plan)
-
-A plain OpenAI-compatible gateway, so a normal bridged provider. Two properties
-of the Token-Plan key are worth knowing, both verified live:
-
-- **The key only works on the Token-Plan prefix.** The same key answers
-  `token_plan_person_api_key_not_allowed` on `/v2/chat/completions`, so `api_base`
-  is pinned to `https://qianfan.baidubce.com/v2/tokenplan/personal`.
-- **The catalogue is far wider than the plan.** `/v2/models` lists ~34 models;
-  Token Plan Person serves only the GLM and DeepSeek families.
-
-`deepseek-v4.1-flash` takes the top tiers: 1.44M context, genuinely multimodal.
 
 ### ClinePass
 
@@ -395,8 +404,8 @@ pair, so a group is also a pool. Use it as the model and failover happens
 underneath.
 
 ```bash
-ccp accounts group add daily qianfan-deepseek-v4.1-flash \
-    cline-deepseek-v4.1-flash --strategy usage-based-routing-v2 \
+ccp accounts group add daily cline-deepseek-v4.1-flash \
+    opendesign-deepseek-v4.1-flash --strategy usage-based-routing-v2 \
     --fallback opendesign-deepseek-v4-pro
 ccp -m group/daily
 ```
@@ -419,9 +428,14 @@ ccp quota              # every provider that publishes a usage API
 today. CodeBuddy's reader went with it — see docs/archived-providers.md.)*
 Readings are cached for two minutes because these endpoints are rate limited.
 
-> No provider in the current set uses accounts or groups yet — the commands were
-> built for a second CodeBuddy or CommandCode login, both archived. They work; the examples
-> above are illustrative.
+> No provider in the current set uses accounts yet — that part was built for a
+> second CodeBuddy or CommandCode login, both archived. The three groups in
+> `registry/profiles.yaml` (`main`/`pro`/`flash`) are curation, not usage: each
+> pairs one subscription with another vendor's, so no single subscription is a
+> hard stop. `main` and `pro` lead with `cline` and fall back to `opendesign`;
+> `flash` leads with `opendesign-glm-5.3-flash` and falls back to `cline-glm-5.3`,
+> because ClinePass has no flash-tier variant. They are illustrative in the same
+> sense — swap the members for whatever you actually run.
 
 ---
 
@@ -432,9 +446,8 @@ row (2 rounds, ~200 output tokens per round):
 
 | Provider | Model | TTFT | tok/s | Total | Context |
 | :--- | :--- | ---: | ---: | ---: | ---: |
-| **qianfan** | `deepseek-v4-pro` | **759 ms** | 67.3 | 3.7 s | 1.4M |
-| **qianfan** | `deepseek-v4.1-flash` | **781 ms** | 204.0 | 1.8 s | 1.4M |
-| **qianfan** | `deepseek-v4-flash` | **957 ms** | 218.2 | 1.9 s | 1.4M |
+| **minimax** | `MiniMax-M3.1-Flash` | **454 ms** | 111.9 | **2.2 s** | 1M |
+| minimax | `MiniMax-M3` | 2.7 s | 102.2 | 4.6 s | 1M |
 | cline | `deepseek-v4-pro` | 1.5 s | 84.6 | 3.9 s | 1M |
 | cline | `deepseek-v4.1-flash` | 1.6 s | 183.1 | 2.7 s | 1M |
 | opendesign | `deepseek-v4-flash` | 2.2 s | 121.0¹ | 10.2 s | 1M |
@@ -449,8 +462,18 @@ the whole request and flagged `buffered`. The same model once read **591 tok/s**
 under a formula that divided by a decode window that never existed — a figure its
 own 11 s total cannot support.
 
-Qianfan wins on first token by roughly 2× against everything else, which is the
-number that matters for an agent: that latency is paid on every turn.
+MiniMax-M3.1-Flash owns both ends that matter: the lowest first token (454 ms,
+against 1.5 s for the next best) and the shortest total (2.2 s). Both are paid on
+every turn, so on this fleet it is the fastest provider to actually finish a turn
+— the figure the `Think` column explains, since M3.1-Flash spends that 454 ms
+reasoning before it writes anything. MiniMax-M3 is the same family with thinking
+off by default and reads 2.7 s to first token: nearly 6x the wait for the same
+answer.
+
+Trae is the slowest to start — 4.1–8.0 s before the first token — but fast once
+it is decoding: `DeepSeek-V4-Flash-Official` moves 363.8 tok/s. Total time is the
+column an agent feels, which is why the 2.7 s cline row beats trae's 7.4 s one
+despite half the throughput.
 
 ### How the speed number is computed
 
@@ -483,8 +506,9 @@ same provider read 501 tok/s on one run and 194 on the next, minutes apart.
 ## 📦 Archived providers
 
 CommandCode (out of credits), GitHub Copilot (no healthy deployments), CodeBuddy,
-OpenCode and Antigravity (`agy`) are archived, along with what it takes to bring
-one back: [`docs/archived-providers.md`](docs/archived-providers.md).
+OpenCode, Antigravity (`agy`) and Baidu Qianfan (plan no longer used) are
+archived, along with what it takes to bring one back:
+[`docs/archived-providers.md`](docs/archived-providers.md).
 
 ---
 

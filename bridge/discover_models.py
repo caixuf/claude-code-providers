@@ -6,9 +6,9 @@ this pulls them from, in priority order:
 
   1. The provider's own ``GET .../models`` endpoint (authoritative when present):
        - Cline       : id/name only
-       - MiniMax / DeepSeek : standard OpenAI /v1/models shape
-       - Qianfan     : context_length / max_completions_tokens /
-                       architecture.input_modalities (the richest of the lot)
+       - DeepSeek    : standard OpenAI /v1/models shape
+       - MiniMax     : ids only, still listing the legacy M2 rungs — the
+                       allow-list and per-model ``hints`` carry the facts
        - OpenDesign  : metadata.context_limit / context_budget
        - Trae        : no /models at all — trae_bridge.py's own catalogue RPC
    2. LiteLLM's bundled cost map (``litellm.model_cost``, ~4500 entries) for
@@ -16,8 +16,9 @@ this pulls them from, in priority order:
    3. A tiny built-in defaults table for the few facts neither source knows.
 
 Only the providers ccp currently keeps are registered here. Archived ones
-(CommandCode, CodeBuddy, Copilot) are described in docs/archived-providers.md;
-restoring one means putting its entry back and re-running discovery.
+(CommandCode, CodeBuddy, Copilot, Qianfan) are described in
+docs/archived-providers.md; restoring one means putting its entry back and
+re-running discovery.
 
 Output is a *generated but committed* ``registry/models.yaml`` that a human can
 still hand-edit; re-running merges (never clobbers manual ``aliases``/``tiers``).
@@ -84,22 +85,63 @@ PROVIDERS = {
         "profile_file": "~/.claude/providers/deepseek.json",
         "max_output_default": 393216,
     },
-    # MiniMax's catalogue is a function of the key, and the difference matters:
-    # the standard key gets 8 ids with no M3.1 in them, the M Plan key gets 9
-    # and MiniMax-M3.1-Flash-Preview is among them. So read it online per key
-    # rather than pinning a list that goes stale — but do not trust it further
-    # than that. The endpoint does not reject a name it does not serve: asking
-    # for MiniMax-M3.1 returns 200 and a completion from M3. `ccp_pick verify`
-    # is what catches that, by reading the `model` field the response carries
-    # back.
+    # MiniMax keeps two models, and this is a curation decision the vendor backs:
+    # its own Anthropic-SDK documentation says the Anthropic-compatible interface
+    # supports MiniMax-M3.1-Flash and MiniMax-M3 only, with the older M2 rungs
+    # reached through the standard MiniMax API instead.
+    #
+    # Two properties of this endpoint shape the discovery entry:
+    #   * ``GET /v1/models`` returns ids and nothing else — no context window, no
+    #     output cap, no modality flag — and it still lists the whole M2 family
+    #     (nine ids). Read online, it would re-introduce every legacy rung, so
+    #     ``only_models`` narrows it to the two current models.
+    #   * because the catalogue carries no facts, the ones the registry needs
+    #     cannot come from it either. LiteLLM's cost map gets M3's window and
+    #     vision right but not its 512K output cap, and knows nothing about
+    #     M3.1-Flash at all, so ``hints`` pins the measured values.
+    #
+    # The endpoint does not reject a name it does not serve: asking for
+    # `MiniMax-M3.1` returns 200 and a completion from M3, and any unknown name
+    # falls back to M3 the same way. `ccp_pick verify` is what catches that, by
+    # reading the `model` field the response carries back.
+    #
+    # Measured 2026-10-20 against https://api.minimax.cn/anthropic:
+    #   * ctx 1M — a ~950k-token prompt is accepted and answered by both models
+    #     (`usage.input_tokens=950080`), matching the documented 1,000,000.
+    #     `count_tokens` is not a way to probe the limit: above ~917k it returns
+    #     `input_tokens: 0` instead of an error, and a real completion at 1.02M
+    #     was silently truncated to 70k input tokens on M3.1-Flash — a request
+    #     that succeeds is not proof it was read whole.
+    #   * max_output 524288 — `max_tokens=524288` answers 200, `524289` answers
+    #     `400 … does not support max tokens > 524288`. Both models.
+    #   * vision — a 8x8 PNG pasted as an image block is read back correctly.
+    #   * base URL is the host MiniMax's own Anthropic-SDK page prints.
     "minimax": {
-        "models_url": "https://api.minimaxi.com/v1/models",
-        "api_base": "https://api.minimaxi.com/anthropic",
+        "models_url": "https://api.minimax.cn/v1/models",
+        "api_base": "https://api.minimax.cn/anthropic",
         "endpoint_kind": "anthropic",
-        # The M Plan key, not the standard one: only it serves M3.1. The
-        # standard key answers MiniMax-M3.1 with a completion from M3.
+        # The M Plan subscription key is what this account actually runs on —
+        # it is the one the profile and proxy.env carry.
+        #
+        # Not a capability boundary: measured 2026-10-20, the standard key
+        # answers MiniMax-M3.1-Flash and MiniMax-M3 exactly as the plan key
+        # does. It used to be one — the standard key answered a request for the
+        # then-current `MiniMax-M3.1-Flash-Preview` with a completion from M3 —
+        # which is why `ccp_pick verify` still keys its cache on the credential
+        # digest rather than the model name alone.
         "auth_env": "MINIMAX_PLAN_API_KEY",
         "profile_file": "~/.claude/providers/minimax.json",
+        "only_models": [
+            "MiniMax-M3.1-Flash",
+            "MiniMax-M3",
+        ],
+        # Per-model facts the catalogue does not publish. `hints` is the
+        # discovery mechanism for exactly this shape: a value here survives a
+        # refresh instead of being re-derived (and lost) from an empty entry.
+        "hints": {
+            "MiniMax-M3.1-Flash": {"ctx": 1000000, "max_output": 524288, "vision": True},
+            "MiniMax-M3": {"ctx": 1000000, "max_output": 524288, "vision": True},
+        },
         "max_output_default": None,
     },
     # OpenDesign (amr-link.open-design.ai) — an Anthropic-native aggregator, so
@@ -114,36 +156,6 @@ PROVIDERS = {
         "auth_env": "OPENDESIGN_API_KEY",
         "profile_file": "~/.claude/providers/opendesign.json",
         "max_output_default": None,
-    },
-    # Baidu Qianfan (文心 / 千帆) Token Plan, personal tier. Standard
-    # OpenAI-compatible Chat Completions, so it goes through the normal bridge
-    # with no adapter. Two quirks, both verified against the live endpoint:
-    #   * the Token Plan key is only accepted on the `/v2/tokenplan/personal/`
-    #     prefix — the same key gets `token_plan_person_api_key_not_allowed`
-    #     on plain `/v2/chat/completions`;
-    #   * the catalogue lists ~34 models but Token Plan Person only serves the
-    #     GLM / DeepSeek families; the ERNIE, Qwen, VL, OCR and embedding ids
-    #     all answer `token_plan_person_model_not_supported`. ``only_models``
-    #     narrows the registry to the verified set so no profile advertises a
-    #     model this key cannot call.
-    "qianfan": {
-        "models_url": "https://qianfan.baidubce.com/v2/models",
-        "api_base": "https://qianfan.baidubce.com/v2/tokenplan/personal",
-        "endpoint_kind": "openai",
-        "litellm_prefix": "openai/",
-        "auth_env": "QIANFAN_API_KEY",
-        "auth_file": "~/.config/litellm/config.yaml",
-        "auth_grep": "qianfan.baidubce.com",
-        # Verified to answer on the Token Plan Person endpoint.
-        "only_models": [
-            "deepseek-v4.1-flash",
-            "deepseek-v4-pro",
-            "deepseek-v4-flash-0731",
-            "glm-5.3",
-            "glm-5.3-flash",
-            "glm-5.2",
-        ],
-        "max_output_default": 32000,
     },
     # TraeCLI (ByteDance's enterprise coding agent). There is no public API and
     # no /models endpoint: `bridge/trae_bridge.py` owns the private
@@ -339,29 +351,6 @@ def norm_generic(entry: dict, provider: dict, cmap: dict, idx: dict | None = Non
     }
 
 
-def norm_qianfan(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
-    """Qianfan's /v2/models carries real capability metadata per model.
-
-    Unlike most OpenAI-shaped catalogues this one publishes
-    ``context_length`` / ``max_completions_tokens`` and
-    ``architecture.input_modalities``, so nothing has to be guessed or
-    cross-checked against LiteLLM's cost map. ``type: multimodal`` plus an
-    ``image`` input modality is the vision signal.
-    """
-    arch = entry.get("architecture") or {}
-    mods = arch.get("input_modalities") or []
-    vision = "image" in mods if mods else None
-    return {
-        "name": entry.get("id", ""),
-        "ctx": entry.get("context_length") or entry.get("prompt_tokens"),
-        "max_output": (entry.get("max_completions_tokens")
-                       or entry.get("max_tokens")
-                       or provider.get("max_output_default")),
-        "vision": vision,
-        "endpoint_kind": provider["endpoint_kind"],
-    }
-
-
 def norm_opendesign(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
     """OpenDesign exposes everything the registry needs inside the model entry.
 
@@ -426,7 +415,6 @@ NORMALIZERS = {
     "minimax": norm_generic,
     "opendesign": norm_opendesign,
     "trae": norm_trae,
-    "qianfan": norm_qianfan,
 }
 
 # Speed-tier variants that share every fact with their base model. Neither the
@@ -504,18 +492,21 @@ def build(only: str | None) -> dict:
         }
 
     # Seed from the current registry so `--provider X` never drops the others.
+    #
+    # Only providers this file still registers are seeded. A provider removed
+    # from PROVIDERS (an archived one) must disappear from the registry on the
+    # next refresh, not live on as an unreachable block with an empty api_base
+    # and auth_env — that stale block is what a profile would then try to use.
     by_prov: dict[str, dict] = {}
     for pname, models in existing_by_prov.items():
-        pdef = PROVIDERS.get(pname, {})
-        by_prov[pname] = provider_block(
-            pname,
-            {
-                "api_base": pdef.get("api_base", ""),
-                "endpoint_kind": pdef.get("endpoint_kind", "openai"),
-                "auth_env": pdef.get("auth_env", ""),
-            },
-            models,
-        )
+        pdef = PROVIDERS.get(pname)
+        if pdef is None:
+            print(
+                f"  - {pname}: in the registry but no longer in PROVIDERS; dropping it",
+                file=sys.stderr,
+            )
+            continue
+        by_prov[pname] = provider_block(pname, pdef, models)
 
     for pname, pdef in PROVIDERS.items():
         if only and pname != only:
@@ -537,11 +528,13 @@ def build(only: str | None) -> dict:
             continue
         # ids the gateway routes but this account's catalogue omits
         raw = list(raw) + list(pdef.get("extra_models") or [])
-        # Some providers publish a catalogue wider than the plan can actually
-        # call (Qianfan: ~34 models listed, only the GLM/DeepSeek families
-        # answer on the Token Plan tier). ``only_models`` narrows the registry
-        # to the verified set, so an unusable id never reaches a profile where
-        # it would fail at request time.
+        # Some providers publish a catalogue wider than what is current or
+        # reachable: ClinePass advertises 469 ids and serves 6, and MiniMax's
+        # /v1/models still lists the whole legacy M2 family. ``only_models``
+        # narrows the registry to the curated set, so an unusable or retired id
+        # never reaches a profile where it would fail at request time. It is
+        # also what keeps a refresh from re-introducing a rung that was dropped
+        # on purpose.
         if pdef.get("only_models"):
             wanted = set(pdef["only_models"])
             # `name` covers the already-normalized ``extra_models`` entries,
@@ -560,14 +553,22 @@ def build(only: str | None) -> dict:
             # preserve human edits
             norm["aliases"] = prior.get("aliases", [])
             norm["tiers"] = prior.get("tiers", [])
-            # A catalogue can omit the window entirely — MiniMax lists
-            # MiniMax-M3.1-Flash-Preview with no ctx and no output cap, while
-            # its published M Plan figures are 1M / 512K. Discovery must not
-            # answer "I don't know" here and must not overwrite a value that
-            # was filled in deliberately: `hints` records that a human set it.
-            hints = prior.get("hints") or {}
+            # A catalogue can omit a fact entirely, and the fallbacks can hold
+            # a number that is simply wrong: MiniMax's /v1/models publishes no
+            # window, no output cap and no modality, while LiteLLM's cost map
+            # knows M3's 1M window but insists its output cap is 128000 — the
+            # endpoint rejects anything over 524288. So ``hints`` is not just a
+            # "don't say I don't know" fallback: for the fields it names it is
+            # the authority, because those numbers were measured against the
+            # live endpoint instead of read out of someone else's table.
+            #
+            # Two sources, one precedence: a hint declared on the provider in
+            # this file (code, reviewable) wins over one carried in the
+            # registry (data, hand-editable), and both win over discovery.
+            hints = dict(prior.get("hints") or {})
+            hints.update((pdef.get("hints") or {}).get(norm["name"]) or {})
             for field in ("ctx", "max_output", "vision"):
-                if norm.get(field) is None and hints.get(field) is not None:
+                if hints.get(field) is not None:
                     norm[field] = hints[field]
             if hints:
                 norm["hints"] = hints
@@ -576,10 +577,17 @@ def build(only: str | None) -> dict:
         fill_variant_siblings(models)
         by_prov[pname] = provider_block(pname, pdef, models)
 
-    # stable provider order: as declared, then any extras
-    order = list(PROVIDERS) + [p for p in by_prov if p not in PROVIDERS]
-    doc = {"version": 1, "providers": [by_prov[p] for p in order if p in by_prov]}
+    # stable provider order: as declared in PROVIDERS
+    doc = {"version": 1, "providers": [by_prov[p] for p in PROVIDERS if p in by_prov]}
     return doc
+
+
+def _yaml_scalar(v) -> str:
+    if v is True:
+        return "true"
+    if v is False:
+        return "false"
+    return str(v)
 
 
 def to_yaml(doc: dict) -> str:
@@ -607,6 +615,14 @@ def to_yaml(doc: dict) -> str:
             lines.append("        aliases: [" + ", ".join(al) + "]")
             ti = m.get("tiers") or []
             lines.append("        tiers: [" + ", ".join(ti) + "]")
+            # Emit the hints so they survive a round trip. Dropping them here
+            # would make every refresh re-derive the values from a catalogue
+            # that does not carry them, i.e. silently undo the pin.
+            hints = m.get("hints") or {}
+            if hints:
+                lines.append("        hints: {" + ", ".join(
+                    f"{k}: {_yaml_scalar(hints[k])}" for k in sorted(hints)
+                ) + "}")
     return "\n".join(lines) + "\n"
 
 

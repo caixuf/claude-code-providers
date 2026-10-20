@@ -87,7 +87,7 @@ DEFAULT_ROUNDS = 2
 # A short generation makes the tok/s column mostly noise: at ~20-60 output
 # tokens the fixed cost (TTFT plus session setup) dominates, and the same
 # provider then reads 501 tok/s on one run and 194 on the next — measured on
-# qianfan, same settings, minutes apart. That is enough to make a provider look
+# one provider, same settings, minutes apart. That is enough to make a provider look
 # 35x slower than another when the real gap is under 10x, which is exactly the
 # mistake this default used to invite. A longer sample costs a couple of
 # seconds and buys a number worth ranking on. `-q` keeps the old cheap probe
@@ -164,7 +164,7 @@ def _installed_endpoint(provider: str) -> Tuple[str, str]:
 
     The file is not necessarily named after the provider. Profiles are named
     after the model they run (`opendesign-deepseek-v4.1-flash.json`,
-    `qianfan-deepseek-v4.1-flash.json`), and a rename in the registry renames
+    `cline-deepseek-v4.1-flash.json`), and a rename in the registry renames
     the installed file with it. Looking for `opendesign.json`, finding nothing
     and returning "" demoted every renamed provider to the LiteLLM bridge —
     and LiteLLM carries only the aliases, not the bare upstream ids, so the
@@ -1029,7 +1029,7 @@ def print_agent_table(results: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("target", nargs="?", default=None, help="Provider name (trae, qianfan), model alias, or omit for primary tiers")
+    ap.add_argument("target", nargs="?", default=None, help="Provider name (trae, minimax), model alias, or omit for primary tiers")
     ap.add_argument("--all", action="store_true", help="Probe all known models across all providers")
     ap.add_argument("-n", "--rounds", type=int, default=None, help=f"Probe rounds per model (default: {DEFAULT_ROUNDS})")
     ap.add_argument("--tokens", type=int, default=None, help=f"Max tokens per probe (default: {DEFAULT_TOKENS})")

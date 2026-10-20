@@ -269,9 +269,10 @@ def test_group_is_one_model_name_with_several_deployments():
     doc, profiles = _load()
     profiles["groups"] = {
         "daily": {
-            "members": ["cline-deepseek-v4.1-flash", "qianfan-deepseek-v4.1-flash", "trae-glm-5.3"],
+            "members": ["cline-deepseek-v4.1-flash", "opendesign-deepseek-v4.1-flash",
+                        "trae-glm-5.3"],
             "routing_strategy": "usage-based-routing-v2",
-            "fallback": ["qianfan-deepseek-v4-pro"],
+            "fallback": ["opendesign-deepseek-v4-pro"],
         }
     }
     deps = _deployments(_render_with(profiles))
@@ -280,7 +281,7 @@ def test_group_is_one_model_name_with_several_deployments():
     # three *different* upstreams, each keeping its provider's key
     assert len({m for _, m, _ in group}) == 3
     assert {k for _, _, k in group} == {
-        "CLINE_API_KEY", "QIANFAN_API_KEY", "TRAECLI_PERSONAL_ACCESS_TOKEN"}
+        "CLINE_API_KEY", "OPENDESIGN_API_KEY", "TRAECLI_PERSONAL_ACCESS_TOKEN"}
 
 
 def test_group_members_join_their_account_pools():
@@ -292,28 +293,28 @@ def test_group_members_join_their_account_pools():
     doc, profiles = _load()
     profiles["accounts"] = {"cline": {"a2": {"auth_env": "CLINE_API_KEY_2"}}}
     profiles["groups"] = {"daily": {"members": ["cline-deepseek-v4.1-flash",
-                                                "qianfan-deepseek-v4.1-flash"]}}
+                                                "opendesign-deepseek-v4.1-flash"]}}
     deps = _deployments(_render_with(profiles))
     names = [n for n, _, _ in deps]
     # 2 members, one of which has 2 accounts = 3 deployments, all one name
     assert names.count("daily") == 3
     assert not [n for n in names if n.startswith("daily-")], "accounts must not fork the name"
     keys = sorted(k for n, _, k in deps if n == "daily")
-    assert keys == ["CLINE_API_KEY", "CLINE_API_KEY_2", "QIANFAN_API_KEY"]
+    assert keys == ["CLINE_API_KEY", "CLINE_API_KEY_2", "OPENDESIGN_API_KEY"]
 
 
 def test_group_emits_router_settings_that_litellm_accepts():
     doc, profiles = _load()
     profiles["groups"] = {
         "daily": {
-            "members": ["cline-deepseek-v4.1-flash", "qianfan-deepseek-v4.1-flash"],
+            "members": ["cline-deepseek-v4.1-flash", "opendesign-deepseek-v4.1-flash"],
             "routing_strategy": "usage-based-routing-v2",
-            "fallback": ["qianfan-deepseek-v4-pro"],
+            "fallback": ["opendesign-deepseek-v4-pro"],
         }
     }
     parsed = yaml.safe_load(_render_with(profiles))
     rs = parsed["router_settings"]
-    assert rs["fallbacks"] == [{"daily": ["qianfan-deepseek-v4-pro"]}]
+    assert rs["fallbacks"] == [{"daily": ["opendesign-deepseek-v4-pro"]}]
     rg = rs["routing_groups"][0]
     assert rg["group_name"] == "daily"
     # the group claims exactly the one model_name its deployments share
@@ -334,17 +335,17 @@ def test_group_member_may_be_an_alias_a_registry_id_or_provider_slash_model():
     profiles["groups"] = {
         "g": {
             "members": [
-                "qianfan-deepseek-v4.1-flash",              # alias
+                "cline-deepseek-v4.1-flash",           # alias
                 "MiniMax-M3",                          # bare registry id (minimax)
-                "cline/deepseek/deepseek-v4.1-flash",  # provider/model
+                "opendesign/deepseek-v4.1-flash",      # provider/model
             ]
         }
     }
     deps = _deployments(_render_with(profiles))
     group = [m for n, m, _ in deps if n == "g"]
     assert len(group) == 3
-    assert "openai/deepseek-v4.1-flash" in group           # qianfan (bridged)
     assert "anthropic/MiniMax-M3" in group                 # minimax (native)
+    assert "anthropic/deepseek-v4.1-flash" in group        # opendesign (native)
     # cline keeps its subscription namespace: dropping the `cline-pass/` segment
     # silently bills pay-as-you-go instead of the flat plan (see
     # render_config.litellm_model_string_override).
@@ -414,11 +415,11 @@ def test_bridged_profiles_still_use_alias_and_1m_marker():
     alias_idx = render_config._alias_index(profiles)
     env = json.loads(
         render_config.render_profile(
-            "qianfan", profiles["profiles"]["qianfan"], models, providers,
+            "cline", profiles["profiles"]["cline"], models, providers,
             alias_idx, profiles
         )
     )["env"]
-    assert env["ANTHROPIC_MODEL"] == "qianfan-deepseek-v4.1-flash[1m]"
+    assert env["ANTHROPIC_MODEL"] == "cline-deepseek-v4.1-flash[1m]"
     assert env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:4000"
 
 

@@ -299,7 +299,7 @@ def test_print_table(capsys):
 
 def test_every_provider_has_candidates():
     """A provider that cannot be probed is the bug this guards."""
-    for name in ("cline", "deepseek", "minimax", "opendesign", "qianfan", "trae"):
+    for name in ("cline", "deepseek", "minimax", "opendesign", "trae"):
         found = get_configured_models(target=name)
         assert found, f"{name} yielded no probe candidates"
 
@@ -314,18 +314,16 @@ def test_native_providers_are_probed_not_skipped():
     names = [c["wire_name"] for c in minimax]
     # A native endpoint wants the vendor's own id — no alias prefix, no [1m].
     assert "MiniMax-M3" in names
-    # Read from the catalogue per key rather than pinned: MiniMax lists 8 ids
-    # under the standard key and 9 under the M Plan one, which is where
-    # MiniMax-M3.1-Flash-Preview comes from.
-    assert "MiniMax-M3.1-Flash-Preview" in names, names
-    assert len(names) == len(set(names))
+    # Two models, not the eight the catalogue lists: the registry is pinned to
+    # the ids MiniMax's own Anthropic-compatibility docs support.
+    assert names == ["MiniMax-M3", "MiniMax-M3.1-Flash"], names
 
 
 def test_bridged_providers_use_the_alias_litellm_accepts():
     """Bridged goes through LiteLLM, which only knows the alias — `[1m]` included."""
-    q = get_configured_models(target="qianfan")
+    q = get_configured_models(target="cline")
     names = [c["wire_name"] for c in q]
-    assert "qianfan-deepseek-v4.1-flash[1m]" in names
+    assert "cline-deepseek-v4.1-flash[1m]" in names
     assert not any(c["native"] for c in q)
 
 
@@ -344,7 +342,7 @@ def test_each_candidate_carries_its_own_endpoint_and_credential():
     if trae and _installed_endpoint("trae")[0]:
         assert trae[0]["endpoint"].startswith("http://127.0.0.1:4100")
 
-    spec = get_configured_models(target="qianfan")[0]
+    spec = get_configured_models(target="cline")[0]
     assert spec["endpoint"] == DEFAULT_BRIDGE_URL
     assert spec["token"] == DEFAULT_MASTER_KEY
 
@@ -361,18 +359,18 @@ def test_candidate_counts_match_the_folder_listing():
 
 
 def test_a_native_model_absent_from_litellm_is_still_probeable():
-    """`MiniMax-M2` has no LiteLLM entry, so probing it via :4000 would 400.
+    """`MiniMax-M3.1-Flash` has no LiteLLM entry, so probing it via :4000 would 400.
 
     Its candidate must still name it and point at the vendor endpoint.
     """
-    found = get_configured_models(target="MiniMax-M2")
+    found = get_configured_models(target="MiniMax-M3.1-Flash")
     assert found, "the exact id must resolve"
-    # A name is a prefix of its siblings (`MiniMax-M2` vs `MiniMax-M2.1`) and
-    # matching tolerates how people type, so this returns the M2 line rather than
-    # one row — and Trae resells minimax under its own ids. The property that
-    # matters is that each row is probed at *its own* provider's endpoint, which
-    # is what makes the absent-from-LiteLLM case work at all.
-    assert "MiniMax-M2" in [c["wire_name"] for c in found]
+    # A name is a prefix of its siblings (`MiniMax-M3` vs `MiniMax-M3.1-Flash`)
+    # and matching tolerates how people type, so this returns the M3.1 line
+    # rather than one row — and Trae resells minimax under its own ids. The
+    # property that matters is that each row is probed at *its own* provider's
+    # endpoint, which is what makes the absent-from-LiteLLM case work at all.
+    assert "MiniMax-M3.1-Flash" in [c["wire_name"] for c in found]
     for c in found:
         if c["provider"] == "minimax":
             # The property under test is "the vendor endpoint, not the LiteLLM
@@ -401,9 +399,10 @@ def _load_registry_docs():
 # ── thinking vs answering: the difference the user actually feels ────────────
 # On a Flash-class model the first token is usually a `thinking` delta, so a
 # single TTFT number cannot distinguish "answers immediately" from "reasons for
-# 40s first". Measured on this fleet: qianfan spends 828ms thinking, cline
-# 3.1s — identical answer, 4x the wait — and agy's high tier spends >60s in the
-# self-verification spiral. Those two phases have to be reported apart.
+# 40s first". Measured on this fleet: one provider spends 828ms thinking and
+# another 3.1s — identical answer, 4x the wait — and agy's high tier spent >60s
+# in the self-verification spiral before it was archived. Those two phases have
+# to be reported apart.
 
 
 @pytest.mark.anyio

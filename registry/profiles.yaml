@@ -17,7 +17,7 @@
 # ── A profile is a PROVIDER, not one model ─────────────────────────────
 # `ccp` lists one folder per profile; the provider's models are its contents:
 #
-#     cline/  deepseek/  minimax/  opendesign/  qianfan/  trae/
+#     cline/  deepseek/  minimax/  opendesign/  trae/
 #
 #     ccp                       # the folders, with how many models each holds
 #     ccp trae                  # switch to trae's default + list its models
@@ -67,12 +67,18 @@ profiles:
     provider: minimax
     native: true
     primary_tier: default
-    # M3.1-Flash-Preview is the one to start on: it is the current Flash-tier
-    # model (1M context, 512K output, multimodal) and the catalogue only lists
-    # it for the M Plan key, which is the auth_env for this provider.
+    # Two models, because MiniMax's own Anthropic-compatibility docs support
+    # exactly `MiniMax-M3.1-Flash` and `MiniMax-M3` on this endpoint; the M2
+    # family the catalogue still lists is reached through the plain MiniMax API.
+    #
+    # Start on M3.1-Flash: it is the current Flash tier, 1M context, 512K
+    # output, image/video input, and it always thinks with tunable depth
+    # (`output_config.effort`, default `max`). M3 is the same window and cap
+    # with thinking off unless asked for, which is what the fast slots want.
     tiers:
-      default: {model: MiniMax-M3.1-Flash-Preview}
+      default: {model: MiniMax-M3.1-Flash}
       opus:    {model: MiniMax-M3}
+      fable:   {model: MiniMax-M3.1-Flash}
       sonnet:  {model: MiniMax-M3}
       haiku:   {model: MiniMax-M3}
 
@@ -121,25 +127,6 @@ profiles:
       sonnet:  {model: qwen3.8-max}
       haiku:   {model: glm-5.3-flash}
 
-  # ── Baidu Qianfan (千帆) Token Plan, personal tier ─────────────────────
-  # Standard OpenAI-compatible Chat Completions on a Token-Plan-specific
-  # prefix, so this is a normal *bridged* provider: no adapter, no native
-  # endpoint. No `ccp auth` step — the key lives in proxy.env.
-  #
-  # The plan only serves the GLM / DeepSeek families; discovery narrows the
-  # 34-model catalogue down to the 6 ids this key can actually call.
-  # deepseek-v4.1-flash takes the top tiers: 1.44M context and genuinely
-  # multimodal (vision works on it), so it also backs image pasting.
-  qianfan:
-    provider: qianfan
-    primary_tier: sonnet
-    tiers:
-      default: {model: deepseek-v4.1-flash}
-      opus:    {model: deepseek-v4-pro}
-      fable:   {model: deepseek-v4-pro}
-      sonnet:  {model: deepseek-v4.1-flash}
-      haiku:   {model: glm-5.3-flash}
-
 # ── Short aliases exposed to LiteLLM (config.yaml model_name) ──────────
 # These are the names Claude Code puts in ANTHROPIC_MODEL. The `[1m]` marker
 # is appended automatically for models whose ctx >= 1000000 (the proxy strips
@@ -172,13 +159,6 @@ aliases:
   trae-minimax-m3:                      {provider: trae, model: minimax-m3, ctx: 184000}
   trae-qwen3.8-max:                     {provider: trae, model: qwen3.8-max, ctx: 168000}
   trae-doubao-seed-2.1-pro:             {provider: trae, model: Doubao-Seed-2.1-pro, ctx: 184000}
-  # Qianfan: bridged, so these resolve through LiteLLM like the cline alias.
-  qianfan-deepseek-v4.1-flash:          {provider: qianfan, model: deepseek-v4.1-flash, ctx: 1441792}
-  qianfan-deepseek-v4-pro:              {provider: qianfan, model: deepseek-v4-pro, ctx: 1441792}
-  qianfan-deepseek-v4-flash:            {provider: qianfan, model: deepseek-v4-flash-0731, ctx: 1441792}
-  qianfan-glm-5.3:                      {provider: qianfan, model: glm-5.3, ctx: 1179648}
-  qianfan-glm-5.3-flash:                {provider: qianfan, model: glm-5.3-flash, ctx: 1179648}
-  qianfan-glm-5.2:                      {provider: qianfan, model: glm-5.2, ctx: 1179648}
 
 # ── Accounts: several logins for one provider ──────────────────────────
 # Each extra account becomes its own LiteLLM deployment named
@@ -196,8 +176,8 @@ aliases:
 accounts: {}
 # Example — two logins for one provider behind a pool:
 #   accounts:
-#     qianfan:
-#       a2: {auth_env: QIANFAN_API_KEY_2, label: "second account"}
+#     cline:
+#       a2: {auth_env: CLINE_API_KEY_2, label: "second account"}
 
 # ── Routing groups: one name, several models ───────────────────────────
 # A group is a LiteLLM model_name shared by several deployments. `members`
@@ -213,26 +193,38 @@ accounts: {}
 #
 # NOTE: LiteLLM allows a model in at most one group, so keep membership
 # disjoint. A member that is also an alias keeps its own entry.
+#
+# The three groups were built around Qianfan (it was the anchor member until it
+# was archived on 2026-10-20) and are re-pointed here rather than deleted:
+# failover is still worth having. Each one now names a `cline` entry that
+# carries the traffic and an `opendesign` one to take over when that
+# subscription runs dry. A group is a curation choice, so it has to name models
+# that still exist — `ccp render` reports an unresolvable member instead of
+# emitting a deployment that 400s at request time.
+#
+# `flash` leads with the only Flash-tier model left in the set. It used to lead
+# with `qianfan-glm-5.3-flash`; ClinePass carries `glm-5.3` but no flash
+# variant, so the roles are swapped and the failover is the coarser model.
 groups:
   main:
     members:
-    - qianfan-deepseek-v4.1-flash
+    - cline-deepseek-v4.1-flash
     fallback:
     - opendesign-deepseek-v4.1-flash
   pro:
     members:
-    - qianfan-deepseek-v4-pro
+    - cline-deepseek-v4-pro
     fallback:
     - opendesign-deepseek-v4-pro
   flash:
     members:
-    - qianfan-glm-5.3-flash
-    fallback:
     - opendesign-glm-5.3-flash
+    fallback:
+    - cline-glm-5.3
 # Example — cheap-first, escalating to a different vendor when both are out:
 #   groups:
 #     daily:
-#       members: [qianfan-deepseek-v4.1-flash, cline-deepseek-v4.1-flash]
+#       members: [cline-deepseek-v4.1-flash, opendesign-deepseek-v4.1-flash]
 #       routing_strategy: usage-based-routing-v2
 #       fallback: opendesign-deepseek-v4-pro
 

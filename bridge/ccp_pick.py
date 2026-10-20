@@ -268,10 +268,13 @@ def verify(provider_name: str, model: str, timeout: float = 45.0) -> tuple[str |
     if not base or not token:
         return None, "no profile installed for %s" % provider_name
 
-    # The credential is part of the identity of the answer: the standard
-    # MiniMax key serves M3 for this name, the M Plan key serves M3.1. A cache
-    # keyed on provider+model alone would carry the old verdict across a key
-    # change and report a downgrade that is no longer true — or hide a real one.
+    # The credential is part of the identity of the answer. It used to decide
+    # which model a name resolved to — the standard MiniMax key answered
+    # `MiniMax-M3.1-Flash-Preview` with a completion from M3 while the plan key
+    # served it — and it still decides what an account is entitled to anywhere
+    # a name is downgraded. A cache keyed on provider+model alone would carry
+    # the old verdict across a key change and report a downgrade that is no
+    # longer true, or hide a real one.
     key = "%s|%s|%s" % (provider_name, model, hashlib.sha256(token.encode()).hexdigest()[:12])
     cached = _cache_load().get(key)
     if cached and time.time() - cached.get("at", 0) < VERIFY_TTL:

@@ -1,10 +1,16 @@
 # Archived providers
 
-These were kept by ccp until the 2026-10-14 prune, when the active set was cut
-down to the six that actually worked. Nothing here is loaded any more: the
-profiles were moved to `~/.claude/providers_disabled/`, the templates to
-`providers/archived/`, and the entries removed from `registry/profiles.yaml`,
-`registry/models.yaml` and `discover_models.py`.
+These were kept by ccp until it pruned them. The 2026-10-14 cut took the active
+set down to what actually worked; **Baidu Qianfan was archived on 2026-10-20**
+(the plan is no longer used) and **MiniMax was narrowed to two models the same
+day** — `MiniMax-M3` and `MiniMax-M3.1-Flash` — which is a curation cut, not an
+archive: its folder stays, the M2.x rungs are gone from the registry. The active
+set is five folders now: `deepseek/`, `minimax/`, `opendesign/`, `cline/`, `trae/`.
+
+Nothing here is loaded any more: each archived provider's profile was moved to
+`~/.claude/providers_disabled/`, its template to `providers/archived/`, and its
+entries removed from `registry/profiles.yaml`, `registry/models.yaml` and
+`discover_models.py`.
 
 **CodeBuddy was reinstated on 2026-10-16 and archived again the same day.** It
 works only intermittently: the gateway's channel check refuses real Claude Code
@@ -25,8 +31,14 @@ To bring one back, either `git revert` the prune commit, or:
 
 1. move its template back from `providers/archived/` into `providers/`
 2. re-add its profile + aliases to `registry/profiles.yaml`
-3. re-add its entry to `PROVIDERS` in `bridge/discover_models.py`
+3. re-add its entry to `PROVIDERS` in `bridge/discover_models.py` — and, where it
+   had a normalizer of its own (Qianfan did: `norm_qianfan` plus its
+   `NORMALIZERS` entry), re-add that too. The local adapters below never had a
+   `PROVIDERS` entry at all, because the adapter owns its own catalogue
 4. `ccp discover <provider> && ccp render && ccp bridge deploy`
+
+Anything re-added also needs its key or token put back in
+`~/.config/litellm/proxy.env` before step 4 can succeed.
 
 The findings below are kept because they were expensive to establish and are not
 obvious from the code.
@@ -44,6 +56,55 @@ a hard-coded constant rather than something discovered.
 **Archived because the account ran out of credits.** Every profile answered
 `You have insufficient credits to make this request`; the configuration itself
 was sound. Top the balance up and the revert restores it unchanged.
+
+---
+
+## Baidu Qianfan (百度千帆 Token Plan) — archived 2026-10-20
+
+**Archived because the plan is no longer used**, not because anything broke. It
+was a normal bridged provider: plain OpenAI Chat Completions through LiteLLM,
+`openai/` prefix, `QIANFAN_API_KEY` in `~/.config/litellm/proxy.env`. Nothing
+about it was fragile — the six surviving ids all answered, and at the time it held
+both the fastest first token and the shortest total time of any provider here
+(MiniMax-M3.1-Flash has since taken both).
+
+Two Token-Plan properties were established by probing, and both are worth
+knowing before restoring it:
+
+- **The key is only accepted on the Token-Plan prefix.** `api_base` is pinned to
+  `https://qianfan.baidubce.com/v2/tokenplan/personal`; the same key against plain
+  `/v2/chat/completions` answers `token_plan_person_api_key_not_allowed`.
+- **The catalogue is far wider than the plan.** `/v2/models` lists ~34 ids, but
+  Token Plan Person serves only the GLM and DeepSeek families, so `only_models`
+  narrowed the registry to the six verified: `deepseek-v4.1-flash`,
+  `deepseek-v4-pro`, `deepseek-v4-flash-0731`, `glm-5.3`, `glm-5.3-flash`,
+  `glm-5.2`. Everything else answered
+  `token_plan_person_model_not_supported`.
+
+Its figures: `deepseek-v4.1-flash` at 1.44M context and genuinely multimodal, and
+first token in 759–957 ms across the three DeepSeek rungs — against 1.5 s for the
+next best at the time, which matters because that latency is paid on every turn.
+It was also the anchor member of the `main`/`pro`/`flash` routing groups in
+`registry/profiles.yaml`, which had to be re-pointed when it went: the groups
+survived (failover is still worth having), but `main` and `pro` now lead with a
+`cline` model and fall back to `opendesign`, while `flash` leads with
+`opendesign-glm-5.3-flash` and falls back to `cline-glm-5.3` — ClinePass carries
+no flash variant, so the roles inverted there.
+
+Restoring it is the four steps above, with the qianfan-specific parts spelled out:
+
+1. move `providers/archived/qianfan.json.example` back to `providers/`
+2. re-add its profile and its `qianfan-*` aliases to `registry/profiles.yaml`
+   (the three routing groups still exist and can take it back as the primary
+   member; check each group's fallback as you go, since `flash` now falls back to
+   `cline-glm-5.3` rather than to an `opendesign` model)
+3. re-add the `qianfan` entry to `PROVIDERS` **and** `norm_qianfan` plus its
+   `NORMALIZERS` entry in `bridge/discover_models.py` — its catalogue carries
+   real `context_length` / `max_completions_tokens` /
+   `architecture.input_modalities` metadata, which is why it has a normalizer of
+   its own rather than the generic one
+4. put the key back in `proxy.env` as `QIANFAN_API_KEY`, then
+   `ccp discover qianfan && ccp render && ccp bridge deploy`
 
 ---
 

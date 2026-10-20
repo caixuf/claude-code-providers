@@ -88,12 +88,12 @@ def test_each_folder_exposes_every_model_of_that_provider(docs, providers):
 
 def test_bridged_folders_expose_their_aliases_not_upstream_ids(providers):
     """Bridged goes through LiteLLM, which only knows `model_name`."""
-    q = providers["qianfan"]
-    assert not q.native
-    names = [n for n, _ in q.models]
+    c = providers["cline"]
+    assert not c.native
+    names = [n for n, _ in c.models]
     assert "deepseek-v4.1-flash" in names
     assert "deepseek-v4.1-flash[1m]" not in names  # marker is added on the wire
-    assert "qianfan-deepseek-v4.1-flash" not in names  # prefix stripped
+    assert "cline-deepseek-v4.1-flash" not in names  # prefix stripped
 
 
 def test_native_folders_expose_upstream_ids(providers):
@@ -109,7 +109,7 @@ def test_native_folders_expose_upstream_ids(providers):
 
 def test_resolve_without_a_model_gives_the_profile_default(providers):
     assert providers["trae"].resolve("")[0] == "qwen3.8-max"
-    assert providers["qianfan"].resolve("")[0] == "deepseek-v4.1-flash"
+    assert providers["cline"].resolve("")[0] == "deepseek-v4.1-flash"
 
 
 def test_model_names_match_case_insensitively_but_keep_vendor_spelling():
@@ -121,10 +121,10 @@ def test_model_names_match_case_insensitively_but_keep_vendor_spelling():
 
 
 def test_bridged_models_get_the_1m_marker_only_when_the_window_is_1m():
-    rc, out, _ = run("resolve", "qianfan", "deepseek-v4.1-flash")
+    rc, out, _ = run("resolve", "cline", "deepseek-v4.1-flash")
     assert kv(out)["MODEL"].endswith("[1m]")
-    # 1.18M context — the marker still applies
-    rc, out, _ = run("resolve", "qianfan", "glm-5.2")
+    # 1048576 context — the marker still applies
+    rc, out, _ = run("resolve", "cline", "glm-5.3")
     assert kv(out)["MODEL"].endswith("[1m]")
 
 
@@ -141,8 +141,8 @@ def test_resolve_reports_the_real_context_window():
     model must not leave the old window advertised."""
     _, out, _ = run("resolve", "trae", "qwen3.8-max")
     assert kv(out)["CTX"] == "1000000"  # verified window, not Trae's advertised 96k-184k
-    _, out, _ = run("resolve", "qianfan", "deepseek-v4.1-flash")
-    assert kv(out)["CTX"] == "1441792"
+    _, out, _ = run("resolve", "cline", "deepseek-v4.1-flash")
+    assert kv(out)["CTX"] == "1048576"  # a different window from the row above
 
 
 def test_unknown_model_is_rejected_and_shows_the_options(providers):
@@ -187,27 +187,29 @@ def test_folders_command_lists_one_line_per_provider():
 
 # ── verification: the catalogue is a claim, the response is the evidence ──────
 # MiniMax answers a request for `MiniMax-M3.1` with HTTP 200 and a completion
-# from M3, and echoes the name it was asked for in some paths. So "it returned
+# from M3, and any unknown name falls back to M3 the same way. So "it returned
 # 200" proves nothing; only the `model` field in the body does.
 
 
 def test_same_model_tolerates_the_1m_marker_and_case():
-    assert cp._same_model("qianfan-deepseek-v4.1-flash[1m]", "qianfan-deepseek-v4.1-flash")
+    assert cp._same_model("cline-deepseek-v4.1-flash[1m]", "cline-deepseek-v4.1-flash")
     assert cp._same_model("MiniMax-M3", "minimax-M3")
     assert cp._same_model("openai/deepseek-v4.1-flash", "deepseek-v4.1-flash")
 
 
 def test_same_model_rejects_a_different_model():
-    assert not cp._same_model("MiniMax-M3", "MiniMax-M3.1-Flash-Preview")
+    assert not cp._same_model("MiniMax-M3", "MiniMax-M3.1-Flash")
     assert not cp._same_model("claude-haiku-5.5", "MiniMax-M3")
 
 
 def test_verify_cache_key_includes_the_credential(monkeypatch, tmp_path):
-    """The same model name means different things under different keys.
+    """The same model name can mean different things under different keys.
 
-    MiniMax's standard key serves M3 for MiniMax-M3.1; the M Plan key serves
-    M3.1. A cache keyed on provider+model alone would carry the old verdict
-    across a key change and report a downgrade that stopped being true.
+    MiniMax's standard key once answered a request for the then-current
+    M3.1-Preview with a completion from M3 while the plan key served it, and
+    any account can be downgraded the same way. A cache keyed on provider+model
+    alone would carry the old verdict across a key change and report a
+    downgrade that stopped being true.
     """
     monkeypatch.setattr(cp, "_installed", lambda p: {
         "ANTHROPIC_BASE_URL": "http://127.0.0.1:1", "ANTHROPIC_AUTH_TOKEN": "key-one"})
