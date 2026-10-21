@@ -108,11 +108,11 @@ profiles:
   # endpoint is the local adapter, not Trae itself — the adapter replays Trae's
   # private `llm_raw_chat` RPC using the PAT TraeCLI already stores on disk.
   #
-  # Tiers are all VISION-capable on purpose. TraeCLI decides whether an image
-  # reaches the model, and with a text-only model it substitutes
-  # "[image/png content is not supported by current model]" — so a pasted
-  # screenshot silently degrades on a text-only tier. glm-5.3 (the strongest
-  # tool-caller on this subscription) is text-only, so it is reached via the
+  # The default/sonnet tier is DeepSeek-V4.1-Flash, which is TEXT-ONLY: TraeCLI
+  # substitutes "[image/png content is not supported by current model]" if an
+  # image reaches it, so a pasted screenshot silently degrades. opus/fable stay
+  # on vision-capable Doubao-Seed-2.1-pro for image work; glm-5.3 (the strongest
+  # tool-caller on this subscription) is also text-only and is reached via the
   # `trae-glm` alias instead of holding a tier.
   # Names are registry names (Trae `config_name`), which is what the adapter
   # matches against the live catalogue.
@@ -121,10 +121,10 @@ profiles:
     native: true
     primary_tier: sonnet
     tiers:
-      default: {model: qwen3.8-max}
+      default: {model: DeepSeek-V4.1-Flash}
       opus:    {model: Doubao-Seed-2.1-pro}
       fable:   {model: Doubao-Seed-2.1-pro}
-      sonnet:  {model: qwen3.8-max}
+      sonnet:  {model: DeepSeek-V4.1-Flash}
       haiku:   {model: glm-5.3-flash}
 
 # ── Short aliases exposed to LiteLLM (config.yaml model_name) ──────────
