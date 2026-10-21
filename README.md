@@ -74,10 +74,36 @@ ccp trae/deepseek-v4.1-flash         # same thing, as a path
 ccp -c                               # show what is active, and where it points
 ccp ping trae -s                     # benchmark this provider's models, switch to the winner
 ccp --rollback                       # undo the last switch
+ccp restore --dry-run                # see how to get back to the pre-ccp settings
 ```
 
 Inside a running session, `/model` switches between Opus / Sonnet / Haiku — each
 is pinned by the active profile to a real model.
+
+---
+
+## ↩ Returning to the pre-ccp state
+
+`ccp restore` puts back the `settings.json` ccp found before its first switch and
+stops + disables the three user services (`litellm-cmdc`, `ccp-sse-watchdog`,
+`ccp-trae-bridge`). It never deletes profiles, keys, or the checkout, so
+`ccp <provider>` works again immediately.
+
+- The exact source is `settings.json.ccp-original`, captured by `ccp <provider>`
+  the first time it replaces a file ccp did not render.
+- Older installs have no snapshot; restore falls back to the **oldest**
+  timestamped backup that is not ccp-rendered. Profiles are recognised by the
+  tier map / compact-window keys every rendered profile carries, so a gateway
+  the user configured themselves is correctly treated as original.
+- If neither exists, it refuses rather than guessing. `--strip` is the explicit
+  opt-in: it removes only ccp-injected keys (`ANTHROPIC_BASE_URL`, the tier map,
+  context window), preserving permissions, hooks and unknown keys.
+- `--dry-run` shows the plan, `--yes` skips the prompt, `--keep-services`
+  restores settings but leaves the bridges running, and `--from FILE` picks a
+  specific backup.
+
+Before replacing anything it writes another `settings.json.bak.<timestamp>`, so
+the restore itself is undoable with `ccp --rollback`.
 
 ---
 
@@ -157,6 +183,7 @@ call is evidence:
 | `ccp <provider> [model]` | Switch provider, optionally to a specific model |
 | `ccp -m <model>` | Hot-switch model inside the current provider |
 | `ccp -c` / `ccp -r [N]` | Show active state / roll back N backups |
+| `ccp restore` / `ccp reset` | Return to the pre-ccp settings and stop the bridges |
 | `ccp models [provider]` | List models with context, output cap and vision |
 | `ccp discover [provider]` | Refresh model metadata from the provider APIs |
 | `ccp render` | Regenerate config + profiles + clamp/rule maps from the registry |
