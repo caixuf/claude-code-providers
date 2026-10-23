@@ -195,3 +195,136 @@ def test_capture_saves_a_pristine_file_once(sandbox):
     write_json(settings, {"model": "sonnet"})
     assert source(env, "capture_pristine_settings").returncode == 0
     assert read_json(snapshot) == PRISTINE  # never overwritten
+
+
+# ── the fingerprint: which files count as ccp's own ────────────────────
+#
+# The predicate decides two things at once: whether `capture_pristine_settings`
+# will save a file as the pre-ccp original, and whether `restore` may hand a
+# backup back as "original". Getting it too wide silently makes both useless —
+# every file is "ccp's", so nothing is ever captured and restore refuses while
+# holding a directory full of backups. That is exactly what happened when
+# CLAUDE_CODE_AUTO_COMPACT_WINDOW was treated as a ccp marker: it was in the
+# user's hand-written settings long before ccp, so all 113 real backups were
+# classified as ccp-rendered and `ccp restore` answered "No pre-ccp settings
+# found".
+
+# A settings.json the user configured themselves before ccp existed. It has
+# the compact-window key, because people set that by hand; it has no Fable
+# tier, because ccp invented that one.
+USER_OWN_WITH_COMPACT_WINDOW = {
+    "model": "MiniMax-M3[1m]",
+    "env": {
+        "ANTHROPIC_BASE_URL": "https://api.minimax.cn/anthropic",
+        "ANTHROPIC_AUTH_TOKEN": "sk-api-user-own",
+        "ANTHROPIC_MODEL": "MiniMax-M3[1m]",
+        "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000",
+    },
+}
+
+# An early ccp profile: it points at a ccp bridge but predates the Fable tier.
+EARLY_CCP_PROFILE = {
+    "model": "deepseek/deepseek-v4.1-flash",
+    "env": {
+        "ANTHROPIC_BASE_URL": "http://127.0.0.1:4000",
+        "ANTHROPIC_AUTH_TOKEN": "sk-ccp-local",
+        "ANTHROPIC_MODEL": "deepseek/deepseek-v4.1-flash",
+        "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1048576",
+    },
+}
+
+# The user's own gateway on a public URL: still theirs, whatever it serves.
+USER_OWN_PUBLIC_GATEWAY = {
+    "model": "step-5-preview",
+    "env": {
+        "ANTHROPIC_BASE_URL": "https://api.stepfun.com/step_plan",
+        "ANTHROPIC_MODEL": "step-5-preview",
+    },
+}
+
+
+def is_managed(env, path):
+    out = source(env, f"is_ccp_managed_settings {shlex.quote(str(path))} && echo YES || echo NO")
+    return out.stdout.strip().endswith("YES")
+
+
+def test_compact_window_alone_does_not_make_a_file_ccp(sandbox):
+    """The bug: a user-owned file with the compact-window key was 'ccp's'."""
+    env, claude, _ = sandbox
+    p = claude / "settings.json"
+    write_json(p, USER_OWN_WITH_COMPACT_WINDOW)
+    assert not is_managed(env, p), (
+        "a hand-written compact-window setting must not be mistaken for a "
+        "ccp-rendered profile"
+    )
+
+
+def test_fable_tier_marks_a_file_as_ccp(sandbox):
+    env, claude, _ = sandbox
+    p = claude / "settings.json"
+    write_json(p, MANAGED)
+    assert is_managed(env, p)
+
+
+def test_early_profile_pointing_at_a_ccp_bridge_is_ccp(sandbox):
+    """Early ccp had no Fable tier; the loopback bridge still identifies it."""
+    env, claude, _ = sandbox
+    p = claude / "settings.json"
+    write_json(p, EARLY_CCP_PROFILE)
+    assert is_managed(env, p)
+
+
+def test_a_public_gateway_is_the_users_own(sandbox):
+    env, claude, _ = sandbox
+    p = claude / "settings.json"
+    write_json(p, USER_OWN_PUBLIC_GATEWAY)
+    assert not is_managed(env, p)
+
+
+def test_capture_keeps_a_user_file_that_has_the_compact_window(sandbox):
+    """The consequence of the bug: the snapshot was never taken."""
+    env, claude, _ = sandbox
+    settings = claude / "settings.json"
+    write_json(settings, USER_OWN_WITH_COMPACT_WINDOW)
+
+    assert source(env, "capture_pristine_settings").returncode == 0
+
+    snapshot = claude / "settings.json.ccp-original"
+    assert snapshot.exists(), "the pre-ccp original was silently not captured"
+    assert read_json(snapshot) == USER_OWN_WITH_COMPACT_WINDOW
+
+
+def test_restore_finds_an_original_among_ccp_backups(sandbox):
+    """End to end: originals exist, ccp files surround them, restore must find one."""
+    env, claude, _ = sandbox
+    settings = claude / "settings.json"
+    write_json(settings, MANAGED)
+
+    original = claude / "settings.json.bak.20260923-000000"
+    rendered = claude / "settings.json.bak.20260929-000000"
+    write_json(original, USER_OWN_WITH_COMPACT_WINDOW)
+    write_json(rendered, MANAGED)
+
+    out = run_ccp(env, "restore", "--dry-run")
+
+    assert out.returncode == 0, out.stderr
+    assert str(original) in out.stdout
+    assert "no API key or auth token" not in out.stdout
+
+
+def test_restore_warns_when_the_original_carries_no_credential(sandbox):
+    """A credential-less original is only valid with OAuth — say so, don't hide it."""
+    env, claude, _ = sandbox
+    settings = claude / "settings.json"
+    write_json(settings, MANAGED)
+
+    no_creds = {k: v for k, v in USER_OWN_WITH_COMPACT_WINDOW.items()}
+    no_creds["env"] = {k: v for k, v in no_creds["env"].items()
+                       if k not in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY")}
+    original = claude / "settings.json.bak.20260923-000000"
+    write_json(original, no_creds)
+
+    out = run_ccp(env, "restore", "--dry-run")
+
+    assert out.returncode == 0, out.stderr
+    assert "no API key or auth token" in out.stdout

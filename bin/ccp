@@ -230,12 +230,36 @@ rollback_backup() {
 # only exact way back to the user's pre-ccp configuration.
 SETTINGS_SNAPSHOT="${SETTINGS_FILE}.ccp-original"
 
-# A ccp-rendered profile always carries the tier map and the compact window.
-# Matching on ANTHROPIC_BASE_URL alone would misclassify a gateway the user had
-# configured themselves before installing ccp — that file is still "original".
+# A ccp-rendered profile always carries the Fable tier, and nothing else does.
+# `render_config.py` writes `ANTHROPIC_DEFAULT_FABLE_MODEL` into every profile
+# it emits, unconditionally; it is the only key in the tier map that a file
+# written before ccp existed never had.
+#
+# Deliberately NOT part of this test:
+#   * `ANTHROPIC_BASE_URL` — the user may have configured the same gateway
+#     themselves before installing ccp; that file is still "original".
+#   * `CLAUDE_CODE_AUTO_COMPACT_WINDOW` — this one was in the user's own
+#     hand-written settings long before ccp (measured here 2026-10-23: it
+#     appears in all 20 pre-ccp backups and in all 93 ccp-rendered ones).
+#     Treating it as a ccp fingerprint classified every original as ccp-made,
+#     so `capture_pristine_settings` refused every file and the snapshot was
+#     never taken, and `restore` reported "No pre-ccp settings found" while
+#     holding 113 backups.
+#
+# Older ccp builds (before the Fable tier existed) wrote no such marker, but
+# they did write a provider profile pointed at ccp's own loopback bridges. A
+# file that points at a bridge ccp renders is not "original" whatever else it
+# says: restoring it would leave the user aimed at a bridge that `restore`
+# itself just stopped. That is a second, independent signal rather than a
+# looser regex, so a self-configured third-party gateway still counts as the
+# user's own.
+CCP_LOOPBACK_RE='(127\.0\.0\.1|localhost):(4000|4001|4100)'
+
 is_ccp_managed_settings() {
   [ -f "$1" ] || return 1
-  grep -qE '"(ANTHROPIC_DEFAULT_FABLE_MODEL|CLAUDE_CODE_AUTO_COMPACT_WINDOW)"' "$1" 2>/dev/null
+  grep -qE '"ANTHROPIC_DEFAULT_FABLE_MODEL"' "$1" 2>/dev/null && return 0
+  grep -qE '"ANTHROPIC_BASE_URL"[[:space:]]*:[[:space:]]*"http://'"$CCP_LOOPBACK_RE"'"' "$1" 2>/dev/null && return 0
+  return 1
 }
 
 # Called before ccp replaces settings.json. Never overwrites an existing
@@ -365,6 +389,17 @@ restore_original() {
     echo "  Source:   (in place; ccp-injected keys removed)"
   else
     echo "  Source:   $src ($how)"
+  fi
+  # A settings.json carrying no credential is only usable if the user is
+  # signed in to claude.ai instead (OAuth keeps its token elsewhere). Saying so
+  # matters precisely now: with the marker fixed, `restore` can pick the oldest
+  # backup — which on this machine predates every provider key, and restoring it
+  # without a word would leave Claude Code unable to authenticate.
+  if [ "$how" != "strip ccp keys from the current settings" ] \
+     && ! grep -qE '"(ANTHROPIC_AUTH_TOKEN|ANTHROPIC_API_KEY)"' "$src" 2>/dev/null; then
+    echo -e "  \033[33m⚠ This source carries no API key or auth token.\033[0m"
+    echo "    It only works if Claude Code is signed in to claude.ai (OAuth)."
+    echo "    Pick a later backup with --from, or use --strip to keep the current one."
   fi
   if [ "$keep_services" = 1 ]; then
     echo "  Services: keep running"

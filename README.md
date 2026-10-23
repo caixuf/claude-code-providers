@@ -92,9 +92,20 @@ stops + disables the three user services (`litellm-cmdc`, `ccp-sse-watchdog`,
 - The exact source is `settings.json.ccp-original`, captured by `ccp <provider>`
   the first time it replaces a file ccp did not render.
 - Older installs have no snapshot; restore falls back to the **oldest**
-  timestamped backup that is not ccp-rendered. Profiles are recognised by the
-  tier map / compact-window keys every rendered profile carries, so a gateway
-  the user configured themselves is correctly treated as original.
+  timestamped backup that is not ccp-rendered. A rendered profile is recognised
+  by the `ANTHROPIC_DEFAULT_FABLE_MODEL` tier key, which ccp writes into every
+  profile it emits and which no pre-ccp file contains; an early ccp profile that
+  predates that key is still recognised by its base URL pointing at one of ccp's
+  own loopback bridges (`:4000`, `:4001`, `:4100`). A gateway the user configured
+  themselves — any other URL — is correctly treated as original.
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is **not** a marker: people set it by hand,
+  and treating it as one classified every original as ccp-made, which left the
+  snapshot never captured and made `restore` report "No pre-ccp settings found"
+  while holding a directory full of backups.
+- The oldest backup can predate every provider key on the machine. When the
+  chosen source carries no `ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY`, the plan
+  says so, because such a file only works if Claude Code is signed in to
+  claude.ai (OAuth). Choose a later backup with `--from`, or use `--strip`.
 - If neither exists, it refuses rather than guessing. `--strip` is the explicit
   opt-in: it removes only ccp-injected keys (`ANTHROPIC_BASE_URL`, the tier map,
   context window), preserving permissions, hooks and unknown keys.
