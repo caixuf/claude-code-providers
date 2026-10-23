@@ -4,7 +4,7 @@
 [![Platform: Linux / macOS / WSL](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20WSL-green.svg)]()
 [![Tested on: Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-purple.svg)]()
 
-> **Switch the model behind Claude Code in one command, across five providers** —
+> **Switch the model behind Claude Code in one command, across six providers** —
 > native Anthropic endpoints, one OpenAI-compatible gateway, and a local adapter
 > for a subscription that publishes no API at all.
 
@@ -30,6 +30,7 @@ claude ──> ccp profile ──┬─> vendor's /anthropic endpoint         (n
 | `minimax/` | MiniMax-M3.1-Flash (1M) | native Anthropic | 2 |
 | `opendesign/` | DeepSeek-V4.1-Flash (1.05M) | native, Anthropic-native aggregator | 11 |
 | `cline/` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 6 |
+| `qianfan/` | DeepSeek-V4.1-Flash (1.44M) | bridged → LiteLLM | 9 |
 | `trae/` | Qwen3.8-Max (1M) | local adapter `:4100` | 19 |
 
 Several folders start on the *same* underlying model. That is the point: same
@@ -183,10 +184,10 @@ token instantly and still never act, which is the failure that wastes the turn.
 
 ## 🌉 The bridge
 
-One provider, `cline/`, speaks plain OpenAI `chat/completions` and is
-**bridged**: Claude Code talks to a local gateway that translates on the way out.
-Every other folder takes one of the other two paths — an Anthropic-native endpoint
-or the Trae local adapter — both covered below.
+Two providers, `cline/` and `qianfan/`, speak plain OpenAI `chat/completions`
+and are **bridged**: Claude Code talks to a local gateway that translates on the
+way out. Every other folder takes one of the other two paths — an
+Anthropic-native endpoint or the Trae local adapter — both covered below.
 
 ```
 claude ──> :4000 sse_watchdog ──> :4001 LiteLLM ──> upstream OpenAI gateway
@@ -337,6 +338,46 @@ returns `{"error":"model not found"}` when called. The request model must also b
 to the six verified ids, and the `cline-pass/` prefix is fixed per deployment in
 `render_config.py` (dropping it silently bills pay-as-you-go instead of the flat
 pass). Re-probe before extending that list.
+
+### Qianfan (百度千帆 Token Plan)
+
+[Baidu Qianfan](https://qianfan.baidubce.com) sells a Token Plan: a flat
+subscription whose key is only accepted on the plan's own prefix,
+`https://qianfan.baidubce.com/v2/tokenplan/personal`. The same key against
+plain `/v2/chat/completions` answers `token_plan_person_api_key_not_allowed`,
+so `api_base` is pinned to that prefix and the provider is bridged like
+ClinePass.
+
+Two things make it its own case rather than another OpenAI gateway:
+
+- **The catalogue is a claim, not an entitlement.** `/v2/models` lists 35 ids;
+  the plan serves nine. The other 26 answer HTTP 403
+  `token_plan_person_model_not_supported`. `only_models` in
+  `discover_models.py` keeps the registry to the verified set.
+- **The verified set belongs to the subscription, not to the provider.** The
+  2026-10-24 key serves nine ids where the previous one served six
+  (`deepseek-v4.1-flash-1017`, `deepseek-v4-pro-0813` and `glm-5.1` are new).
+  `bridge/qianfan_probe.py` walks the whole catalogue against the key in
+  `proxy.env` and prints the allow-list to paste in — run it whenever the plan
+  changes, never assume the old list still holds.
+
+Its catalogue is also the only one here that publishes the facts outright:
+`context_length`, `max_completions_tokens` and `architecture.input_modalities`
+come with every model, so `norm_qianfan` needs no cost-map cross-check. The
+DeepSeek rungs carry 1.44M context; `glm-5.3-flash` is vision-capable and
+takes the haiku tier.
+
+```bash
+ccp qianfan             # switch to the folder
+ccp models qianfan      # the nine ids this subscription serves
+python3 bridge/qianfan_probe.py --emit-only-models   # re-derive the allow-list
+```
+
+Two operational notes. The key lives in `proxy.env`, which the systemd unit
+loads as `EnvironmentFile` — a new key reaches the bridge only after
+`systemctl --user restart litellm-cmdc.service`, not after a `ccp render`. And
+the catalogue endpoint answers `429 Over rate limit` when probed in a burst, so
+the probe retries instead of concluding that the plan is gone.
 
 ### Trae CLI
 
@@ -581,9 +622,8 @@ gateway error on a loopback endpoint is the proxy answering for it.
 ## 📦 Archived providers
 
 CommandCode (out of credits), GitHub Copilot (no healthy deployments), CodeBuddy,
-OpenCode, Antigravity (`agy`) and Baidu Qianfan (plan no longer used) are
-archived, along with what it takes to bring one back:
-[`docs/archived-providers.md`](docs/archived-providers.md).
+OpenCode and Antigravity (`agy`) are archived, along with what it takes to bring
+one back: [`docs/archived-providers.md`](docs/archived-providers.md).
 
 ---
 

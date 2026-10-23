@@ -17,7 +17,7 @@
 # ── A profile is a PROVIDER, not one model ─────────────────────────────
 # `ccp` lists one folder per profile; the provider's models are its contents:
 #
-#     cline/  deepseek/  minimax/  opendesign/  trae/
+#     cline/  deepseek/  minimax/  opendesign/  qianfan/  trae/
 #
 #     ccp                       # the folders, with how many models each holds
 #     ccp trae                  # switch to trae's default + list its models
@@ -102,6 +102,28 @@ profiles:
       sonnet:  {model: deepseek-v4.1-flash}
       haiku:   {model: deepseek-v4.1-flash}
 
+  # ── Baidu Qianfan (千帆) Token Plan, personal tier ─────────────────────
+  # Standard OpenAI-compatible Chat Completions on a Token-Plan-specific
+  # prefix, so this is a normal *bridged* provider: no adapter, no native
+  # endpoint. No `ccp auth` step — the key lives in proxy.env.
+  #
+  # The plan only serves the GLM / DeepSeek families; discovery narrows the
+  # 35-model catalogue down to the 9 ids this subscription can actually call
+  # (the set was re-probed against the 2026-10-24 key, which adds
+  # deepseek-v4.1-flash-1017, deepseek-v4-pro-0813 and glm-5.1 to the six the
+  # previous key served).
+  # deepseek-v4.1-flash takes the top tiers: 1.44M context and genuinely
+  # multimodal (vision works on it), so it also backs image pasting.
+  qianfan:
+    provider: qianfan
+    primary_tier: sonnet
+    tiers:
+      default: {model: deepseek-v4.1-flash}
+      opus:    {model: deepseek-v4-pro}
+      fable:   {model: deepseek-v4-pro}
+      sonnet:  {model: deepseek-v4.1-flash}
+      haiku:   {model: glm-5.3-flash}
+
   # ── Trae CLI (ByteDance enterprise coding agent) ──────────────────────
   # Also `native: true`: bridge/trae_bridge.py speaks the Anthropic Messages
   # API directly, so Claude Code talks to :4100 with no LiteLLM hop. The
@@ -143,6 +165,16 @@ aliases:
   cline-kimi-k3:                       {provider: cline, model: moonshotai/kimi-k3, ctx: 1048576}
   cline-minimax-m3:                    {provider: cline, model: minimax/minimax-m3, ctx: 1000000}
   cline-qwen3.7-max:                   {provider: cline, model: qwen/qwen3.7-max, ctx: 1000000}
+  # Qianfan: bridged, so these resolve through LiteLLM like the cline alias.
+  qianfan-deepseek-v4.1-flash:          {provider: qianfan, model: deepseek-v4.1-flash, ctx: 1441792}
+  qianfan-deepseek-v4.1-flash-1017:      {provider: qianfan, model: deepseek-v4.1-flash-1017, ctx: 1441792}
+  qianfan-deepseek-v4-pro:              {provider: qianfan, model: deepseek-v4-pro, ctx: 1441792}
+  qianfan-deepseek-v4-pro-0813:          {provider: qianfan, model: deepseek-v4-pro-0813, ctx: 1441792}
+  qianfan-deepseek-v4-flash:            {provider: qianfan, model: deepseek-v4-flash-0731, ctx: 1441792}
+  qianfan-glm-5.3:                      {provider: qianfan, model: glm-5.3, ctx: 1179648}
+  qianfan-glm-5.3-flash:                {provider: qianfan, model: glm-5.3-flash, ctx: 1179648}
+  qianfan-glm-5.2:                      {provider: qianfan, model: glm-5.2, ctx: 1179648}
+  qianfan-glm-5.1:                      {provider: qianfan, model: glm-5.1, ctx: 333824}
   # OpenDesign: hot-swap between the aggregator's rungs with `ccp -m`
   opendesign-deepseek-v4.1-flash:       {provider: opendesign, model: deepseek-v4.1-flash, ctx: 1048000}
   opendesign-deepseek-v4-pro:           {provider: opendesign, model: deepseek-v4-pro, ctx: 1048000}
@@ -194,37 +226,34 @@ accounts: {}
 # NOTE: LiteLLM allows a model in at most one group, so keep membership
 # disjoint. A member that is also an alias keeps its own entry.
 #
-# The three groups were built around Qianfan (it was the anchor member until it
-# was archived on 2026-10-20) and are re-pointed here rather than deleted:
-# failover is still worth having. Each one now names a `cline` entry that
-# carries the traffic and an `opendesign` one to take over when that
-# subscription runs dry. A group is a curation choice, so it has to name models
-# that still exist — `ccp render` reports an unresolvable member instead of
-# emitting a deployment that 400s at request time.
-#
-# `flash` leads with the only Flash-tier model left in the set. It used to lead
-# with `qianfan-glm-5.3-flash`; ClinePass carries `glm-5.3` but no flash
-# variant, so the roles are swapped and the failover is the coarser model.
+# The three groups are built around Qianfan, which is their anchor member
+# again after it was restored on 2026-10-24 (it was archived on 2026-10-20 for
+# a while, and the groups were re-pointed at `cline` while it was away). Each
+# one names a `qianfan` entry that carries the traffic and an `opendesign` one
+# to take over when that subscription runs dry. A group is a curation choice,
+# so it has to name models that still exist — `ccp render` reports an
+# unresolvable member instead of emitting a deployment that 400s at request
+# time.
 groups:
   main:
     members:
-    - cline-deepseek-v4.1-flash
+    - qianfan-deepseek-v4.1-flash
     fallback:
     - opendesign-deepseek-v4.1-flash
   pro:
     members:
-    - cline-deepseek-v4-pro
+    - qianfan-deepseek-v4-pro
     fallback:
     - opendesign-deepseek-v4-pro
   flash:
     members:
-    - opendesign-glm-5.3-flash
+    - qianfan-glm-5.3-flash
     fallback:
-    - cline-glm-5.3
+    - opendesign-glm-5.3-flash
 # Example — cheap-first, escalating to a different vendor when both are out:
 #   groups:
 #     daily:
-#       members: [cline-deepseek-v4.1-flash, opendesign-deepseek-v4.1-flash]
+#       members: [qianfan-deepseek-v4.1-flash, cline-deepseek-v4.1-flash]
 #       routing_strategy: usage-based-routing-v2
 #       fallback: opendesign-deepseek-v4-pro
 

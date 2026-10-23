@@ -10,13 +10,15 @@ this pulls them from, in priority order:
        - MiniMax     : ids only, still listing the legacy M2 rungs — the
                        allow-list and per-model ``hints`` carry the facts
        - OpenDesign  : metadata.context_limit / context_budget
+       - Qianfan     : context_length / max_completions_tokens /
+                       architecture.input_modalities (the richest of the lot)
        - Trae        : no /models at all — trae_bridge.py's own catalogue RPC
    2. LiteLLM's bundled cost map (``litellm.model_cost``, ~4500 entries) for
       max_input_tokens / max_output_tokens / supports_vision.
    3. A tiny built-in defaults table for the few facts neither source knows.
 
 Only the providers ccp currently keeps are registered here. Archived ones
-(CommandCode, CodeBuddy, Copilot, Qianfan) are described in
+(CommandCode, CodeBuddy, Copilot) are described in
 docs/archived-providers.md; restoring one means putting its entry back and
 re-running discovery.
 
@@ -159,6 +161,45 @@ PROVIDERS = {
         "auth_env": "OPENDESIGN_API_KEY",
         "profile_file": "~/.claude/providers/opendesign.json",
         "max_output_default": None,
+    },
+    # Baidu Qianfan (文心 / 千帆) Token Plan, personal tier. Standard
+    # OpenAI-compatible Chat Completions, so it goes through the normal bridge
+    # with no adapter. Two quirks, both verified against the live endpoint:
+    #   * the Token Plan key is only accepted on the `/v2/tokenplan/personal/`
+    #     prefix — the same key gets `token_plan_person_api_key_not_allowed`
+    #     on plain `/v2/chat/completions`;
+    #   * the catalogue lists ~35 models but Token Plan Person only serves the
+    #     GLM / DeepSeek families; the ERNIE, Qwen, VL, OCR and embedding ids
+    #     all answer `token_plan_person_model_not_supported`. ``only_models``
+    #     narrows the registry to the verified set so no profile advertises a
+    #     model this key cannot call.
+    #
+    # The verified set is re-derived per subscription, not inherited: the
+    # 2026-10-24 key answers for nine ids where the previous one answered for
+    # six — `deepseek-v4.1-flash-1017`, `deepseek-v4-pro-0813` and `glm-5.1`
+    # are new. `bridge/qianfan_probe.py` walks the whole catalogue against a
+    # key and prints the allow-list to paste here.
+    "qianfan": {
+        "models_url": "https://qianfan.baidubce.com/v2/models",
+        "api_base": "https://qianfan.baidubce.com/v2/tokenplan/personal",
+        "endpoint_kind": "openai",
+        "litellm_prefix": "openai/",
+        "auth_env": "QIANFAN_API_KEY",
+        "auth_file": "~/.config/litellm/config.yaml",
+        "auth_grep": "qianfan.baidubce.com",
+        # Verified to answer on the Token Plan Person endpoint.
+        "only_models": [
+            "deepseek-v4.1-flash",
+            "deepseek-v4.1-flash-1017",
+            "deepseek-v4-pro",
+            "deepseek-v4-pro-0813",
+            "deepseek-v4-flash-0731",
+            "glm-5.3",
+            "glm-5.3-flash",
+            "glm-5.2",
+            "glm-5.1",
+        ],
+        "max_output_default": 32000,
     },
     # TraeCLI (ByteDance's enterprise coding agent). There is no public API and
     # no /models endpoint: `bridge/trae_bridge.py` owns the private
@@ -412,11 +453,35 @@ def norm_trae(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) 
     }
 
 
+def norm_qianfan(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
+    """Qianfan's /v2/models carries real capability metadata per model.
+
+    Unlike most OpenAI-shaped catalogues this one publishes
+    ``context_length`` / ``max_completions_tokens`` and
+    ``architecture.input_modalities``, so nothing has to be guessed or
+    cross-checked against LiteLLM's cost map. ``type: multimodal`` plus an
+    ``image`` input modality is the vision signal.
+    """
+    arch = entry.get("architecture") or {}
+    mods = arch.get("input_modalities") or []
+    vision = "image" in mods if mods else None
+    return {
+        "name": entry.get("id", ""),
+        "ctx": entry.get("context_length") or entry.get("prompt_tokens"),
+        "max_output": (entry.get("max_completions_tokens")
+                       or entry.get("max_tokens")
+                       or provider.get("max_output_default")),
+        "vision": vision,
+        "endpoint_kind": provider["endpoint_kind"],
+    }
+
+
 NORMALIZERS = {
     "cline": norm_generic,
     "deepseek": norm_deepseek,
     "minimax": norm_generic,
     "opendesign": norm_opendesign,
+    "qianfan": norm_qianfan,
     "trae": norm_trae,
 }
 

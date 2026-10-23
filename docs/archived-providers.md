@@ -2,23 +2,27 @@
 
 These were kept by ccp until it pruned them. The 2026-10-14 cut took the active
 set down to what actually worked; **Baidu Qianfan was archived on 2026-10-20**
-(the plan is no longer used) and **MiniMax was narrowed to two models the same
-day** — `MiniMax-M3` and `MiniMax-M3.1-Flash` — which is a curation cut, not an
+and **restored on 2026-10-24** (the plan was bought again and wanted back — see
+its section below), while **MiniMax was narrowed to two models the same day** —
+`MiniMax-M3` and `MiniMax-M3.1-Flash` — which is a curation cut, not an
 archive: its folder stays, the M2.x rungs are gone from the registry. The active
-set is five folders now: `deepseek/`, `minimax/`, `opendesign/`, `cline/`, `trae/`.
+set is six folders now: `deepseek/`, `minimax/`, `opendesign/`, `cline/`,
+`qianfan/`, `trae/`.
 
 Nothing here is loaded any more: each archived provider's profile was moved to
 `~/.claude/providers_disabled/`, its template to `providers/archived/`, and its
 entries removed from `registry/profiles.yaml`, `registry/models.yaml` and
-`discover_models.py`.
+`discover_models.py`. Qianfan is the exception right now: its template sits in
+`providers/` and its entries are live again.
 
 **CodeBuddy was reinstated on 2026-10-16 and archived again the same day.** It
-works only intermittently: the gateway's channel check refuses real Claude Code
-sessions with `11128 Illegal API invocation from an unapproved channel`, while
-accepting the very same forwarded body when replayed directly. That is the
-"come back from an official client" the message describes, and it is not
-something a proxy can guarantee — so it is out again. Its section below carries
-the diagnosis, because the next person to try this should not re-derive it.
+was believed that the gateway's channel check refused real Claude Code
+sessions with `11128 Illegal API invocation from an unapproved channel` and
+that "it is not something a proxy can guarantee". That belief was wrong: the
+check is a fixed rule, and the requests were refused because they carried none
+of the gateway's conversation headers. The rule, the capture of the official
+client and the three-header recipe are in
+[`workbuddy-channel-check.md`](workbuddy-channel-check.md).
 
 **OpenCode Zen and Antigravity (`agy`) were archived on 2026-10-16** — not
 because they broke, but because they were not worth the surface. Unlike every
@@ -32,7 +36,7 @@ To bring one back, either `git revert` the prune commit, or:
 1. move its template back from `providers/archived/` into `providers/`
 2. re-add its profile + aliases to `registry/profiles.yaml`
 3. re-add its entry to `PROVIDERS` in `bridge/discover_models.py` — and, where it
-   had a normalizer of its own (Qianfan did: `norm_qianfan` plus its
+   had a normalizer of its own (Qianfan had one: `norm_qianfan` plus its
    `NORMALIZERS` entry), re-add that too. The local adapters below never had a
    `PROVIDERS` entry at all, because the adapter owns its own catalogue
 4. `ccp discover <provider> && ccp render && ccp bridge deploy`
@@ -59,14 +63,15 @@ was sound. Top the balance up and the revert restores it unchanged.
 
 ---
 
-## Baidu Qianfan (百度千帆 Token Plan) — archived 2026-10-20
+## Baidu Qianfan (百度千帆 Token Plan) — archived 2026-10-20, restored 2026-10-24
 
-**Archived because the plan is no longer used**, not because anything broke. It
-was a normal bridged provider: plain OpenAI Chat Completions through LiteLLM,
-`openai/` prefix, `QIANFAN_API_KEY` in `~/.config/litellm/proxy.env`. Nothing
-about it was fragile — the six surviving ids all answered, and at the time it held
-both the fastest first token and the shortest total time of any provider here
-(MiniMax-M3.1-Flash has since taken both).
+**Archived on 2026-10-20 because the plan was no longer used**, not because
+anything broke. It is a normal bridged provider: plain OpenAI Chat Completions
+through LiteLLM, `openai/` prefix, `QIANFAN_API_KEY` in
+`~/.config/litellm/proxy.env`. Nothing about it was fragile — the six ids the
+old subscription served all answered, and at the time it held both the fastest
+first token and the shortest total time of any provider here (MiniMax-M3.1-Flash
+has since taken both).
 
 Two Token-Plan properties were established by probing, and both are worth
 knowing before restoring it:
@@ -74,12 +79,18 @@ knowing before restoring it:
 - **The key is only accepted on the Token-Plan prefix.** `api_base` is pinned to
   `https://qianfan.baidubce.com/v2/tokenplan/personal`; the same key against plain
   `/v2/chat/completions` answers `token_plan_person_api_key_not_allowed`.
-- **The catalogue is far wider than the plan.** `/v2/models` lists ~34 ids, but
-  Token Plan Person serves only the GLM and DeepSeek families, so `only_models`
-  narrowed the registry to the six verified: `deepseek-v4.1-flash`,
-  `deepseek-v4-pro`, `deepseek-v4-flash-0731`, `glm-5.3`, `glm-5.3-flash`,
-  `glm-5.2`. Everything else answered
+- **The catalogue is far wider than the plan.** `/v2/models` lists ~35 ids, but
+  Token Plan Person serves only the GLM and DeepSeek families — the ERNIE,
+  Qwen, VL, OCR and embedding ids all answer HTTP 403
   `token_plan_person_model_not_supported`.
+
+**The supported set belongs to the subscription, not to the provider.** The
+2026-10-24 key serves nine ids where the 2026-10-20 one served six —
+`deepseek-v4.1-flash-1017`, `deepseek-v4-pro-0813` and `glm-5.1` are new. So
+`only_models` is re-derived per key by `bridge/qianfan_probe.py`, which walks
+the whole catalogue against `QIANFAN_API_KEY` and prints the allow-list to
+paste into `bridge/discover_models.py`. A catalogue entry is a claim, not an
+entitlement: the probe is the only evidence.
 
 Its figures: `deepseek-v4.1-flash` at 1.44M context and genuinely multimodal, and
 first token in 759–957 ms across the three DeepSeek rungs — against 1.5 s for the
@@ -106,6 +117,32 @@ Restoring it is the four steps above, with the qianfan-specific parts spelled ou
 4. put the key back in `proxy.env` as `QIANFAN_API_KEY`, then
    `ccp discover qianfan && ccp render && ccp bridge deploy`
 
+> **Restored on 2026-10-24, on a new subscription.** All four steps above were
+> done again: the template moved back to `providers/qianfan.json.example`, the
+> profile and the nine `qianfan-*` aliases are back in `registry/profiles.yaml`,
+> `PROVIDERS` / `norm_qianfan` / `NORMALIZERS` are back in
+> `bridge/discover_models.py`, and the `main` / `pro` / `flash` groups lead with
+> Qianfan again (it was their anchor member before the 2026-10-20 archive).
+>
+> **The old key was out of credits** — every model answered
+> `429 {"code":"credit_quota_exceeded","message":"Token Plan Person monthly quota
+> limit exceeded"}` — so the plan was bought again and `QIANFAN_API_KEY` in
+> `proxy.env` now holds the new key. All nine models answer on it, measured
+> through the bridge (`:4000`, the path Claude Code actually uses):
+> `deepseek-v4.1-flash` 833 ms, `deepseek-v4.1-flash-1017` 400 ms,
+> `deepseek-v4-pro` 712 ms, `deepseek-v4-pro-0813` 951 ms,
+> `deepseek-v4-flash-0731` 999 ms, `glm-5.3` 906 ms, `glm-5.3-flash` 1834 ms,
+> `glm-5.2` 815 ms, `glm-5.1` 711 ms — each returning its own id and a real
+> completion, not an error. `ccp ping` puts `deepseek-v4.1-flash-1017` first on
+> TTFT (460 ms).
+>
+> **Two operational notes.** The key lives in `proxy.env`, which the systemd
+> unit loads as `EnvironmentFile` — a new key only reaches the bridge after
+> `systemctl --user restart litellm-cmdc.service`, not after a `ccp render`.
+> And the catalogue endpoint answers `429 Over rate limit` when probed in a
+> burst, so the probe retries with a backoff instead of concluding that the
+> plan is gone.
+
 ---
 
 ## CodeBuddy (Tencent coding-copilot) — archived 2026-10-16
@@ -120,7 +157,15 @@ imports that session.
 > its tests are under `archived/`; the registry entries and the `ccp auth
 > codebuddy` command are gone. The section below is the operator's reference.
 
-### Why it is out: the channel check is not proxyable
+### Why it is out: the channel check was believed to be unproxyable
+
+> **Corrected on 2026-10-24.** The channel check *is* proxyable: the refusal was
+> caused by the request carrying none of the gateway's conversation headers, not
+> by the body. The full rule, the capture of the official client and the
+> three-header recipe are in
+> [`workbuddy-channel-check.md`](workbuddy-channel-check.md). The diagnosis
+> below is kept because the sanitiser bug it found is still real and still
+> needed — but the conclusion "a proxy cannot guarantee it" does not hold.
 
 Two things had to be true for it to work, and only the first was fixable:
 

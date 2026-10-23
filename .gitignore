@@ -24,3 +24,6 @@ __pycache__/
 .DS_Store
 .venv/
 litellm-venv/
+
+# Scratch space for throwaway probes and notes
+.scratch/

@@ -94,7 +94,7 @@ providers:
     models:
       - name: claude-haiku-5.5
         ctx: 1000000
-        max_output: 132000
+        max_output: 228000
         vision: true
         endpoint_kind: anthropic
         aliases: []
@@ -115,14 +115,14 @@ providers:
         tiers: []
       - name: deepseek-v4-pro
         ctx: 1048000
-        max_output: 232000
+        max_output: 328000
         vision: false
         endpoint_kind: anthropic
         aliases: []
         tiers: []
       - name: deepseek-v4.1-flash
         ctx: 1048000
-        max_output: 232000
+        max_output: 328000
         vision: true
         endpoint_kind: anthropic
         aliases: []
@@ -143,8 +143,15 @@ providers:
         tiers: []
       - name: gpt-6-luna
         ctx: 1050000
-        max_output: 304000
+        max_output: 400000
         vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: hy4-preview
+        ctx: 1048000
+        max_output: 232000
+        vision: false
         endpoint_kind: anthropic
         aliases: []
         tiers: []
@@ -169,6 +176,81 @@ providers:
         endpoint_kind: anthropic
         aliases: []
         tiers: []
+      - name: minimax-m3.1-flash
+        ctx: 1000000
+        max_output: null
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+  - name: qianfan
+    api_base: https://qianfan.baidubce.com/v2/tokenplan/personal
+    endpoint_kind: openai
+    auth_env: QIANFAN_API_KEY
+    models:
+      - name: deepseek-v4-flash-0731
+        ctx: 1441792
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek-v4-pro
+        ctx: 1441792
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek-v4-pro-0813
+        ctx: 1441792
+        max_output: 393216
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek-v4.1-flash
+        ctx: 1441792
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek-v4.1-flash-1017
+        ctx: 1441792
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: glm-5.1
+        ctx: 333824
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: glm-5.2
+        ctx: 1179648
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: glm-5.3
+        ctx: 1179648
+        max_output: 131072
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: glm-5.3-flash
+        ctx: 1179648
+        max_output: 131072
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
   - name: trae
     api_base: http://127.0.0.1:4100
     endpoint_kind: anthropic
@@ -189,6 +271,13 @@ providers:
         aliases: []
         tiers: []
       - name: DeepSeek-V4.1-Flash
+        ctx: 1000000
+        max_output: 32000
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: DeepSeek-V4.1-Flash-1017
         ctx: 1000000
         max_output: 32000
         vision: false
