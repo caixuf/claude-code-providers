@@ -30,7 +30,7 @@ claude ──> ccp profile ──┬─> vendor's /anthropic endpoint         (n
 | `minimax/` | MiniMax-M3.1-Flash (1M) | native Anthropic | 2 |
 | `opendesign/` | DeepSeek-V4.1-Flash (1.05M) | native, Anthropic-native aggregator | 11 |
 | `cline/` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 6 |
-| `trae/` | Qwen3.8-Max (1M) | local adapter `:4100` | 19 |
+| `trae/` | DeepSeek-V4.1-Flash (1M) | local adapter `:4100` | 19 |
 
 Several folders start on the *same* underlying model. That is the point: same
 model, different pipe, price and quota. Every folder also holds the other models
@@ -409,12 +409,17 @@ ccp trae                 # ccp auto-starts the adapter if it is down
 **Images work, but the tier has to be a vision model.** The adapter emits
 OpenAI-style `image_url` data URLs correctly; the catch is that *TraeCLI* decides
 whether pixels reach the model and substitutes
-`[image/png content is not supported by current model]` on a text-only one. The
-tiers are therefore all vision-capable (qwen3.8-max / Doubao-Seed-2.1-pro /
-glm-5.3-flash); `glm-5.3`, the strongest tool-caller on the subscription, is
-text-only and reachable through the `trae-glm-5.3` alias. Verified end to end:
-Claude Code's `Read` on a PNG travels through the adapter and the model names the
-colours correctly.
+`[image/png content is not supported by current model]` on a text-only one.
+
+**The tiers are not uniform, so this depends on the tier you are on.** `opus` and
+`fable` are Doubao-Seed-2.1-pro and `haiku` is glm-5.3-flash, all three
+vision-capable; `default` and `sonnet` are DeepSeek-V4.1-Flash, which is
+text-only. Because `default` and `sonnet` are what this profile starts on, image
+work needs a vision tier selected explicitly: switch to `/model opus`, or name
+`trae-doubao-seed-2.1-pro` directly. `glm-5.3`, the strongest tool-caller on the
+subscription, is text-only and reachable through the `trae-glm-5.3` alias. With a
+vision tier selected, this was verified end to end: Claude Code's `Read` on a PNG
+travels through the adapter and the model names the colours correctly.
 
 > **Trae's catalogue reports 96k–184k; the real window is 1M.** `prompt_max_tokens`
 > is what *its own CLI* will put in one request, not the model's context. Taking
