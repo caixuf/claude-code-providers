@@ -150,6 +150,64 @@ account is a `personal_free_user`, so `gpt-5.6-luna` is refused as
 
 ---
 
+## magpie's own implementation, for comparison
+
+magpie serves WorkBuddy through its community plugin
+(`magpie-community/plugins`, package `packages/workbuddy`) — the built-in Go
+provider was retired (`internal/provider/workbuddy.go` says "PLUGIN-SERVED"),
+and the plugin is where the request-shaping lives. Its code says the same
+thing this file measured:
+
+- `attend()` mints the conversation ids and keeps any the caller already sent:
+  `X-Conversation-Message-ID` and `X-Request-ID` get the *same* value,
+  `X-Conversation-Request-ID` is per user turn, `X-Conversation-ID` is per
+  conversation.
+- `withSystem()` makes the chat open with a system message, turns a `developer`
+  role into `system`, renames `max_completion_tokens` to `max_tokens`, and
+  prepends WorkBuddy's own default system prompt — `"You are a helpful
+  assistant."` — when there is none.
+- `unflag()` rewrites the identity lines in *every* message. The list is
+  `x-anthropic-billing-header: …`, `You are Claude Code, Anthropic's official
+  CLI for Claude`, `Main branch (you will usually use this for PRs)`,
+  `Codex CLI is an open source project led by OpenAI.`, `You are an AI agent
+  powered by DeepSeek Harness.` and one DSH runtime-context line. The plugin's
+  own comment records the measurement: *"WorkBuddy's channel check reads the
+  system and assistant messages only: tried on 2026-10-21 with real accounts on
+  both builds … each refused line was served in the user's message, a tool's
+  result and a user message's parts, and refused again in the system or an
+  assistant message. It matches a known line whole and exactly (one extra space
+  lets it through)."*
+- `systemAsUser()` is the fallback: the agent's system prompt is moved into the
+  first user message inside `<instructions>` tags, with WorkBuddy's default
+  system prompt put first, *"as both builds want a system message there
+  (11128 'first message is not system prompt')"*.
+
+One difference worth keeping: the plugin always sends
+`User-Agent: WorkBuddy/5.5.6` and warns that *"a request whose User-Agent
+isn't WorkBuddy/<version> is refused (error 10085)"*. On the **CN** build
+(`copilot.tencent.com`) that is real — magpie's Go code says the same about
+its own calls ("every call to it — chat and billing alike — must go out as
+WorkBuddy/<version>"). On the **INTL** build (`www.codebuddy.ai`) the
+User-Agent was not checked in this measurement: `python-urllib/3.11` was
+accepted, and dropping `User-Agent` entirely was accepted too. The two builds
+are not identical in their rules.
+
+The plugin's catalogue for the plan (its `CN_MODELS`) lists
+`deepseek-v4.1-flash`, `deepseek-v4-pro`, `glm-5.3`, `glm-5.3-flash`,
+`glm-5.2`, `glm-5.1`, `kimi-k3-1`, `kimi-k2.7`, `kimi-k2.6`, `minimax-m3`,
+`hy3`, `hy4-preview-f` and `auto` — so a WorkBuddy plan is a second source of
+DeepSeek / GLM / Kimi models, next to ClinePass and Qianfan.
+
+Sign-in is a browser flow in the plugin ("Tencent's page, polled for the token
+as WorkBuddy's desktop app does"), or the desktop app's own sign-in is
+imported — but only while its credential protection is off. On this machine
+`…/CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info` is encrypted
+(`$wbEncrypted` envelopes), so the desktop session cannot be read; the CLI
+session in `~/.local/share/CodeBuddyExtension/…/Tencent-Cloud.coding-copilot.info`
+is still plaintext.
+
+---
+
 ## What this means for ccp
 
 The archived conclusion was reached with a body sanitiser that could not see
@@ -173,10 +231,10 @@ Restoring the provider needs three things:
 3. **The identity moved out of the system role.** A foreign identity is
    refused in system *and* assistant messages; putting the agent's own
    instructions into the first user message instead is what magpie's plugin
-   does (`0.1.29`: "a system prompt WorkBuddy refuses as an unapproved channel
-   (11128) is sent once more as the first user message's instructions, with
-   WorkBuddy's default system prompt, since WorkBuddy checks only system and
-   assistant messages").
+   does (`systemAsUser`, and its 0.1.29 changelog entry: "a system prompt
+   WorkBuddy refuses as an unapproved channel (11128) is sent once more as the
+   first user message's instructions, with WorkBuddy's default system prompt,
+   since WorkBuddy checks only system and assistant messages").
 
 The credentials side is unchanged and still applies: magpie reads WorkBuddy's
 own account from `<shared data>/auth/workbuddy-desktop.info` and never writes
@@ -186,12 +244,21 @@ imported the way the CLI session can. The CLI session
 (`~/.local/share/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info`)
 is still plaintext and still valid.
 
+Two more things magpie's plugin does that a restored ccp provider would need:
+
+- `max_completion_tokens` → `max_tokens` (WorkBuddy's endpoint takes the
+  latter), and a `developer` role becomes `system`.
+- The chat must open with a system message; `"You are a helpful assistant."`
+  is a default that is accepted as-is.
+
 ## Open questions
 
-- The CN gateway (`copilot.tencent.com`) was not measured: this account's token
-  belongs to the INTL host and the CN one answers 401. The 11128 code and its
-  two sub-messages are the same family, and the WorkBuddy desktop bundle points
-  at the CN host, so the rule is very likely identical — but that is inference.
+- The CN gateway (`copilot.tencent.com`) was not measured end to end: this
+  account's token belongs to the INTL host and the CN one answers 401. The
+  11128 code and its two sub-messages are the same family, and magpie measures
+  the same rule on both builds, so the rule is very likely identical — but the
+  User-Agent rule (10085) is CN-only as far as this measurement goes, and the
+  rest is inference.
 - Whether the three conversation headers are also what the *WorkBuddy AI*
   (`www.workbuddy.ai`) build wants, or whether the INTL desktop build adds
   something of its own.
