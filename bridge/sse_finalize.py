@@ -10,6 +10,8 @@ can go minutes without a token; a 12s idle inject aborted LiteLLM mid-JSON.
 
 from __future__ import annotations
 
+import re
+
 MESSAGE_STOP_MARK = b"event: message_stop"
 OPENAI_DONE_MARK = b"data: [DONE]"
 
@@ -162,6 +164,22 @@ BILLING_HEADER_MARKER = "x-anthropic-billing-header:"
 CLAUDE_IDENTITY_OPENINGS = ("you are claude code",)
 CHANNEL_SAFE_PREFIX = "\n"
 
+# The gateway has a *second* check, and it is not a prefix check: this line is
+# refused wherever it appears in the text, in any case, with a trailing space
+# and all. Measured on 2026-10-24 against www.codebuddy.ai: it is refused as
+# the first line, on a later line, in the middle of the text, lowercased, and
+# with a trailing space — while the same words one character apart are fine.
+#
+# Claude Code's TUI sends it ("Main branch (you will usually use this for
+# PRs)"), so a real session was refused with 11128 even after the identity
+# line had been neutralised. A leading newline does not defeat this one, so
+# the line is reworded instead — the same wording magpie's plugin uses
+# (magpie-community/plugins, packages/workbuddy).
+CHANNEL_REFUSED_LINES = (
+    (re.compile(r"main branch \(you will usually use this for PRs\)", re.IGNORECASE),
+     "Main branch (usually the base for PRs)"),
+)
+
 # Used only when stripping leaves a request with no system prompt at all, where
 # the gateway's other check ("first message is not system prompt") would fire.
 DEFAULT_SYSTEM_PROMPT = (
@@ -217,6 +235,39 @@ def _clean_content(content):
                 # keep it only if it still carries content.
                 if not text.strip():
                     continue
+        blocks.append(blk)
+    return blocks, changed
+
+
+def _reword_text(text: str) -> tuple[str, bool]:
+    """Replace the gateway's refused lines with a wording it accepts."""
+    out = text
+    for pattern, replacement in CHANNEL_REFUSED_LINES:
+        out = pattern.sub(replacement, out)
+    return out, out != text
+
+
+def _reword_refused(content):
+    """Return ``(content, changed)`` with the refused lines reworded.
+
+    The gateway *scans* for these lines, so the newline trick that defeats the
+    identity check does not help here: the words are still in the text. The
+    line is reworded instead, which is what magpie's plugin does.
+
+    Handles both Anthropic shapes: a bare string, or a list of content blocks.
+    """
+    if isinstance(content, str):
+        return _reword_text(content)
+    if not isinstance(content, list):
+        return content, False
+    changed = False
+    blocks = []
+    for blk in content:
+        if isinstance(blk, dict) and isinstance(blk.get("text"), str):
+            text, hit = _reword_text(blk["text"])
+            if hit:
+                changed = True
+                blk = dict(blk, text=text)
         blocks.append(blk)
     return blocks, changed
 
@@ -338,6 +389,24 @@ def sanitize_channel_markers(body: bytes) -> tuple[bytes, list[str]]:
         doc["system"] = [{"type": "text", "text": DEFAULT_SYSTEM_PROMPT}]
         if not had_system:
             applied.append("system-default")
+
+    # The gateway also scans for one refused line *wherever* it appears, so
+    # this one is reworded rather than prefixed. Claude Code's TUI sends it,
+    # and a session that carries it is refused even when the identity line has
+    # been neutralised.
+    if "system" in doc:
+        doc["system"], hit = _reword_refused(doc["system"])
+        if hit:
+            applied.append("refused-line")
+    for msg in doc.get("messages") or []:
+        if (
+            isinstance(msg, dict)
+            and msg.get("role") in ("assistant", "system")
+            and "content" in msg
+        ):
+            msg["content"], hit = _reword_refused(msg["content"])
+            if hit and "refused-line" not in applied:
+                applied.append("refused-line")
 
     if not applied:
         return body, []

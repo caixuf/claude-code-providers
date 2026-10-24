@@ -14,6 +14,12 @@ BRIDGE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRIDGE))
 
 import httpx  # noqa: E402
+import pytest  # noqa: E402
+
+# starlette only comes with the proxy's own venv. Where it is missing this
+# file is skipped rather than breaking the whole collection — a test that
+# cannot run is not a reason for the suite to fail.
+pytest.importorskip("starlette.testclient", reason="starlette is not installed here")
 from starlette.testclient import TestClient  # noqa: E402
 
 import sse_watchdog  # noqa: E402

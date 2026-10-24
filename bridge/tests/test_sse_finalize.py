@@ -1,3 +1,5 @@
+import json
+
 from sse_finalize import SseCutState, clamp_max_tokens, event_is_ping, resolve_max_output, sse_should_close, split_complete_events, strip_1m_beta
 
 
@@ -384,3 +386,49 @@ def test_norm_model_key_matches_rules_to_sent_spelling():
     assert norm_model_key("CODEBUDDY-GLM[1M]") == "codebuddy-glm"
     assert norm_model_key("glm-5.3") == "glm-5.3"
     assert norm_model_key(None) == ""
+
+
+def test_sanitize_channel_rewords_the_line_the_gateway_scans_for():
+    """The gateway scans for this line, so a newline does not defeat it.
+
+    Measured on 2026-10-24 against www.codebuddy.ai: "Main branch (you will
+    usually use this for PRs)" is refused as the first line, on a later line,
+    in the middle of the text, lowercased, and with a trailing space. Claude
+    Code's TUI sends it, so a session that carries it was refused even after
+    the identity line had been neutralised.
+    """
+    from sse_finalize import sanitize_channel_markers
+
+    tui = (
+        "You are Claude Code, Anthropic's official CLI for Claude.\n"
+        "Main branch (you will usually use this for PRs)\n"
+        "Do not use the TodoWrite tool unless the user asks for it.\n"
+    )
+    body = json.dumps({
+        "system": [{"type": "text", "text": tui}],
+        "messages": [{"role": "user", "content": "hi"}],
+    }).encode()
+    out, applied = sanitize_channel_markers(body)
+    assert "refused-line" in applied, applied
+    text = json.loads(out)["system"][0]["text"]
+    assert "you will usually use this for PRs" not in text
+    # the identity is still neutralised the other way
+    assert "claude-identity" in applied
+    # and the rest of the prompt is untouched
+    assert "Do not use the TodoWrite tool" in text
+
+
+def test_sanitize_channel_rewords_it_in_an_assistant_turn_too():
+    """The gateway reads assistant messages as well as the system prompt."""
+    from sse_finalize import sanitize_channel_markers
+
+    body = json.dumps({
+        "system": [{"type": "text", "text": "You are a helpful assistant."}],
+        "messages": [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "Main branch (you will usually use this for PRs)"},
+        ],
+    }).encode()
+    out, applied = sanitize_channel_markers(body)
+    assert "refused-line" in applied, applied
+    assert "you will usually use this for PRs" not in json.loads(out)["messages"][1]["content"]
