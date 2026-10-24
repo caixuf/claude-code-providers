@@ -649,3 +649,46 @@ def test_rendered_request_rules_carry_the_media_rule():
     rules = json.loads(rules_path.read_text())
     assert "media_downgrade" in rules
     assert "qianfan-deepseek-v4-flash" in rules["media_downgrade"]
+
+
+
+def test_local_overlay_is_gitignored_and_absent_by_default():
+    """Wall-clock state must not live in a tracked file.
+
+    The qianfan window used to rewrite registry/profiles.yaml, so a commit
+    taken at 23:00 shipped "Qianfan first" as what a fresh clone starts with,
+    and every `git status` was dirty. The override is now a git-ignored file
+    that render merges last.
+    """
+    import subprocess
+
+    ignored = subprocess.run(
+        ["git", "check-ignore", "registry/profiles.local.yaml"],
+        cwd=REPO, capture_output=True, text=True,
+    )
+    assert ignored.returncode == 0, "registry/profiles.local.yaml must be git-ignored"
+    # The committed profiles.yaml describes the daytime arrangement: no group
+    # names Qianfan, so a clone that never runs a timer is on the cheap one.
+    doc, profiles = _load()
+    for gname, gspec in (profiles.get("groups") or {}).items():
+        for member in gspec.get("members") or []:
+            assert "qianfan" not in member, f"{gname} ships Qianfan as a member: {member}"
+
+
+def test_local_overlay_replaces_a_whole_top_level_key():
+    """A shallow merge, so naming a group replaces it rather than appending.
+
+    Deep-merging would make it impossible to *remove* a member by writing a
+    shorter list, which is the one thing the window switch needs to do.
+    """
+    doc, profiles = _load()
+    overlay = {"groups": {"main": {"members": ["qianfan-deepseek-v4.1-flash"]}}}
+    merged = {**profiles, **overlay}
+    assert merged["groups"]["main"]["members"] == ["qianfan-deepseek-v4.1-flash"]
+    assert merged["groups"]["main"].get("fallback") is None
+    # The overlay owns the whole `groups` key, so it must name every group it
+    # wants kept — replacing is the point, and a merge that silently preserved
+    # unnamed members would make "remove Qianfan from pro" impossible to say.
+    assert set(merged["groups"]) == {"main"}
+    # Keys it does not name at all are untouched.
+    assert merged["aliases"] is profiles["aliases"]

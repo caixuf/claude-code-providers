@@ -27,6 +27,12 @@ REPO_DIR = BRIDGE_DIR.parent
 REGISTRY = REPO_DIR / "registry"
 MODELS_YAML = REGISTRY / "models.yaml"
 PROFILES_YAML = REGISTRY / "profiles.yaml"
+# Local, git-ignored state that overrides parts of profiles.yaml. The group
+# membership `bridge/qianfan_window.py` toggles lives here rather than in the
+# committed file: the timer rewrites it several times a day, and a tracked file
+# that changes on a schedule makes every `git status` a lie and every commit a
+# chance to ship "it happened to be 21:00" as the default.
+PROFILES_LOCAL = REGISTRY / "profiles.local.yaml"
 CONFIG_OUT = BRIDGE_DIR / "config.generated.yaml"
 CLAMP_OUT = BRIDGE_DIR / "clamp_map.json"
 RULES_OUT = BRIDGE_DIR / "request_rules.json"
@@ -703,6 +709,11 @@ def main() -> None:
 
     models_doc = load_yaml(MODELS_YAML)
     profiles_doc = load_yaml(PROFILES_YAML)
+    if PROFILES_LOCAL.is_file():
+        # Shallow merge, top-level keys only: the overlay file is for group
+        # membership, and a deep merge would make it impossible to *remove* a
+        # member by naming a shorter list.
+        profiles_doc = {**profiles_doc, **load_yaml(PROFILES_LOCAL)}
     models, providers = index_models(models_doc)
     # register non-discovered providers (copilot, *-native) so emit() knows their shape
     for pname, pmeta in _np_providers(profiles_doc).items():
