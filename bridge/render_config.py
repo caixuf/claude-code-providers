@@ -348,8 +348,15 @@ def render_router_settings(profiles_doc: dict) -> list[str]:
                 rg.append("    routing_strategy_args:")
                 for k, v in args.items():
                     rg.append(f"      {k}: {v}")
-        for target in gspec.get("fallback") or []:
-            fb.append(f"  - {gname}: [{target}]")
+        # A fallback list is an ordered chain, so it belongs on ONE line:
+        # `main: [a, b]` means "if main is exhausted, try a, then b". Emitting
+        # one line per target instead produces two entries that both claim to
+        # be main's whole fallback list, and LiteLLM takes the last one — so
+        # the second target silently replaced the first rather than following
+        # it.
+        targets = list(gspec.get("fallback") or [])
+        if targets:
+            fb.append("  - %s: [%s]" % (gname, ", ".join(targets)))
 
     out: list[str] = []
     if fb:

@@ -345,6 +345,27 @@ def test_group_emits_router_settings_that_litellm_accepts():
         assert target in known, f"fallback {target} has no deployment"
 
 
+def test_group_fallback_chain_is_one_ordered_list():
+    """Two fallbacks are a chain, not two rival claims on the same group.
+
+    Emitting one `- main: [x]` line per target put two entries under the same
+    key; LiteLLM keeps the last, so the first target was silently dropped
+    instead of being tried before the second.
+    """
+    doc, profiles = _load()
+    profiles["groups"] = {
+        "daily": {
+            "members": ["opendesign-deepseek-v4.1-flash"],
+            "fallback": ["cline-deepseek-v4.1-flash", "opendesign-deepseek-v4-pro"],
+        }
+    }
+    parsed = yaml.safe_load(_render_with(profiles))
+    fb = parsed["router_settings"]["fallbacks"]
+    assert fb == [
+        {"daily": ["cline-deepseek-v4.1-flash", "opendesign-deepseek-v4-pro"]}
+    ], f"the chain must stay one entry in order, got {fb}"
+
+
 def test_group_member_may_be_an_alias_a_registry_id_or_provider_slash_model():
     """All three spellings resolve. Distinct upstreams stay distinct; two
     members that resolve to the *same* upstream collapse to one deployment
