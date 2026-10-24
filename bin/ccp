@@ -76,6 +76,8 @@ Usage:
                              | group add <name> <member...> | group remove <name>
                              (a pool fails over natively when a quota runs out)
   ccp quota [provider]       What is left on each plan
+  ccp usage                  Tokens actually spent, from the bridge's ledger
+                             (--today, --days N, --by-model, --by-provider, --json)
   ccp hermes [provider]      Point the local Hermes agent at a provider's model.
                              Bare `ccp hermes` shows what it runs now. Writes
                              ~/.hermes/profiles/<profile>/config.yaml and
@@ -1270,6 +1272,16 @@ main() {
       fi
       py_bin=$(ccp_python)
       "$py_bin" "$repo_dir/bridge/ccp_accounts.py" "${@:2}"
+      ;;
+    usage|--usage)
+      local repo_dir py_bin
+      repo_dir=$(ccp_repo_dir)
+      if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/ccp_usage.py" ]; then
+        echo -e "\033[31mError: repo checkout not found (need bridge/ccp_usage.py).\033[0m" >&2
+        return 1
+      fi
+      py_bin=$(ccp_python)
+      "$py_bin" "$repo_dir/bridge/ccp_usage.py" "${@:2}"
       ;;
     quota|--quota)
       local repo_dir py_bin

@@ -741,6 +741,58 @@ Readings are cached for two minutes because these endpoints are rate limited.
 
 ---
 
+## 📈 Token usage
+
+The bridge sees every Anthropic-shaped `usage` block that reaches ccp, whichever
+path the provider takes — native, LiteLLM, or a local adapter. That is the only
+vantage point with a cross-provider view: providers reached natively never touch
+LiteLLM, so LiteLLM's own spend table can never answer "what have I used this
+week".
+
+```bash
+ccp usage                 # last 7 days
+ccp usage --today
+ccp usage --days 30 --by-model
+ccp usage --by-provider
+ccp usage --all --json
+```
+
+The ledger is `~/.local/state/ccp/usage.jsonl`, one line per finished request,
+mode `0600`. Appending rather than rewriting a running total is deliberate: a
+crash mid-write loses at most the last line, and any window can be re-aggregated
+later without the writer having anticipated it. A rewritten total is the shape
+that goes to zero when the process dies during the write.
+
+**Four numbers, not one.** Anthropic reports fresh input, cache reads and cache
+writes separately because they are priced differently, and `ccp usage` keeps
+them apart:
+
+```
+  fresh input        470
+  cache read       54.0k  (cheap tier)
+  cache write       1200
+  input total      55.7k
+  output            1230
+  grand total      56.9k
+
+  97.0% of input was served from cache
+```
+
+Note how far the last line moves: a total counting only `input_tokens` would
+report this session as 470 tokens instead of 55.7k of input. The cache is the
+difference between a long session looking nearly free and looking like what it
+costs.
+
+**No prices are applied.** Every plan here prices fresh input, cache reads and
+cache writes differently, and a stale multiplier is worse than no number — so
+the counts are shown and you multiply. `--json` gives the raw figures for
+whatever you bill against.
+
+`--no-usage` on `sse_watchdog.py` turns recording off; the proxy is otherwise
+unchanged.
+
+---
+
 ## 📊 Benchmarks
 
 `ccp ping <provider>` on this machine, identical prompt and settings for every

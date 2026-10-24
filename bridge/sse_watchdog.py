@@ -26,12 +26,14 @@ if str(_BRIDGE_DIR) not in sys.path:
 from sse_finalize import (  # noqa: E402
     SseCutState,
     clamp_max_tokens,
+    event_is_ping,
     norm_model_key,
     sanitize_channel_markers,
     strip_1m_beta,
     strip_1m_model,
 )
 from loopback import ensure_loopback_bypass, loopback_mounts  # noqa: E402
+from usage_ledger import UsageLedger, UsageTally  # noqa: E402
 
 HOP = {
     "connection",
@@ -82,8 +84,18 @@ async def _sse_body(
     *,
     ping_idle_s: float,
     first_byte_s: float,
+    on_close=None,
 ) -> AsyncIterator[bytes]:
+    import time as _time
+
     st = SseCutState(ping_idle_s=ping_idle_s, first_byte_s=first_byte_s)
+    # The tally rides along on the same chunk walk the cut logic already does,
+    # so usage costs no extra buffering and survives a cut: the events that
+    # carry the counts (`message_start`, `message_delta`) arrive before
+    # `message_stop`, which is where we stop forwarding.
+    tally = UsageTally()
+    started = _time.monotonic()
+    ttft_ms: int | None = None
     aiter = resp.aiter_bytes()
     handed_off = False
     try:
@@ -96,6 +108,9 @@ async def _sse_body(
                 break
             if not chunk:
                 break
+            tally.feed(chunk)
+            if ttft_ms is None and not event_is_ping(chunk):
+                ttft_ms = int((_time.monotonic() - started) * 1000)
             out, done = st.feed(chunk)
             if out:
                 yield out
@@ -106,7 +121,13 @@ async def _sse_body(
     finally:
         if not handed_off:
             await resp.aclose()
-
+        # Records even on a cut or a client disconnect: the tokens were billed
+        # upstream whether or not the rest of the stream was read.
+        if on_close is not None:
+            try:
+                on_close(tally, ttft_ms, int((_time.monotonic() - started) * 1000))
+            except Exception:
+                pass
 
 
 async def proxy(request: Request) -> Response:
@@ -143,6 +164,9 @@ async def proxy(request: Request) -> Response:
         pass
     timeout = httpx.Timeout(connect=10.0, read=None, write=30.0, pool=10.0)
     client: httpx.AsyncClient = request.app.state.client
+    # The channel's three conversation headers are a deployment-level
+    # `extra_headers` in the registry, which LiteLLM adds — not the watchdog's
+    # job. See registry/models.yaml and render_config.py.
     req = client.build_request(
         request.method,
         url,
@@ -165,20 +189,50 @@ async def proxy(request: Request) -> Response:
         for k, v in r.headers.items()
         if k.lower() not in HOP and k.lower() != "content-type"
     }
+    ledger = getattr(request.app.state, "ledger", None)
+    sent_model = _sent_model or "unknown"
+
+    def _record(tally, ttft_ms, duration_ms, status, streamed):
+        if ledger is None:
+            return
+        try:
+            ledger.record(
+                provider=getattr(request.app.state, "provider", "") or "",
+                model=tally.model or sent_model,
+                usage=tally.usage,
+                status=status,
+                duration_ms=duration_ms,
+                streamed=streamed,
+                ttft_ms=ttft_ms,
+            )
+        except Exception:
+            pass
+
     if "text/event-stream" in ctype:
         return StreamingResponse(
             _sse_body(
                 r,
                 ping_idle_s=request.app.state.ping_idle_s,
                 first_byte_s=request.app.state.first_byte_s,
+                on_close=lambda tally, ttft, dur: _record(tally, ttft, dur, r.status_code, True),
             ),
             status_code=r.status_code,
             media_type="text/event-stream",
             headers=out_headers,
         )
 
+    import time as _time
+
+    _t0 = _time.monotonic()
     data = await r.aread()
     await r.aclose()
+    if r.status_code < 400:
+        # `/health`, `/v1/models` and friends share this port and carry no
+        # usage; only a body that actually has counters is a billed request.
+        tally = UsageTally()
+        tally.absorb_json(data)
+        if not tally.usage.is_empty():
+            _record(tally, None, int((_time.monotonic() - _t0) * 1000), r.status_code, False)
     return Response(
         content=data,
         status_code=r.status_code,
@@ -256,6 +310,7 @@ def build_app(
     upstream: str,
     ping_idle_s: float,
     first_byte_s: float = 90.0,
+    usage_path: str | None = None,
     clamp_map: dict[str, int] | None = None,
     clamp_fallback: int | None = None,
     request_rules: dict[str, set[str]] | None = None,
@@ -273,6 +328,9 @@ def build_app(
     app.state.clamp_map = clamp_map or {}
     app.state.clamp_fallback = clamp_fallback
     app.state.request_rules = request_rules or {}
+    # The ledger is optional: --no-usage keeps the proxy byte-identical to what
+    # it was, for anyone who would rather not write a file per request.
+    app.state.ledger = UsageLedger(usage_path) if usage_path else None
     # The upstream is LiteLLM on this machine. A request to 127.0.0.1 that
     # the HTTP proxy answers for comes back 502 with an empty body, and the
     # bridge then looks broken while both processes are perfectly healthy.
@@ -293,6 +351,12 @@ def main() -> None:
     p.add_argument("--clamp-map", default=None, help="Path to clamp_map.json (default: bridge/clamp_map.json)")
     p.add_argument("--request-rules", default=None, help="Path to request_rules.json (default: bridge/request_rules.json)")
     p.add_argument("--no-clamp", action="store_true", help="Disable max_tokens clamping")
+    p.add_argument(
+        "--usage-path",
+        default=str(Path.home() / ".local/state/ccp/usage.jsonl"),
+        help="Per-request token ledger (default: ~/.local/state/ccp/usage.jsonl)",
+    )
+    p.add_argument("--no-usage", action="store_true", help="Do not record token usage")
     args = p.parse_args()
     import uvicorn
 
@@ -308,8 +372,22 @@ def main() -> None:
         flush=True,
     )
 
+    usage_path = None if args.no_usage else args.usage_path
+    print(
+        f"[WATCHDOG] usage ledger: {usage_path or 'off'}",
+        flush=True,
+    )
+
     uvicorn.run(
-        build_app(args.upstream, args.idle_seconds, args.first_byte_seconds, cmap, cfallback, rules),
+        build_app(
+            args.upstream,
+            args.idle_seconds,
+            args.first_byte_seconds,
+            usage_path=usage_path,
+            clamp_map=cmap,
+            clamp_fallback=cfallback,
+            request_rules=rules,
+        ),
         host=args.host,
         port=args.port,
         log_level="warning",

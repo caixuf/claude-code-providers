@@ -205,6 +205,12 @@ def test_a_single_config_install_is_found_instead_of_crashing(tmp_path, monkeypa
     home = tmp_path / ".hermes"
     home.mkdir()
     (home / "config.yaml").write_text(PROFILE)
+    # Isolate $HOME too: `default_profile()` falls back to scanning the real
+    # `~/.config/systemd/user/hermes-gateway-*.service`, so on this workstation
+    # (one gateway installed) it answered `caixuf` and the lookup never reached
+    # the single-config branch this test exists to cover. HERMES_HOME alone
+    # does not help — the unit scan reads Path.home(), not hermes_home().
+    monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("HERMES_HOME", str(home))
     monkeypatch.delenv("HERMES_PROFILE", raising=False)
     assert hermes_config.hermes_home() == home
