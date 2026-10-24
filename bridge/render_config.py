@@ -157,10 +157,8 @@ def render_config(
             api_base = override
         if api_base:
             lines.append(f"      api_base: {api_base}")
-        # Headers every request to this provider must carry. WorkBuddy's
-        # channel check refuses a request without its three conversation
-        # headers with 11128 "request illegal" (docs/workbuddy-channel-check.md),
-        # so they belong to the deployment, not to the model.
+        # Headers every request to this provider must carry. They belong to
+        # the deployment, not to the model.
         eh = pmeta.get("extra_headers") or {}
         if eh:
             lines.append("      extra_headers:")
@@ -473,16 +471,13 @@ def litellm_model_string_override(pname: str, mname: str, profiles_doc: dict | N
         # bridge/config.example.yaml; dropping it here re-broke that (402).
         return f"openai/cline-pass/{mname.rsplit('/', 1)[-1]}"
     if pname in ("codebuddy", "workbuddy"):
-        # WorkBuddy / CodeBuddy serve /chat/completions ONLY under /v2 and 404
-        # the whole /v1/* and /responses surface. LiteLLM 1.103 routes every
-        # ``openai/`` deployment reached through Anthropic /v1/messages to the
-        # Responses API (→ POST https://www.codebuddy.ai/v2/responses → 404).
-        # The documented opt-out is the global
-        # LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES env flag,
-        # which would also re-route the working cmdc/cline deployments.
-        # ``hosted_vllm/`` is LiteLLM's generic OpenAI-compatible server
-        # prefix: it keeps the chat/completions builder *per deployment*, so
-        # nothing else in the bridge changes behaviour.
+        # Retired with the provider (docs/archived-providers.md), kept so an
+        # old registry still renders the prefix it expects rather than falling
+        # through to ``openai/`` and hitting the Responses API. Both gateways
+        # serve /chat/completions only under /v2 and 404 the whole /v1/* and
+        # /responses surface; ``hosted_vllm/`` is LiteLLM's generic
+        # OpenAI-compatible prefix and keeps the chat/completions builder per
+        # deployment.
         return f"hosted_vllm/{mname}"
     if pname == "codex":
         # The local Codex gateway has an Anthropic front door (:56895/v1/messages,
@@ -630,9 +625,9 @@ def _base_url(pname: str, providers: dict, native: bool) -> str:
 def _env_api_base(pname: str, providers: dict) -> str | None:
     """A host the account's own login chose, if the secrets file names one.
 
-    WorkBuddy runs two gateways and a session is valid at exactly the one it
-    was issued by (the international site and the CN one), so the host belongs
-    to the *account*, not to the provider. `ccp auth workbuddy` writes the
+    A subscription can run two gateways (an international site and a CN one)
+    and a session is valid at exactly the one it was issued by, so the host
+    belongs to the *account*, not to the provider. The importer writes the
     login's own base into proxy.env as `<PROVIDER>_API_BASE`; this reads it
     back, so a CN account is rendered against the CN gateway instead of being
     refused with a bare 401 that looks like an expired login.

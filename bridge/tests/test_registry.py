@@ -501,42 +501,6 @@ def _emitted_and_rules():
     return models, profiles, emitted, render_config.render_request_rules(profiles, emitted)
 
 
-def test_sanitize_channel_is_scoped_to_the_provider_that_needs_it():
-    """Only WorkBuddy's own model names may be rewritten."""
-    from sse_finalize import norm_model_key
-
-    models, profiles, emitted, rules = _emitted_and_rules()
-    assert set(rules) == {"sanitize_channel"}, f"unexpected rules: {sorted(rules)}"
-    listed = {norm_model_key(n) for n in (rules["sanitize_channel"] or [])}
-    assert listed, "the rule covers nothing, so it would never fire"
-    workbuddy_names = {norm_model_key(n) for n in emitted.get("workbuddy", ())}
-    assert listed <= workbuddy_names, f"rewritten but not WorkBuddy's: {listed - workbuddy_names}"
-    for pname, names in emitted.items():
-        if pname == "workbuddy":
-            continue
-        for name in names:
-            assert norm_model_key(name) not in listed, f"{pname}/{name} would be rewritten"
-    # non-vacuous: providers really did emit names to check against
-    assert any(names for names in emitted.values()), "nothing was emitted at all"
-
-
-def test_workbuddy_deployments_carry_the_conversation_headers():
-    """The channel check reads three headers; they must be on every deployment."""
-    doc, profiles = _load()
-    models, providers = render_config.index_models(doc)
-    text = render_config.render_config(models, providers, profiles)
-    cfg = yaml.safe_load(text)
-    deployments = [
-        d for d in cfg.get("model_list", [])
-        if str(d.get("litellm_params", {}).get("api_base", "")).startswith("https://www.codebuddy.ai")
-    ]
-    assert deployments, "no WorkBuddy deployment was rendered"
-    for d in deployments:
-        eh = d["litellm_params"].get("extra_headers") or {}
-        for h in ("X-Conversation-ID", "X-Conversation-Message-ID", "X-Conversation-Request-ID"):
-            assert h in eh, f"{d['model_name']} is missing {h}"
-
-
 def test_rendered_config_has_drop_params_setting():
     """LiteLLM must drop unsupported params (like OpenAI 'store') when routing."""
     doc, profiles = _load()
@@ -547,30 +511,24 @@ def test_rendered_config_has_drop_params_setting():
 
 
 
-def test_workbuddy_host_follows_the_login_not_the_registry(tmp_path, monkeypatch):
-    """WorkBuddy runs two gateways; a session is valid at exactly one of them.
+def test_account_base_url_overrides_the_registry_host(tmp_path, monkeypatch):
+    """A subscription can run two gateways; a session is valid at exactly one.
 
-    The registry names the international one, but a CN account must be rendered
-    against the CN gateway — otherwise it is refused with a bare 401 that looks
-    like an expired login. `ccp auth workbuddy` writes the login's own base
-    into proxy.env and the render reads it back.
+    The registry names a default host, but an account issued by the other one
+    must be rendered against it — otherwise it is refused with a bare 401 that
+    looks like an expired login. The importer writes the login's own base into
+    proxy.env as `<PROVIDER>_API_BASE`, and the render reads it back.
     """
     home = tmp_path / "home"
     (home / ".config" / "litellm").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
-    env_file = home / ".config" / "litellm" / "proxy.env"
-    env_file.write_text(
-        "WORKBUDDY_API_KEY=token\nWORKBUDDY_API_BASE=https://copilot.tencent.com/v2\n"
+    (home / ".config" / "litellm" / "proxy.env").write_text(
+        "DEMO_API_KEY=token\nDEMO_API_BASE=https://cn.example.invalid/v2\n"
     )
-    doc, profiles = _load()
-    models, providers = render_config.index_models(doc)
-    assert render_config._env_api_base("workbuddy", providers) == "https://copilot.tencent.com/v2"
-    text = render_config.render_config(models, providers, profiles)
-    cfg = yaml.safe_load(text)
-    bases = {
-        d["litellm_params"].get("api_base")
-        for d in cfg.get("model_list", [])
-        if d["litellm_params"].get("api_base", "").startswith("https://")
-    }
-    assert "https://copilot.tencent.com/v2" in bases, bases
-    assert "https://www.codebuddy.ai/v2" not in bases, bases
+    providers = {"demo": {"api_base": "https://intl.example.invalid/v2"}}
+    assert render_config._env_api_base("demo", providers) == "https://cn.example.invalid/v2"
+    # A provider with no base of its own gets no override, and a missing key
+    # is not an error — the render just keeps the registry's value.
+    assert render_config._env_api_base("other", providers) is None
+    assert render_config._env_api_base("demo", {}) is None
+

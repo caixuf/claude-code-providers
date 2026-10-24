@@ -67,7 +67,7 @@ Usage:
   ccp sync                   Sync local profiles with repository templates
   ccp bridge [action]        Manage local bridge: status, restart, start, stop,
                              deploy, logs, start-trae/stop-trae/restart-trae (the Trae adapter)
-  ccp auth [copilot|trae|workbuddy]
+  ccp auth [copilot|trae]
                              Authenticate a provider (Copilot device flow, the
                              TraeCLI personal access token, or the WorkBuddy /
                              CodeBuddy Code session)
@@ -881,25 +881,17 @@ except Exception as e:
       return $?
       ;;
     workbuddy|codebuddy)
-      # WorkBuddy / CodeBuddy Code: the gateway authenticates the *session* the
-      # CodeBuddy Code CLI holds, not an API key. Log in with `codebuddy` once
-      # (that is the sign-in step — this command only reads the session), then
-      # let ccp import it and prove the plan answers.
-      local repo_dir py_bin
-      repo_dir=$(ccp_repo_dir)
-      if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/workbuddy_auth.py" ]; then
-        echo -e "\033[31mError: repo checkout not found (need bridge/workbuddy_auth.py).\033[0m" >&2
-        return 1
-      fi
-      py_bin=$(ccp_python)
-      echo -e "\033[36m=== WorkBuddy Authentication (import the CodeBuddy CLI session) ===\033[0m"
-      echo -e "If you have not signed in yet: run \033[1mcodebuddy\033[0m once and log in there."
-      echo ""
-      "$py_bin" "$repo_dir/bridge/workbuddy_auth.py" "${@:2}"
-      return $?
+      # Retired with the provider: the importer is archived, and the gateway's
+      # channel check refused real sessions often enough that the plan is not a
+      # dependable route. Say so rather than run a stale copy.
+      echo -e "\033[33mWorkBuddy / CodeBuddy was removed.\033[0m" >&2
+      echo "  The importer and the measurement notes are in bridge/archived/ and" >&2
+      echo "  docs/workbuddy-channel-check.md. For a provider that stays reachable:" >&2
+      echo "  ccp - lists what is installed." >&2
+      return 1
       ;;
     *)
-      echo "Usage: ccp auth [copilot|trae|workbuddy]" >&2
+      echo "Usage: ccp auth [copilot|trae]" >&2
       return 1
       ;;
   esac

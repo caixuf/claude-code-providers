@@ -157,7 +157,30 @@ Restoring it is the four steps above, with the qianfan-specific parts spelled ou
 
 ---
 
-## CodeBuddy (Tencent coding-copilot) — archived 2026-10-16, back as `workbuddy/`
+## CodeBuddy / WorkBuddy (Tencent coding-copilot) — archived 2026-10-16, revived as `workbuddy/`, removed 2026-10-24
+
+> **Removed 2026-10-24, after a day as a live provider.** The channel check was
+> real but intermittent: the same interactive Claude Code session answered, then
+> was refused with 11128 on the next turn with a body that replayed to the
+> gateway as 200. The request the gateway accepted and the one it refused were
+> not distinguishable from this side — not by size (95KB and 180KB both went
+> either way), not by `thinking`, not by the identity line (which the gateway
+> accepts on its own, measured three ways), and not by the conversation headers
+> (fixed values are accepted). A route that works until it does not is worse
+> than no route, so it is out rather than "mostly working".
+>
+> What was kept: `bridge/archived/workbuddy_auth.py` (session import),
+> `workbuddy_probe.py` (per-id capability probe) and
+> [`workbuddy-channel-check.md`](workbuddy-channel-check.md) — the capture, the
+> header ablation and the magpie comparison, all measured, none inferred.
+>
+> What stayed in the shipped code because it is generally useful, not
+> Tencent-specific: `extra_headers` per deployment in `render_config.py`, the
+> `<PROVIDER>_API_BASE` override that renders a CN account against the CN
+> gateway, and `sanitize_channel` in `sse_finalize.py` (now unlisted, so it
+> fires for nothing). Re-adding the provider is the same four steps as any
+> archive: template, profile + aliases, `PROVIDERS` entry, then
+> `ccp discover && ccp render && ccp bridge deploy && ccp sync`.
 
 [CodeBuddy](https://www.codebuddy.ai/cli) (Tencent coding-copilot) is a flat
 subscription that fronts a whole fleet of third-party models — DeepSeek, GLM,
