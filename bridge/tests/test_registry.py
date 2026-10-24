@@ -545,3 +545,32 @@ def test_rendered_config_has_drop_params_setting():
     cfg = yaml.safe_load(text)
     assert cfg.get("litellm_settings", {}).get("drop_params") is True
 
+
+
+def test_workbuddy_host_follows_the_login_not_the_registry(tmp_path, monkeypatch):
+    """WorkBuddy runs two gateways; a session is valid at exactly one of them.
+
+    The registry names the international one, but a CN account must be rendered
+    against the CN gateway — otherwise it is refused with a bare 401 that looks
+    like an expired login. `ccp auth workbuddy` writes the login's own base
+    into proxy.env and the render reads it back.
+    """
+    home = tmp_path / "home"
+    (home / ".config" / "litellm").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    env_file = home / ".config" / "litellm" / "proxy.env"
+    env_file.write_text(
+        "WORKBUDDY_API_KEY=token\nWORKBUDDY_API_BASE=https://copilot.tencent.com/v2\n"
+    )
+    doc, profiles = _load()
+    models, providers = render_config.index_models(doc)
+    assert render_config._env_api_base("workbuddy", providers) == "https://copilot.tencent.com/v2"
+    text = render_config.render_config(models, providers, profiles)
+    cfg = yaml.safe_load(text)
+    bases = {
+        d["litellm_params"].get("api_base")
+        for d in cfg.get("model_list", [])
+        if d["litellm_params"].get("api_base", "").startswith("https://")
+    }
+    assert "https://copilot.tencent.com/v2" in bases, bases
+    assert "https://www.codebuddy.ai/v2" not in bases, bases

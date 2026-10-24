@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -150,8 +151,12 @@ def render_config(
         lines.append("    litellm_params:")
         lines.append(f"      model: {upstream}")
         pmeta = providers.get(provider, {})
-        if pmeta.get("api_base"):
-            lines.append(f"      api_base: {pmeta['api_base']}")
+        api_base = pmeta.get("api_base")
+        override = _env_api_base(provider, providers)
+        if override:
+            api_base = override
+        if api_base:
+            lines.append(f"      api_base: {api_base}")
         # Headers every request to this provider must carry. WorkBuddy's
         # channel check refuses a request without its three conversation
         # headers with 11128 "request illegal" (docs/workbuddy-channel-check.md),
@@ -620,6 +625,36 @@ def _base_url(pname: str, providers: dict, native: bool) -> str:
         if pmeta.get("api_base"):
             return pmeta["api_base"]
     return "http://127.0.0.1:4000"
+
+
+def _env_api_base(pname: str, providers: dict) -> str | None:
+    """A host the account's own login chose, if the secrets file names one.
+
+    WorkBuddy runs two gateways and a session is valid at exactly the one it
+    was issued by (the international site and the CN one), so the host belongs
+    to the *account*, not to the provider. `ccp auth workbuddy` writes the
+    login's own base into proxy.env as `<PROVIDER>_API_BASE`; this reads it
+    back, so a CN account is rendered against the CN gateway instead of being
+    refused with a bare 401 that looks like an expired login.
+
+    Only a host is read here — never a secret — so baking it into the
+    generated config is safe.
+    """
+    pmeta = providers.get(pname) or {}
+    if not pmeta.get("api_base"):
+        return None
+    env_file = Path(os.path.expanduser("~/.config/litellm/proxy.env"))
+    if not env_file.is_file():
+        return None
+    want = f"{pname.upper()}_API_BASE="
+    try:
+        for line in env_file.read_text().splitlines():
+            if line.startswith(want):
+                val = line.split("=", 1)[1].strip().strip("'\"")
+                return val or None
+    except Exception:
+        return None
+    return None
 
 
 def main() -> None:

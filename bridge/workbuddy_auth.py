@@ -406,6 +406,14 @@ def _import(args, *, quiet: bool) -> int:
         return 0
 
     write_env_value(env_path, sess["token"])
+    # The host this login is valid at. WorkBuddy runs two gateways and a
+    # session is valid at exactly the one it was issued by, so the base
+    # belongs to the account: it is written next to the key and `ccp render`
+    # reads it back, so a CN account is rendered against the CN gateway
+    # instead of being refused with a bare 401 that looks like an expired
+    # login. It is a host, not a secret.
+    base = api_base(sess)
+    write_env_value(env_path, base, key=API_BASE_ENV)
 
     if not quiet:
         masked = sess["token"][:12] + "..." + sess["token"][-6:]
