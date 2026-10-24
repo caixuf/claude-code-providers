@@ -358,9 +358,17 @@ Two things this deliberately does not do:
 
 A profile whose `model.provider` is not `custom:ccp` is refused rather than
 half-edited: a ccp model name in someone else's provider block would be a name
-that provider cannot serve. There is a backup (`.bak.<timestamp>`) beside the
-profile, and `--config` points the command at a file outside
-`~/.hermes/profiles/` when you are testing.
+that provider cannot serve. A `.bak.<timestamp>` copy of the pre-change file is
+written first — note that Hermes snapshots the profile's config into
+`<profile>/backups/config/` too, so ours is filed there beside its own
+`.good.<timestamp>` entries rather than left in the profile root. `--config`
+points the command at a file outside `~/.hermes/profiles/` when you are testing.
+
+> **One Feishu app, one gateway.** If a second host runs a gateway for the same
+> profile, both connect to the same app and the same home channel, and messages
+> are served by whichever one the platform picks — including the host you did
+> not mean. Give the leftover profile `platforms.feishu.enabled: false` before
+> pointing it anywhere else; it is otherwise a live copy of the bot.
 
 ---
 

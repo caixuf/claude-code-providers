@@ -56,8 +56,38 @@ def hermes_home() -> Path:
     return Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes"))
 
 
+def default_profile() -> str | None:
+    """The profile whose gateway is installed — the bot this host actually runs.
+
+    Naming one host's profile in the shared repo would be wrong everywhere else:
+    the bot on a workstation is `caixuf`, on the server it is `imfl`. The
+    installed `hermes-gateway-<name>.service` says which, per host.
+    """
+    env = os.environ.get("HERMES_PROFILE")
+    if env:
+        return env
+    units = sorted((Path.home() / ".config/systemd/user").glob("hermes-gateway-*.service"))
+    if len(units) == 1:
+        return units[0].name[len("hermes-gateway-"):-len(".service")]
+    return None
+
+
 def profile_config(profile: str) -> Path:
     return hermes_home() / "profiles" / profile / "config.yaml"
+
+
+def _require_profile(args) -> Path:
+    """The config to act on, or a message saying how to name one."""
+    if args.config:
+        return Path(args.config)
+    if not args.profile:
+        found = sorted(p.name for p in (hermes_home() / "profiles").iterdir() if p.is_dir())
+        raise SystemExit(
+            "cannot tell which Hermes profile to edit: no gateway service installed "
+            "(or more than one).\n"
+            f"  pass --profile <name>; profiles here: {', '.join(found) or 'none'}"
+        )
+    return profile_config(args.profile)
 
 
 def _split_comment(rest: str) -> tuple[str, str]:
@@ -170,8 +200,18 @@ def _write_atomic(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
+def _profile_of(args, path: Path) -> str:
+    """The name to restart a service for — empty when the file was named directly."""
+    if args.profile:
+        return args.profile
+    parts = path.parts
+    if "profiles" in parts and path.name == "config.yaml":
+        return parts[parts.index("profiles") + 1]
+    return ""
+
+
 def cmd_render(args) -> int:
-    path = Path(args.config) if args.config else profile_config(args.profile)
+    path = _require_profile(args)
     if not path.is_file():
         raise SystemExit(f"no Hermes profile at {path}")
 
@@ -204,7 +244,7 @@ def cmd_render(args) -> int:
         print(json.dumps({**info, "file": str(path), "changed": changed}, indent=2))
         return 0
 
-    print(f"profile:  {args.profile}  ({path})")
+    print(f"profile:  {_profile_of(args, path) or '(named directly)'}  ({path})")
     print(f"provider: {info['provider']} -> {info['registry_model']}")
     print(f"model:    {seen['model']} -> {info['name']}   (proxy id; ctx {info['ctx']})")
 
@@ -225,19 +265,19 @@ def cmd_render(args) -> int:
     # The gateway is a live bot and caches its agent at startup, so a rewritten
     # config is inert until it is bounced. The caller needs the profile to name
     # the unit; `CHANGED=1` is the only signal that a bounce is owed.
-    print(f"PROFILE={args.profile}")
+    print(f"PROFILE={_profile_of(args, path)}")
     print("CHANGED=1")
     return 0
 
 
 def cmd_status(args) -> int:
-    path = Path(args.config) if args.config else profile_config(args.profile)
+    path = _require_profile(args)
     if not path.is_file():
         raise SystemExit(f"no Hermes profile at {path}")
     _, seen = rewrite(path.read_text(encoding="utf-8"))
     print(json.dumps(
         {
-            "profile": args.profile,
+            "profile": _profile_of(args, path),
             "file": str(path),
             "provider": seen["provider"],
             "model": seen["model"],
@@ -253,7 +293,11 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def common(p):
-        p.add_argument("--profile", default=os.environ.get("HERMES_PROFILE", "imfl"))
+        # No hard-coded profile name: the bot is `caixuf` on a workstation and
+        # `imfl` on the server, and this file ships to both.
+        p.add_argument("--profile", default=default_profile(),
+                       help="Hermes profile to edit (default: $HERMES_PROFILE, else the one "
+                            "whose hermes-gateway-*.service is installed)")
         p.add_argument("--config", help="explicit config.yaml (bypasses --profile)")
         p.add_argument("--repo", help="checkout holding registry/ (default: this repo)")
 
