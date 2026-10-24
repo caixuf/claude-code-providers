@@ -217,3 +217,30 @@ def test_the_profile_name_is_reported_so_the_unit_can_be_restarted(tmp_path, cap
     cfg.write_text(PROFILE)
     hermes_config.main(["render", "codex", "--config", str(cfg), "--no-backup", "--profile", "imfl"])
     assert re.search(r"^PROFILE=imfl$", capsys.readouterr().out, re.M)
+
+def test_the_default_profile_is_the_one_the_bot_runs(tmp_path, monkeypatch):
+    """`ccp hermes` with no --profile must ask about the live bot.
+
+    A gateway unit only says a profile is *installed*; several can be, and the
+    run that gets the messages is the one `active_profile` names. Reading the
+    unit instead answered for a bot nobody was talking to.
+    """
+    monkeypatch.delenv("HERMES_PROFILE", raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    (tmp_path / "active_profile").write_text("imfl\n")
+    assert hermes_config.default_profile() == "imfl", "the trailing newline must not be part of the name"
+    (tmp_path / "active_profile").write_text("ccp")
+    assert hermes_config.default_profile() == "ccp"
+    monkeypatch.setenv("HERMES_PROFILE", "deepseek")
+    assert hermes_config.default_profile() == "deepseek", "$HERMES_PROFILE outranks the file"
+
+
+def test_no_profile_anywhere_is_an_error_not_a_guess(tmp_path, monkeypatch):
+    monkeypatch.delenv("HERMES_PROFILE", raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    assert hermes_config.default_profile() is None
+    (tmp_path / "profiles" / "ccp").mkdir(parents=True)
+    cfg = hermes_config.profile_config("ccp")
+    with pytest.raises(SystemExit) as e:
+        hermes_config._require_profile(hermes_config.argparse.Namespace(config=None, profile=None))
+    assert "--profile" in str(e.value) and "ccp" in str(e.value), "the message must name the ones that exist"
