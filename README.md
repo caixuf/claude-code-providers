@@ -348,8 +348,9 @@ Two things this deliberately does not do:
 * **It edits two lines, not the file.** `~/.hermes/profiles/<profile>/config.yaml`
   is hand-written and carries comments that matter — compression thresholds, the
   reason `telegram.enabled` is spelled out, the MCP command. Re-emitting the YAML
-  through a parser would drop every one of them. Only `model.default` and
-  `providers.ccp.default_model` move; a sibling provider (`imfl`, the direct
+  through a parser would drop every one of them. Only the model lines move —
+  `model.default` and `providers.ccp.default_model`, plus `model.provider` when
+  a bot is being migrated onto ccp — and a sibling provider (`imfl`, the direct
   MiniMax fallback) is left byte-identical.
 * **It bounces the gateway only after a real rewrite.** Hermes caches its agent
   at startup, so a rewritten config is inert until
@@ -357,13 +358,35 @@ Two things this deliberately does not do:
   the old model is worse than one that was never switched. `ccp hermes`,
   `--dry-run` and `--json` write nothing and restart nothing.
 
-A profile whose `model.provider` is not `custom:ccp` is refused rather than
-half-edited: a ccp model name in someone else's provider block would be a name
-that provider cannot serve. A `.bak.<timestamp>` copy of the pre-change file is
-written first — note that Hermes snapshots the profile's config into
-`<profile>/backups/config/` too, so ours is filed there beside its own
-`.good.<timestamp>` entries rather than left in the profile root. `--config`
-points the command at a file outside `~/.hermes/profiles/` when you are testing.
+**Which profile, when you do not say.** `--profile` defaults to
+`$HERMES_PROFILE`; failing that, to the profile whose gateway unit is installed —
+and when more than one is installed, to the one that actually serves a messaging
+platform, since a gateway with every platform off is cron and the local API, not
+a bot. Anything still ambiguous is an error naming the profiles that exist,
+never a guess: a guess here rewrites a live bot's config and restarts it.
+
+`~/.hermes/active_profile` is deliberately **not** consulted. That file is the
+sticky default for a bare `hermes` command, and it can name a profile with no
+gateway at all — on the workstation where this was written it said `ccp` while
+the running bot was `caixuf`, so the command would have rewritten a profile that
+passes every check it makes (same `model.provider`, same block) and then bounced
+a `hermes-gateway-ccp.service` that does not exist, leaving the real bot
+untouched and no error anywhere in the output.
+
+**A bot on an older provider moves, it is not refused.** Profiles that predate
+ccp — on `commandcode`, `openrouter`, the `cmdc-*` bridges — are the ones with
+somewhere to go, so `ccp hermes <provider>` migrates them: it rewrites
+`model.default`, `providers.ccp.default_model` **and** `model.provider`, because
+that last key is what picks the entry point. Writing only the model name would
+read like a switch and behave like a no-op, since the bot would keep talking to
+its old provider. A migration with no `providers.ccp` block to move to is
+refused, and the message carries the block to paste.
+
+A `.bak.<timestamp>` copy of the pre-change file is written first — note that
+Hermes snapshots the profile's config into `<profile>/backups/config/` too, so
+ours is filed there beside its own `.good.<timestamp>` entries rather than left
+in the profile root. `--config` points the command at a file outside
+`~/.hermes/profiles/` when you are testing.
 
 > **One Feishu app, one gateway.** If a second host runs a gateway for the same
 > profile, both connect to the same app and the same home channel, and messages

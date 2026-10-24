@@ -59,23 +59,51 @@ def hermes_home() -> Path:
     return Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes"))
 
 
+def _serves_a_platform(profile: str) -> bool:
+    """Whether a profile actually runs a messaging bot.
+
+    A gateway with every platform switched off serves cron and the local API
+    only. One host can have both installed — the bot and such a helper — and the
+    bot is the one with a platform on. Never fatal: a profile that cannot be read
+    simply is not a candidate, and the caller falls back to asking.
+    """
+    try:
+        import yaml  # type: ignore
+        doc = yaml.safe_load(profile_config(profile).read_text(encoding="utf-8")) or {}
+    except Exception:
+        return False
+    return any(isinstance(v, dict) and v.get("enabled")
+               for v in (doc.get("platforms") or {}).values())
+
+
 def default_profile() -> str | None:
-    """The profile the bot is running right now — read from Hermes, not guessed.
+    """The profile of the bot this host runs.
 
     Naming one host's profile in the shared repo would be wrong everywhere else:
-    the bot on a workstation is `caixuf`, on the server it is `imfl`. The
-    installed `hermes-gateway-<name>.service` names a profile, but it is not the
-    one being asked about: several can be installed while `active_profile` holds
-    the single file that says which is live.
+    the bot on a workstation is `caixuf`, on the server it is `imfl`.
+
+    Deliberately **not** ``~/.hermes/active_profile``. That file is the sticky
+    default a *bare* `hermes` command follows (``hermes_constants.py``), and it
+    can name a profile with no gateway at all — on this workstation it said
+    `ccp` while the running bot was `caixuf`, so `ccp hermes codex` would have
+    rewritten `profiles/ccp/config.yaml` (which passes every check this command
+    makes) and bounced a `hermes-gateway-ccp.service` that did not exist, leaving
+    the real bot untouched with no error anywhere.
+
+    An installed gateway is not enough on its own either, since several can be
+    installed; only the one serving a platform is a bot. Anything still
+    ambiguous falls through to `--profile` rather than to a guess — a guess here
+    rewrites a live bot's config and restarts it.
     """
     env = os.environ.get("HERMES_PROFILE")
     if env:
         return env
-    try:
-        active = (hermes_home() / "active_profile").read_text(encoding="utf-8").strip()
-    except OSError:
-        active = ""
-    return active or None
+    units = (Path.home() / ".config/systemd/user").glob("hermes-gateway-*.service")
+    names = sorted({u.name[len("hermes-gateway-"):-len(".service")] for u in units})
+    if len(names) == 1:
+        return names[0]
+    bots = [n for n in names if _serves_a_platform(n)]
+    return bots[0] if len(bots) == 1 else None
 
 
 def profile_config(profile: str) -> Path:
@@ -89,8 +117,8 @@ def _require_profile(args) -> Path:
     if not args.profile:
         found = sorted(p.name for p in (hermes_home() / "profiles").iterdir() if p.is_dir())
         raise SystemExit(
-            "cannot tell which Hermes profile to edit: no gateway service installed "
-            "(or more than one).\n"
+            "cannot tell which Hermes profile to edit: $HERMES_PROFILE is unset and no "
+            "single hermes-gateway-*.service names one.\n"
             f"  pass --profile <name>; profiles here: {', '.join(found) or 'none'}"
         )
     return profile_config(args.profile)
@@ -112,14 +140,19 @@ def _requote(old: str, new: str) -> str:
     return new
 
 
-def rewrite(text: str, name: str | None = None) -> tuple[str, dict]:
+def rewrite(text: str, name: str | None = None, provider: str | None = None) -> tuple[str, dict]:
     """Set the model name in `model.default` and `providers.<ccp>.default_model`.
 
     With ``name=None`` nothing is changed and the current values are only read.
 
+    ``provider`` also rewrites `model.provider`, and a migration needs it: that
+    key is what picks the entry point, so a profile left on `custom:commandcode`
+    keeps talking to commandcode however carefully the model name under
+    `providers.ccp` is written. Rewriting the model alone would look like a
+    switch and behave like no-op.
+
     Returns the new text plus what was found, so the caller can refuse rather
-    than write a half-updated file: a profile whose `model.provider` is not ccp
-    is not ours to point at a ccp model name.
+    than write a half-updated file.
     """
     lines = text.splitlines(keepends=True)
     top = sub = None
@@ -148,7 +181,11 @@ def rewrite(text: str, name: str | None = None) -> tuple[str, dict]:
 
         if top == "model" and key == "provider":
             rest = m.group("rest").strip()
-            seen["provider"] = rest.split()[0].strip("'\"") if rest else None
+            word = rest.split()[0] if rest else ""
+            seen["provider"] = word.strip("'\"") if word else None
+            if provider is not None and word:
+                tail = "\n" if has_nl else ""
+                lines[i] = f"{indent}{key}:{m.group('gap')}{_requote(word, provider)}{tail}"
             continue
 
         if key != _NAME_KEY.get(top):
@@ -216,6 +253,18 @@ def _profile_of(args, path: Path) -> str:
     return ""
 
 
+def _ccp_block(name: str) -> str:
+    return (
+        f"  providers:\n"
+        f"    {PROVIDER_NAME}:\n"
+        f"      name: {PROVIDER_NAME}\n"
+        f'      base_url: "http://127.0.0.1:4000/v1"\n'
+        f"      api_mode: chat_completions\n"
+        f'      api_key: "<the LiteLLM master key>"\n'
+        f"      default_model: {name}\n"
+    )
+
+
 def cmd_render(args) -> int:
     path = _require_profile(args)
     if not path.is_file():
@@ -223,27 +272,31 @@ def cmd_render(args) -> int:
 
     info = resolve(args.provider, args.model, Path(args.repo) if args.repo else None)
     original = path.read_text(encoding="utf-8")
-    updated, seen = rewrite(original, info["name"])
 
+    # Read first, decide, then write: a refusal must not leave a half-updated
+    # file behind, and the decision needs what is there now.
+    _, seen = rewrite(original)
     if seen["provider"] is None:
         raise SystemExit(f"{path} has no `model: provider:` line — is this a Hermes profile?")
-    if seen["provider"] != PROVIDER_REF:
-        raise SystemExit(
-            f"{path} runs model.provider: {seen['provider']}, not {PROVIDER_REF}.\n"
-            "  ccp only manages the ccp entry point; point the profile at it first, "
-            "or pass --config for the file you mean."
-        )
+    migrating = seen["provider"] != PROVIDER_REF
     if seen["default_model"] is None:
-        raise SystemExit(
-            f"{path} has no `providers.{PROVIDER_NAME}.default_model` line. Add the block:\n\n"
-            f"  providers:\n"
-            f"    {PROVIDER_NAME}:\n"
-            f"      name: {PROVIDER_NAME}\n"
-            f'      base_url: "http://127.0.0.1:4000/v1"\n'
-            f"      api_mode: chat_completions\n"
-            f'      api_key: "<the LiteLLM master key>"\n'
-            f"      default_model: {info['name']}\n"
+        why = (
+            f"{path} runs model.provider: {seen['provider']}, not {PROVIDER_REF}, "
+            f"and has no `providers.{PROVIDER_NAME}.default_model` line to move to"
+            if migrating
+            else f"{path} has no `providers.{PROVIDER_NAME}.default_model` line"
         )
+        raise SystemExit(f"{why}. Add the block:\n\n" + _ccp_block(info["name"]))
+
+    # A bot still on a provider ccp replaced (commandcode, openrouter, ...) is
+    # the case this command exists for: it is the bot that has to move. Refusing
+    # left hand-editing as the only way across. So it moves — and it moves
+    # `model.provider` too, because that key is what actually picks the entry
+    # point; writing the model name alone would look like a switch and behave
+    # like a no-op.
+    updated, _ = rewrite(
+        original, info["name"], provider=PROVIDER_REF if migrating else None
+    )
 
     changed = updated != original
     if args.json:
@@ -251,6 +304,8 @@ def cmd_render(args) -> int:
         return 0
 
     print(f"profile:  {_profile_of(args, path) or '(named directly)'}  ({path})")
+    if migrating:
+        print(f"entry:    {seen['provider']} -> {PROVIDER_REF}   (the bot moves onto ccp)")
     print(f"provider: {info['provider']} -> {info['registry_model']}")
     print(f"model:    {seen['model']} -> {info['name']}   (proxy id; ctx {info['ctx']})")
 

@@ -157,13 +157,44 @@ def test_an_explicit_model_in_the_catalogue_resolves_case_insensitively():
     assert info["registry_model"] == "gpt-6-luna", "the registry's spelling is what is written"
 
 
-def test_a_profile_not_pointed_at_ccp_is_refused(tmp_path):
+def test_a_profile_on_another_provider_without_a_ccp_block_is_refused(tmp_path):
+    """Nothing is written when there is no ccp entry point to move the bot to.
+
+    The profile has to actually be missing the block: an earlier version of this
+    test moved `model.provider` but left `providers.ccp` in the fixture, so it
+    asserted a refusal the code had no reason to make.
+    """
     bad = tmp_path / "config.yaml"
-    bad.write_text(PROFILE.replace("provider: custom:ccp", "provider: custom:imfl"))
+    text = (
+        PROFILE
+        .replace("provider: custom:ccp", "provider: custom:imfl")
+        .replace("    default_model: main\n", "")
+    )
+    bad.write_text(text)
     with pytest.raises(SystemExit) as e:
         hermes_config.main(["render", "codex", "--config", str(bad)])
     assert "not custom:ccp" in str(e.value)
-    assert bad.read_text() == PROFILE.replace("provider: custom:ccp", "provider: custom:imfl")
+    assert "base_url" in str(e.value), "the message must carry the block to paste"
+    assert bad.read_text() == text, "a refusal must not write anything"
+
+
+def test_a_bot_still_on_an_old_provider_moves_all_the_way(tmp_path):
+    """The bot that has to move is the one this command exists for.
+
+    Refusing a profile on `commandcode` left hand-editing as the only way across.
+    Moving it means moving `model.provider` too: that key is what picks the entry
+    point, so writing only the model name under `providers.ccp` would leave the
+    bot talking to commandcode — a rewrite that reads like a switch and behaves
+    like a no-op.
+    """
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(PROFILE.replace("provider: custom:ccp", "provider: commandcode"))
+    hermes_config.main(["render", "codex", "--config", str(cfg), "--no-backup"])
+    doc = yaml.safe_load(cfg.read_text())
+    assert doc["model"]["provider"] == "custom:ccp", "the entry point must move, not just the name"
+    assert doc["model"]["default"] == "codex-gpt-6.1-sol"
+    assert doc["providers"]["ccp"]["default_model"] == "codex-gpt-6.1-sol"
+    assert doc["providers"]["imfl"]["default_model"] == "MiniMax-M3.1-Flash"
 
 
 def test_a_missing_ccp_block_says_which_block_to_add(tmp_path):
@@ -218,29 +249,80 @@ def test_the_profile_name_is_reported_so_the_unit_can_be_restarted(tmp_path, cap
     hermes_config.main(["render", "codex", "--config", str(cfg), "--no-backup", "--profile", "imfl"])
     assert re.search(r"^PROFILE=imfl$", capsys.readouterr().out, re.M)
 
-def test_the_default_profile_is_the_one_the_bot_runs(tmp_path, monkeypatch):
-    """`ccp hermes` with no --profile must ask about the live bot.
+def _install_gateway(home: Path, name: str) -> None:
+    units = home / ".config" / "systemd" / "user"
+    units.mkdir(parents=True, exist_ok=True)
+    (units / f"hermes-gateway-{name}.service").write_text("[Unit]\n")
 
-    A gateway unit only says a profile is *installed*; several can be, and the
-    run that gets the messages is the one `active_profile` names. Reading the
-    unit instead answered for a bot nobody was talking to.
+
+def test_the_default_profile_is_the_one_the_gateway_runs(tmp_path, monkeypatch):
+    """`ccp hermes` with no --profile must ask about the live bot."""
+    monkeypatch.delenv("HERMES_PROFILE", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _install_gateway(tmp_path, "caixuf")
+    assert hermes_config.default_profile() == "caixuf"
+
+    monkeypatch.setenv("HERMES_PROFILE", "deepseek")
+    assert hermes_config.default_profile() == "deepseek", "$HERMES_PROFILE outranks the discovery"
+
+
+def test_active_profile_is_not_the_bot(tmp_path, monkeypatch):
+    """`active_profile` is the sticky default for a *bare* `hermes` command.
+
+    It can name a profile with no gateway at all. On this workstation it said
+    `ccp` while the running bot was `caixuf` — following it would rewrite a
+    profile that passes every check this command makes and then bounce a
+    `hermes-gateway-ccp.service` that does not exist, leaving the real bot
+    untouched with no error anywhere in the output.
     """
     monkeypatch.delenv("HERMES_PROFILE", raising=False)
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    (tmp_path / "active_profile").write_text("imfl\n")
-    assert hermes_config.default_profile() == "imfl", "the trailing newline must not be part of the name"
-    (tmp_path / "active_profile").write_text("ccp")
-    assert hermes_config.default_profile() == "ccp"
-    monkeypatch.setenv("HERMES_PROFILE", "deepseek")
-    assert hermes_config.default_profile() == "deepseek", "$HERMES_PROFILE outranks the file"
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".hermes").mkdir()
+    (tmp_path / ".hermes" / "active_profile").write_text("ccp\n")
+    _install_gateway(tmp_path, "caixuf")
+    assert hermes_config.default_profile() == "caixuf", "the bot wins, not the CLI default"
+
+
+def test_the_bot_wins_over_a_headless_gateway(tmp_path, monkeypatch):
+    """A gateway with every platform off is not a bot.
+
+    This host really has two installed (`caixuf` serving Feishu, `ccp` serving
+    nothing but cron and the local API). Counting units made the bare command
+    give up on a machine that has exactly one bot on it.
+    """
+    monkeypatch.delenv("HERMES_PROFILE", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    for name in ("caixuf", "ccp"):
+        _install_gateway(tmp_path, name)
+    bots = {"caixuf": "platforms:\n  feishu:\n    enabled: true\n",
+            "ccp": "platforms:\n  telegram:\n    enabled: false\n"}
+    for name, text in bots.items():
+        d = tmp_path / ".hermes" / "profiles" / name
+        d.mkdir(parents=True)
+        (d / "config.yaml").write_text(text)
+    assert hermes_config.default_profile() == "caixuf"
+
+
+def test_two_bots_ask_instead_of_guessing(tmp_path, monkeypatch):
+    """A guess here writes to a live bot's profile. Ambiguity must be an error."""
+    monkeypatch.delenv("HERMES_PROFILE", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    for name in ("caixuf", "other"):
+        _install_gateway(tmp_path, name)
+        d = tmp_path / ".hermes" / "profiles" / name
+        d.mkdir(parents=True)
+        (d / "config.yaml").write_text("platforms:\n  feishu:\n    enabled: true\n")
+    assert hermes_config.default_profile() is None
 
 
 def test_no_profile_anywhere_is_an_error_not_a_guess(tmp_path, monkeypatch):
     monkeypatch.delenv("HERMES_PROFILE", raising=False)
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
     assert hermes_config.default_profile() is None
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     (tmp_path / "profiles" / "ccp").mkdir(parents=True)
-    cfg = hermes_config.profile_config("ccp")
     with pytest.raises(SystemExit) as e:
         hermes_config._require_profile(hermes_config.argparse.Namespace(config=None, profile=None))
     assert "--profile" in str(e.value) and "ccp" in str(e.value), "the message must name the ones that exist"
