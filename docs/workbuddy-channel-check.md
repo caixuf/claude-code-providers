@@ -258,6 +258,33 @@ Two more things magpie's plugin does that a restored ccp provider would need:
 - The chat must open with a system message; `"You are a helpful assistant."`
   is a default that is accepted as-is.
 
+## What the catalogue gets wrong
+
+The plan's own catalogue (`/v2/enterprises/personal/models`) is the account's,
+so it looks authoritative — and on two counts it is not.
+
+**Which ids it serves.** It lists 18; the plan serves 17 of the ones worth
+asking about, and the six GPT/Gemini rungs answer `model [x] is not allowed
+for user type [personal_free_user]`. It also omits the concrete ids the CLI
+itself asks for (`deepseek-v4.1-flash` is not in it). The served set belongs to
+the *account*, not to the provider, so it is re-derived per key:
+`bridge/workbuddy_probe.py` walks the candidates and prints the allow-list to
+paste.
+
+**Which of them see an image.** The catalogue publishes `supportsImages` per
+model, and it is wrong for the ones it matters most: it says `glm-5.3` and
+`glm-5.2` take images, and those two answer
+
+> I'm not able to view images—the current model doesn't support image input.
+
+Measured on 2026-10-24 (a solid green PNG, read back from the answer): ten of
+the seventeen see images — `deepseek-v4.1-flash`, `hy3`, `hy4-preview`,
+`hy4-preview-f`, `fast-model`, `balanced-model`, `kimi-k3`, `kimi-k2.6`,
+`glm-5v-turbo`, `minimax-m3` — and four are text-only: `glm-5.3`, `glm-5.2`,
+`glm-5.1`, `glm-5.3-flash`. The registry carries the measured answer, because
+Claude Code decides from that flag whether a pasted screenshot reaches the
+model at all.
+
 ## Open questions
 
 - The CN gateway (`copilot.tencent.com`) was not measured end to end: this

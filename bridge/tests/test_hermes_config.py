@@ -157,12 +157,10 @@ def test_an_explicit_model_in_the_catalogue_resolves_case_insensitively():
     assert info["registry_model"] == "gpt-6-luna", "the registry's spelling is what is written"
 
 
-def test_a_profile_on_another_provider_without_a_ccp_block_is_refused(tmp_path):
-    """Nothing is written when there is no ccp entry point to move the bot to.
-
-    The profile has to actually be missing the block: an earlier version of this
-    test moved `model.provider` but left `providers.ccp` in the fixture, so it
-    asserted a refusal the code had no reason to make.
+def test_a_profile_on_another_provider_without_a_ccp_block_gets_one(tmp_path):
+    """No ccp entry point yet? Write one — refusing left hand-editing as the
+    only way across, and a Hermes config is a heavily commented file nobody
+    wants to edit by hand.
     """
     bad = tmp_path / "config.yaml"
     text = (
@@ -171,11 +169,49 @@ def test_a_profile_on_another_provider_without_a_ccp_block_is_refused(tmp_path):
         .replace("    default_model: main\n", "")
     )
     bad.write_text(text)
-    with pytest.raises(SystemExit) as e:
-        hermes_config.main(["render", "codex", "--config", str(bad)])
-    assert "not custom:ccp" in str(e.value)
-    assert "base_url" in str(e.value), "the message must carry the block to paste"
-    assert bad.read_text() == text, "a refusal must not write anything"
+    hermes_config.main(["render", "codex", "--config", str(bad), "--no-backup"])
+    doc = yaml.safe_load(bad.read_text())
+    assert doc["model"]["provider"] == "custom:ccp", "the entry point must move too"
+    assert doc["providers"]["ccp"]["default_model"] == "codex-gpt-6.1-sol"
+    assert doc["providers"]["ccp"]["base_url"] == hermes_config.BRIDGE_BASE_URL
+    assert doc["providers"]["ccp"]["api_key"] == hermes_config.BRIDGE_KEY
+    # the comment block the file was carrying has to survive
+    assert "# sibling provider" in bad.read_text() or "imfl" in bad.read_text()
+
+
+def test_the_block_lands_at_the_top_level(tmp_path):
+    """`providers:` is a top-level key in Hermes's schema.
+
+    The block this command writes used to be indented by two spaces, which
+    nested it under whatever key came before it: a block Hermes would not read
+    and one this file's own parser would not find either.
+    """
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(PROFILE.replace("    default_model: main\n", ""))
+    hermes_config.main(["render", "codex", "--config", str(cfg), "--no-backup"])
+    doc = yaml.safe_load(cfg.read_text())
+    assert "ccp" in doc["providers"], doc.keys()
+    assert doc["providers"]["ccp"]["default_model"] == "codex-gpt-6.1-sol"
+    # and the top-level key is really at column 0 in the text
+    assert "\nproviders:\n" in cfg.read_text()
+
+
+def test_a_single_config_install_is_found_instead_of_crashing(tmp_path, monkeypatch):
+    """A Hermes install with no profiles/ directory is a layout, not an error.
+
+    It used to raise FileNotFoundError out of iterdir(), which printed a
+    traceback and told the user nothing at all.
+    """
+    home = tmp_path / ".hermes"
+    home.mkdir()
+    (home / "config.yaml").write_text(PROFILE)
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.delenv("HERMES_PROFILE", raising=False)
+    assert hermes_config.hermes_home() == home
+    assert not (home / "profiles").exists()
+    # the profile lookup must land on the single config
+    args = hermes_config.main(["status"])
+    assert args == 0
 
 
 def test_a_bot_still_on_an_old_provider_moves_all_the_way(tmp_path):
@@ -195,15 +231,6 @@ def test_a_bot_still_on_an_old_provider_moves_all_the_way(tmp_path):
     assert doc["model"]["default"] == "codex-gpt-6.1-sol"
     assert doc["providers"]["ccp"]["default_model"] == "codex-gpt-6.1-sol"
     assert doc["providers"]["imfl"]["default_model"] == "MiniMax-M3.1-Flash"
-
-
-def test_a_missing_ccp_block_says_which_block_to_add(tmp_path):
-    bad = tmp_path / "config.yaml"
-    bad.write_text(PROFILE.replace("    default_model: main\n", ""))
-    with pytest.raises(SystemExit) as e:
-        hermes_config.main(["render", "codex", "--config", str(bad)])
-    assert "providers.ccp.default_model" in str(e.value)
-    assert "base_url" in str(e.value), "the message must carry the block to paste"
 
 
 def test_an_unknown_model_lists_the_catalogue(tmp_path):

@@ -333,9 +333,17 @@ thing for it: the model name it asks for.
 ```bash
 ccp hermes                 # what the bot is running right now
 ccp hermes codex           # point it at codex's default model
+ccp hermes workbuddy       # ...or at WorkBuddy's DeepSeek-V4.1-Flash
 ccp hermes trae deepseek-v4.1-flash
 ccp hermes codex --dry-run # show the change, write nothing
 ```
+
+**Both Hermes layouts work.** A multi-profile install keeps one config per
+profile under `~/.hermes/profiles/<name>/config.yaml`; a single-config install
+keeps one at `~/.hermes/config.yaml` and has no `profiles/` directory at all.
+The command finds whichever is actually there — the second used to die with a
+`FileNotFoundError` traceback that said nothing — and `ccp hermes` reports
+which layout it found.
 
 The name written is the one the proxy **actually emitted** — the curated alias
 when the registry has one, otherwise the bare registry id — resolved by the same
@@ -346,13 +354,18 @@ resolved comes back as a 400 that reads like the bridge is down.
 
 Two things this deliberately does not do:
 
-* **It edits two lines, not the file.** `~/.hermes/profiles/<profile>/config.yaml`
-  is hand-written and carries comments that matter — compression thresholds, the
-  reason `telegram.enabled` is spelled out, the MCP command. Re-emitting the YAML
+* **It edits the model lines, not the file.** The Hermes config is hand-written
+  and carries comments that matter — compression thresholds, the reason
+  `telegram.enabled` is spelled out, the MCP command. Re-emitting the YAML
   through a parser would drop every one of them. Only the model lines move —
   `model.default` and `providers.ccp.default_model`, plus `model.provider` when
   a bot is being migrated onto ccp — and a sibling provider (`imfl`, the direct
-  MiniMax fallback) is left byte-identical.
+  MiniMax fallback) is left byte-identical. The one thing it *adds* is the
+  `providers.ccp` entry, when the bot has never been on ccp: it is appended as a
+  top-level block (`providers:` is a top-level key in Hermes's schema) with
+  every comment in the file left where it was. A bot parked on a provider ccp
+  retired — `commandcode` ran out of credits — is the case this exists for, and
+  refusing it left hand-editing as the only way across.
 * **It bounces the gateway only after a real rewrite.** Hermes caches its agent
   at startup, so a rewritten config is inert until
   `hermes-gateway-<profile>.service` is restarted — and a bot still answering on
@@ -535,6 +548,22 @@ asks for), `glm-5.3`, `glm-5.3-flash`, `glm-5.2`, `glm-5.1`, `glm-5v-turbo`,
 `fast-model` and `balanced-model`. The catalogue also lists GPT and Gemini
 rungs, but this account is a `personal_free_user` and the gateway refuses them
 with `not allowed for user type`.
+
+**The catalogue's vision flag is wrong, so it is measured instead.** The plan's
+catalogue says `glm-5.3` and `glm-5.2` take images; those two answer "I'm not
+able to view images — the current model doesn't support image input". Claude
+Code decides from that flag whether a pasted screenshot reaches the model at
+all, so the registry carries the *measured* answer:
+`bridge/workbuddy_probe.py` calls every candidate id, then shows each one that
+answers a solid green PNG and reads what comes back.
+
+```bash
+python3 bridge/workbuddy_probe.py                     # which ids answer, which see
+python3 bridge/workbuddy_probe.py --emit-only-models  # the allow-list to paste
+```
+
+Run it whenever the plan changes — the served set belongs to the *account*,
+not to the provider, and the vision flag belongs to neither.
 
 ### Trae CLI
 

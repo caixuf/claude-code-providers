@@ -280,20 +280,31 @@ PROVIDERS = {
             {"name": "kimi-k2.7"},
             {"name": "minimax-m3"},
         ],
-        # Facts the catalogue does not publish for the ids it omits. The
-        # windows are magpie's WorkBuddy table (packages/workbuddy); the
-        # output cap is left alone on purpose — the gateway clamps a large
-        # max_tokens silently instead of refusing it, so clamping here would
-        # only truncate answers.
+        # Facts the catalogue does not publish for the ids it omits, and the
+        # ones it gets wrong. The windows are magpie's WorkBuddy table
+        # (packages/workbuddy); the output cap is left alone on purpose — the
+        # gateway clamps a large max_tokens silently instead of refusing it, so
+        # clamping here would only truncate answers.
+        #
+        # The vision flags are *measured*, and they contradict the catalogue:
+        # it says glm-5.3 and glm-5.2 take images, and those two answer "I'm
+        # not able to view images — the current model doesn't support image
+        # input". A hint is authoritative for the field it names, so this is
+        # what the registry ends up with. Claude Code needs the truth here: it
+        # decides whether a pasted screenshot reaches the model at all.
+        # Measured with bridge/workbuddy_probe.py, which shows a model a solid
+        # green PNG and reads what comes back.
         "hints": {
             "auto": {"ctx": 168000},
-            "deepseek-v4.1-flash": {"ctx": 1000000},
-            "glm-5.1": {"ctx": 200000},
-            "glm-5.3-flash": {"ctx": 1000000},
-            "glm-5v-turbo": {"ctx": 200000},
-            "hy4-preview-f": {"ctx": 1000000},
+            "deepseek-v4.1-flash": {"ctx": 1000000, "vision": True},
+            "glm-5.1": {"ctx": 200000, "vision": False},
+            "glm-5.2": {"vision": False},
+            "glm-5.3": {"vision": False},
+            "glm-5.3-flash": {"vision": False},
+            "glm-5v-turbo": {"ctx": 200000, "vision": True},
+            "hy4-preview-f": {"ctx": 1000000, "vision": True},
             "kimi-k2.7": {"ctx": 256000},
-            "minimax-m3": {"ctx": 512000},
+            "minimax-m3": {"ctx": 512000, "vision": True},
         },
         "max_output_default": None,
     },

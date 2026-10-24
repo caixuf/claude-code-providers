@@ -278,11 +278,11 @@ providers:
       - name: deepseek-v4.1-flash
         ctx: 1000000
         max_output: null
-        vision: null
+        vision: true
         endpoint_kind: openai
         aliases: []
         tiers: []
-        hints: {ctx: 1000000}
+        hints: {ctx: 1000000, vision: true}
       - name: default-model
         ctx: 176000
         max_output: 24000
@@ -300,41 +300,43 @@ providers:
       - name: glm-5.1
         ctx: 200000
         max_output: null
-        vision: null
+        vision: false
         endpoint_kind: openai
         aliases: []
         tiers: []
-        hints: {ctx: 200000}
+        hints: {ctx: 200000, vision: false}
       - name: glm-5.2
         ctx: 1000000
         max_output: 48000
-        vision: true
+        vision: false
         endpoint_kind: openai
         aliases: []
         tiers: []
+        hints: {vision: false}
       - name: glm-5.3
         ctx: 1000000
         max_output: 48000
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+        hints: {vision: false}
+      - name: glm-5.3-flash
+        ctx: 1000000
+        max_output: null
+        vision: false
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+        hints: {ctx: 1000000, vision: false}
+      - name: glm-5v-turbo
+        ctx: 200000
+        max_output: null
         vision: true
         endpoint_kind: openai
         aliases: []
         tiers: []
-      - name: glm-5.3-flash
-        ctx: 1000000
-        max_output: null
-        vision: null
-        endpoint_kind: openai
-        aliases: []
-        tiers: []
-        hints: {ctx: 1000000}
-      - name: glm-5v-turbo
-        ctx: 200000
-        max_output: null
-        vision: null
-        endpoint_kind: openai
-        aliases: []
-        tiers: []
-        hints: {ctx: 200000}
+        hints: {ctx: 200000, vision: true}
       - name: hy3
         ctx: 192000
         max_output: 64000
@@ -352,11 +354,11 @@ providers:
       - name: hy4-preview-f
         ctx: 1000000
         max_output: null
-        vision: null
+        vision: true
         endpoint_kind: openai
         aliases: []
         tiers: []
-        hints: {ctx: 1000000}
+        hints: {ctx: 1000000, vision: true}
       - name: kimi-k2.6
         ctx: 256000
         max_output: 32000
@@ -382,11 +384,11 @@ providers:
       - name: minimax-m3
         ctx: 512000
         max_output: null
-        vision: null
+        vision: true
         endpoint_kind: openai
         aliases: []
         tiers: []
-        hints: {ctx: 512000}
+        hints: {ctx: 512000, vision: true}
   - name: trae
     api_base: http://127.0.0.1:4100
     endpoint_kind: anthropic
@@ -491,6 +493,13 @@ providers:
         aliases: []
         tiers: []
       - name: kimi-k3
+        ctx: 1000000
+        max_output: 16000
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: kimi-k3.1-pro
         ctx: 1000000
         max_output: 16000
         vision: true

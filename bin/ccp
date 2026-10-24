@@ -1228,10 +1228,25 @@ main() {
       # Hermes caches the agent at startup: the new model is inert until the
       # gateway is bounced, and a bot still answering on the old model is worse
       # than one that was never switched.
-      local unit="hermes-gateway-${profile:-imfl}.service"
+      #
+      # A single-config install has no per-profile unit: its bot is started by
+      # whatever runs it, so the unit to bounce is the generic one if there is
+      # one, and otherwise the user has to restart the bot themselves.
+      local unit
+      if [ -n "$profile" ]; then
+        unit="hermes-gateway-${profile}.service"
+      else
+        unit="hermes-gateway.service"
+      fi
       if ! systemctl --user restart "$unit" 2>/dev/null; then
-        echo -e "\033[33m! $unit did not restart — bounce it yourself; the new model is inert until then.\033[0m" >&2
-        return 0
+        if [ -z "$profile" ] && systemctl --user list-unit-files 'hermes-gateway*.service' 2>/dev/null | command grep -q gateway; then
+          unit=$(systemctl --user list-unit-files 'hermes-gateway*.service' 2>/dev/null | command grep gateway | head -1 | cut -d' ' -f1)
+          systemctl --user restart "$unit" 2>/dev/null || true
+        fi
+        if ! systemctl --user is-active --quiet "$unit" 2>/dev/null; then
+          echo -e "\033[33m! no hermes gateway unit to bounce — the new model is inert until the bot restarts.\033[0m" >&2
+          return 0
+        fi
       fi
       sleep 2
       if systemctl --user is-active --quiet "$unit"; then

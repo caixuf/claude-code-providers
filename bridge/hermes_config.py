@@ -114,14 +114,28 @@ def _require_profile(args) -> Path:
     """The config to act on, or a message saying how to name one."""
     if args.config:
         return Path(args.config)
-    if not args.profile:
-        found = sorted(p.name for p in (hermes_home() / "profiles").iterdir() if p.is_dir())
+    if args.profile:
+        return profile_config(args.profile)
+    home = hermes_home()
+    profiles = home / "profiles"
+    if not profiles.is_dir():
+        # A single-config install has no profiles/ directory at all: the bot's
+        # config sits directly in the Hermes home. That is a layout this
+        # command has to work on, not an error — it used to raise
+        # FileNotFoundError out of iterdir(), which printed a traceback and
+        # told the user nothing.
+        single = home / "config.yaml"
+        if single.is_file():
+            return single
         raise SystemExit(
-            "cannot tell which Hermes profile to edit: $HERMES_PROFILE is unset and no "
-            "single hermes-gateway-*.service names one.\n"
-            f"  pass --profile <name>; profiles here: {', '.join(found) or 'none'}"
+            f"no Hermes config at {single} and no {profiles}/ directory — is Hermes installed?"
         )
-    return profile_config(args.profile)
+    found = sorted(p.name for p in profiles.iterdir() if p.is_dir())
+    raise SystemExit(
+        "cannot tell which Hermes profile to edit: $HERMES_PROFILE is unset and no "
+        "single hermes-gateway-*.service names one.\n"
+        f"  pass --profile <name>; profiles here: {', '.join(found) or 'none'}"
+    )
 
 
 def _split_comment(rest: str) -> tuple[str, str]:
@@ -253,16 +267,77 @@ def _profile_of(args, path: Path) -> str:
     return ""
 
 
+# The bridge's master key — the same literal render_config.py writes into the
+# generated config (its `general_settings.master_key`), and the one the Claude
+# Code profiles carry as ANTHROPIC_AUTH_TOKEN.
+BRIDGE_KEY = "sk-cmdc-litellm-local"
+BRIDGE_BASE_URL = "http://127.0.0.1:4000/v1"
+
+
 def _ccp_block(name: str) -> str:
+    """The block a Hermes config needs for ccp, as YAML.
+
+    ``providers:`` is a *top-level* key in Hermes's schema — its own config
+    round-trip tests put it there — so the block starts at column 0. It used
+    to be indented by two spaces, which nested it under whatever key happened
+    to precede it: a block Hermes would not read, and one this file's own
+    parser would not find either.
+    """
     return (
-        f"  providers:\n"
-        f"    {PROVIDER_NAME}:\n"
-        f"      name: {PROVIDER_NAME}\n"
-        f'      base_url: "http://127.0.0.1:4000/v1"\n'
-        f"      api_mode: chat_completions\n"
-        f'      api_key: "<the LiteLLM master key>"\n'
-        f"      default_model: {name}\n"
+        f"providers:\n"
+        f"  {PROVIDER_NAME}:\n"
+        f"    name: {PROVIDER_NAME}\n"
+        f'    base_url: "{BRIDGE_BASE_URL}"\n'
+        f"    api_mode: chat_completions\n"
+        f'    api_key: "{BRIDGE_KEY}"\n'
+        f"    default_model: {name}\n"
     )
+
+
+def _add_ccp_block(text: str, name: str) -> str:
+    """Add a ``providers.ccp`` entry, leaving every comment where it was.
+
+    Hermes configs are hand-written and heavily commented, so a block is
+    *added* rather than the file re-emitted: into the top-level ``providers:``
+    section when there is one, and as a new section at the end when there is
+    not.
+    """
+    lines = text.splitlines(keepends=True)
+    start = None
+    for i, raw in enumerate(lines):
+        if raw.rstrip("\n") == "providers:":
+            start = i
+            break
+    if start is None:
+        sep = "\n" if text.endswith("\n") else "\n\n"
+        if not text.strip():
+            sep = ""
+        return text + sep + _ccp_block(name)
+
+    # The end of that section is the next top-level key.
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        body = lines[j].rstrip("\n")
+        if body and not body.startswith((" ", "\t", "#")) and body.strip():
+            end = j
+            break
+
+    # Match the indent the file already uses for its provider entries.
+    indent = "  "
+    for j in range(start + 1, end):
+        body = lines[j].rstrip("\n")
+        if body.strip() and not body.lstrip().startswith("#"):
+            indent = " " * (len(body) - len(body.lstrip()))
+            break
+    entry = [
+        f"{indent}{PROVIDER_NAME}:\n",
+        f"{indent}  name: {PROVIDER_NAME}\n",
+        f'{indent}  base_url: "{BRIDGE_BASE_URL}"\n',
+        f"{indent}  api_mode: chat_completions\n",
+        f'{indent}  api_key: "{BRIDGE_KEY}"\n',
+        f"{indent}  default_model: {name}\n",
+    ]
+    return "".join(lines[:end] + entry + lines[end:])
 
 
 def cmd_render(args) -> int:
@@ -279,14 +354,21 @@ def cmd_render(args) -> int:
     if seen["provider"] is None:
         raise SystemExit(f"{path} has no `model: provider:` line — is this a Hermes profile?")
     migrating = seen["provider"] != PROVIDER_REF
+
+    created = False
     if seen["default_model"] is None:
-        why = (
-            f"{path} runs model.provider: {seen['provider']}, not {PROVIDER_REF}, "
-            f"and has no `providers.{PROVIDER_NAME}.default_model` line to move to"
-            if migrating
-            else f"{path} has no `providers.{PROVIDER_NAME}.default_model` line"
-        )
-        raise SystemExit(f"{why}. Add the block:\n\n" + _ccp_block(info["name"]))
+        # No `providers.ccp` entry yet. Writing one is the whole point of the
+        # command: refusing left hand-editing as the only way onto ccp, and
+        # hand-editing a commented config is how people break it. The block is
+        # added and every comment is left where it was.
+        original = _add_ccp_block(original, info["name"])
+        created = True
+        _, seen = rewrite(original)
+        if seen["default_model"] is None:
+            raise SystemExit(
+                f"could not add a `providers.{PROVIDER_NAME}` block to {path} — "
+                "add it by hand:\n\n" + _ccp_block(info["name"])
+            )
 
     # A bot still on a provider ccp replaced (commandcode, openrouter, ...) is
     # the case this command exists for: it is the bot that has to move. Refusing
@@ -304,6 +386,8 @@ def cmd_render(args) -> int:
         return 0
 
     print(f"profile:  {_profile_of(args, path) or '(named directly)'}  ({path})")
+    if created:
+        print(f"entry:    added a `providers.{PROVIDER_NAME}` block")
     if migrating:
         print(f"entry:    {seen['provider']} -> {PROVIDER_REF}   (the bot moves onto ccp)")
     print(f"provider: {info['provider']} -> {info['registry_model']}")
@@ -334,15 +418,17 @@ def cmd_render(args) -> int:
 def cmd_status(args) -> int:
     path = _require_profile(args)
     if not path.is_file():
-        raise SystemExit(f"no Hermes profile at {path}")
+        raise SystemExit(f"no Hermes config at {path}")
     _, seen = rewrite(path.read_text(encoding="utf-8"))
     print(json.dumps(
         {
             "profile": _profile_of(args, path),
+            "layout": "single-config" if path.parent == hermes_home() else "profile",
             "file": str(path),
             "provider": seen["provider"],
             "model": seen["model"],
             "provider_default_model": seen["default_model"],
+            "on_ccp": seen["provider"] == PROVIDER_REF and bool(seen["default_model"]),
         },
         indent=2,
     ))
