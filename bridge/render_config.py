@@ -70,6 +70,11 @@ def litellm_model_string(provider: str, name: str, meta: dict) -> str:
     kind = meta.get("endpoint_kind", "openai")
     if kind == "anthropic":
         return f"anthropic/{name}"
+    # ChatGPT OAuth is a LiteLLM-native provider: it owns both the endpoint and
+    # the token store, so the id has to stay `chatgpt/<model>` — prefixing it
+    # with `openai/` would send it to api.openai.com with no key.
+    if kind == "chatgpt":
+        return f"chatgpt/{name}"
     # OpenAI-compatible gateways: keep the upstream id verbatim, prefixed openai/
     if name.startswith(("openai/", "anthropic/", "github_copilot/", "openrouter/")):
         return name
