@@ -227,6 +227,24 @@ def test_shipped_aliases_render_to_their_own_registry_model(capsys):
     assert "not in registry" not in capsys.readouterr().err
 
 
+def test_the_chatgpt_endpoint_kind_keeps_its_native_prefix():
+    """`endpoint_kind: chatgpt` must render `chatgpt/<id>`, not `openai/<id>`.
+
+    ChatGPT OAuth is a LiteLLM-native provider: it owns the endpoint and the
+    token store, so `openai/gpt-6.1-sol` would be sent to api.openai.com with no
+    key. The kind is declared by a registry that is not in this repo — a host
+    running its own `registry/models.yaml` — which is exactly why the renderer
+    has to honour it here rather than only where it was first needed.
+    """
+    meta = {"endpoint_kind": "chatgpt"}
+    assert render_config.litellm_model_string("chatgpt", "gpt-6.1-sol", meta) == \
+        "chatgpt/gpt-6.1-sol"
+    # Nothing else may drift with it.
+    assert render_config.litellm_model_string("x", "m", {"endpoint_kind": "openai"}) == "openai/m"
+    assert render_config.litellm_model_string("x", "m", {"endpoint_kind": "anthropic"}) == \
+        "anthropic/m"
+
+
 def test_account_becomes_a_second_deployment_under_the_same_name():
     """An account must NOT fork the model name.
 
