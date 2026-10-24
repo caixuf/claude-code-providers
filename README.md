@@ -206,6 +206,7 @@ call is evidence:
 | `ccp bridge {start\|stop\|restart}-trae` | Address the local Trae adapter |
 | `ccp accounts …` | Extra logins and routing groups (see below) |
 | `ccp quota [provider]` | What is left on each plan |
+| `ccp hermes [provider]` | Point the local Hermes agent at a provider's model |
 | `ccp -t` / `ccp --test` | Quick round-trip through Claude Code |
 
 `ccp ping` rounds: default 2 rounds (~200 output tokens), `-q` 1 round (~64, for
@@ -318,6 +319,48 @@ Fix it in the shell with:
 ```bash
 export no_proxy="127.0.0.1,::1,localhost,$no_proxy"
 ```
+
+---
+
+## 🤖 The Hermes agent
+
+The local [Hermes](https://hermes-agent.nousresearch.com) agent reaches every
+provider through the same bridge, so switching provider changes exactly one
+thing for it: the model name it asks for.
+
+```bash
+ccp hermes                 # what the bot is running right now
+ccp hermes codex           # point it at codex's default model
+ccp hermes trae deepseek-v4.1-flash
+ccp hermes codex --dry-run # show the change, write nothing
+```
+
+The name written is the one the proxy **actually emitted** — the curated alias
+when the registry has one, otherwise the bare registry id — resolved by the same
+`litellm_key_for()` that `ccp render` used to write
+`~/.config/litellm/config.yaml`. `minimax` therefore gets `MiniMax-M3.1-Flash`
+and not a `minimax-MiniMax-M3.1-Flash` nobody serves; a name guessed rather than
+resolved comes back as a 400 that reads like the bridge is down.
+
+Two things this deliberately does not do:
+
+* **It edits two lines, not the file.** `~/.hermes/profiles/<profile>/config.yaml`
+  is hand-written and carries comments that matter — compression thresholds, the
+  reason `telegram.enabled` is spelled out, the MCP command. Re-emitting the YAML
+  through a parser would drop every one of them. Only `model.default` and
+  `providers.ccp.default_model` move; a sibling provider (`imfl`, the direct
+  MiniMax fallback) is left byte-identical.
+* **It bounces the gateway only after a real rewrite.** Hermes caches its agent
+  at startup, so a rewritten config is inert until
+  `hermes-gateway-<profile>.service` is restarted — and a bot still answering on
+  the old model is worse than one that was never switched. `ccp hermes`,
+  `--dry-run` and `--json` write nothing and restart nothing.
+
+A profile whose `model.provider` is not `custom:ccp` is refused rather than
+half-edited: a ccp model name in someone else's provider block would be a name
+that provider cannot serve. There is a backup (`.bak.<timestamp>`) beside the
+profile, and `--config` points the command at a file outside
+`~/.hermes/profiles/` when you are testing.
 
 ---
 

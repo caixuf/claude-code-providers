@@ -234,12 +234,8 @@ def render_config(
                 meta = synth_meta(profiles_doc, pname, mname)
             upstream = litellm_model_string(pname, mname, meta)
             # config key = the name Claude Code will send (alias if any)
-            key = None
-            for a, s in (profiles_doc.get("aliases") or {}).items():
-                if s["provider"] == pname and s["model"] == mname:
-                    key = a
-                    break
-            emit_family(key or mname, pname, upstream, meta)
+            key = litellm_key_for(profiles_doc, pname, mname)
+            emit_family(key, pname, upstream, meta)
 
     # 2. individually exposed models (reachable via `ccp -m <name>`)
     for mname in profiles_doc.get("expose_models") or []:
@@ -494,6 +490,21 @@ def _alias_index(profiles_doc: dict) -> dict[tuple[str, str], str]:
     for alias, spec in (profiles_doc.get("aliases") or {}).items():
         out[(spec["provider"], spec["model"])] = alias
     return out
+
+
+def litellm_key_for(profiles_doc: dict, pname: str, mname: str) -> str:
+    """The model_name LiteLLM is given for one (provider, model).
+
+    A deployment is named by its curated alias when there is one and by the bare
+    registry id otherwise (``render_config`` §1b), and a client can only reach a
+    deployment by that name. Anything that has to *call* the bridge — ``ccp -m``,
+    and the Hermes config — must resolve the same way, or it names a model the
+    proxy never emitted and gets a 400.
+    """
+    for alias, spec in (profiles_doc.get("aliases") or {}).items():
+        if spec.get("provider") == pname and spec.get("model") == mname:
+            return alias
+    return mname
 
 
 def render_profile(

@@ -75,6 +75,11 @@ Usage:
                              | group add <name> <member...> | group remove <name>
                              (a pool fails over natively when a quota runs out)
   ccp quota [provider]       What is left on each plan
+  ccp hermes [provider]      Point the local Hermes agent at a provider's model.
+                             Bare `ccp hermes` shows what it runs now. Writes
+                             ~/.hermes/profiles/<profile>/config.yaml and
+                             restarts the gateway; options: --profile, --dry-run,
+                             --json, --config
   ccp -h, --help             Show this help message
 
 In-Session Model Hot-Switching:
@@ -94,6 +99,8 @@ Examples:
   ccp accounts add cline a2       # Name a second login, then `ccp render`
   ccp accounts group add daily cline-deepseek-v4.1-flash opendesign-deepseek-v4.1-flash
   ccp -m group/daily         # One name over several models; fails over when one runs out
+  ccp hermes                 # What model the local Hermes bot is running
+  ccp hermes codex           # Point the bot at codex's default model too
 
 Note: CommandCode, CodeBuddy, GitHub Copilot, OpenCode and Antigravity are
 archived — see docs/archived-providers.md. `ccp auth copilot` still runs the
@@ -1156,6 +1163,63 @@ main() {
       ;;
     bridge)
       manage_bridge "${2:-status}"
+      ;;
+    hermes)
+      local repo_dir py_bin
+      repo_dir=$(ccp_repo_dir)
+      if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/hermes_config.py" ]; then
+        echo -e "\033[31mError: repo checkout not found (need bridge/hermes_config.py).\033[0m" >&2
+        return 1
+      fi
+      py_bin=$(ccp_python)
+
+      # The helper takes a verb; the command is spelled `ccp hermes [provider]`, so
+      # the verb is put back here. A leading flag is a query about the profile
+      # (`ccp hermes --profile x`), a leading word is the provider to point at.
+      local -a hargs=("${@:2}")
+      if [ "${#hargs[@]}" -eq 0 ]; then
+        hargs=(status)
+      else
+        case "${hargs[0]}" in
+          render|status) : ;;
+          -*) hargs=(status "${hargs[@]}") ;;
+          *)  hargs=(render "${hargs[@]}") ;;
+        esac
+      fi
+
+      local tmp rc=0
+      tmp=$(mktemp)
+      "$py_bin" "$repo_dir/bridge/hermes_config.py" "${hargs[@]}" >"$tmp" || rc=$?
+      cat "$tmp"
+      if [ "$rc" -ne 0 ]; then
+        rm -f "$tmp"
+        return "$rc"
+      fi
+
+      local changed profile
+      changed=$(sed -n 's/^CHANGED=//p' "$tmp" | tail -1)
+      profile=$(sed -n 's/^PROFILE=//p' "$tmp" | tail -1)
+      rm -f "$tmp"
+
+      # Only a real rewrite owes a restart. `status`, `--dry-run` and `--json`
+      # emit no CHANGED line, so asking what the bot runs never bounces it.
+      [ "$changed" = "1" ] || return 0
+
+      # Hermes caches the agent at startup: the new model is inert until the
+      # gateway is bounced, and a bot still answering on the old model is worse
+      # than one that was never switched.
+      local unit="hermes-gateway-${profile:-imfl}.service"
+      if ! systemctl --user restart "$unit" 2>/dev/null; then
+        echo -e "\033[33m! $unit did not restart — bounce it yourself; the new model is inert until then.\033[0m" >&2
+        return 0
+      fi
+      sleep 2
+      if systemctl --user is-active --quiet "$unit"; then
+        echo -e "\033[32m✔ $unit restarted\033[0m"
+      else
+        echo -e "\033[31m✗ $unit is not active — journalctl --user -u $unit -n 50\033[0m" >&2
+        return 1
+      fi
       ;;
     auth)
       # Forward every argument: `ccp auth trae --status` must reach the
