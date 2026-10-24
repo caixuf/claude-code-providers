@@ -77,6 +77,7 @@ Usage:
                              (a pool fails over natively when a quota runs out)
   ccp quota [provider]       What is left on each plan
   ccp usage                  Tokens actually spent, from the bridge's ledger
+  ccp doctor                 Is this machine still consistent with the repository?
                              (--today, --days N, --by-model, --by-provider, --json)
   ccp hermes [provider]      Point the local Hermes agent at a provider's model.
                              Bare `ccp hermes` shows what it runs now. Writes
@@ -990,11 +991,20 @@ sync_providers() {
   mkdir -p "$PROVIDERS_DIR"
   mkdir -p "$CLAUDE_DIR/providers_disabled"
 
-  for obsolete in cmdc-space-bunny.json longcat.json u2flash.json unisound.json openrouter.json minmax.json qianfan.json; do
-    if [ -f "$PROVIDERS_DIR/$obsolete" ]; then
-      mv "$PROVIDERS_DIR/$obsolete" "$CLAUDE_DIR/providers_disabled/"
-      echo -e "  \033[33m-- Archived obsolete profile $obsolete to ~/.claude/providers_disabled/\033[0m"
-    fi
+  # Archive the profiles that point at a model the bridge no longer serves.
+  # The list is derived, not written by hand: a provider retired yesterday
+  # is not on any hand-written list, and a hand-written list eventually
+  # archives a provider that came back (it did: qianfan was on it while
+  # qianfan was live). A profile for a provider that is gone is a landmine —
+  # it is a valid file, the bridge is up, and the request only fails when
+  # somebody selects it, with a 400 that reads like the bridge is down.
+  local py_bin dead
+  py_bin=$(ccp_python)
+  dead=$("$py_bin" "$repo_dir/bridge/profile_audit.py" --dead --providers-dir "$PROVIDERS_DIR" 2>/dev/null)
+  for obsolete in $dead; do
+    [ -f "$PROVIDERS_DIR/$obsolete" ] || continue
+    mv "$PROVIDERS_DIR/$obsolete" "$CLAUDE_DIR/providers_disabled/"
+    echo -e "  \033[33m-- Archived dead profile $obsolete to ~/.claude/providers_disabled/\033[0m"
   done
 
   local added=0 reconciled=0
@@ -1264,6 +1274,16 @@ main() {
       fi
       py_bin=$(ccp_python)
       "$py_bin" "$repo_dir/bridge/ccp_accounts.py" "${@:2}"
+      ;;
+    doctor|--doctor)
+      local repo_dir py_bin
+      repo_dir=$(ccp_repo_dir)
+      if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/ccp_doctor.py" ]; then
+        echo -e "\033[31mError: repo checkout not found (need bridge/ccp_doctor.py).\033[0m" >&2
+        return 1
+      fi
+      py_bin=$(ccp_python)
+      "$py_bin" "$repo_dir/bridge/ccp_doctor.py" "${@:2}"
       ;;
     usage|--usage)
       local repo_dir py_bin

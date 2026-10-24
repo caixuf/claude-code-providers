@@ -681,6 +681,34 @@ Readings are cached for two minutes because these endpoints are rate limited.
 
 ---
 
+## 🩺 `ccp doctor`
+
+Three things drift silently on a machine, and each one fails late and
+confusingly:
+
+* a **profile** left installed for a provider that was retired — a valid file,
+  a live bridge, and the request only fails when somebody selects it, with a
+  400 that reads like the bridge is down;
+* the **active** profile naming a model the bridge no longer serves;
+* the **Hermes bot** left on a retired model, which fails only when somebody
+  messages it.
+
+```bash
+ccp doctor          # what is installed, and what it points at
+ccp doctor --json   # the same, machine-readable
+```
+
+The served set is **derived**, not a list anyone maintains: the repository's
+rendered templates name the models the native providers answer to (they never
+reach LiteLLM, so the proxy's own model list does not have them), and the
+running bridge's `/v1/models` names every bridged deployment. A profile is
+dead when none of the models it names is in that union.
+
+`ccp sync` acts on the same judgement and archives the dead profiles into
+`~/.claude/providers_disabled/`. It used to archive a hand-written list, which
+was wrong in both directions: it did not know about a provider retired
+yesterday, and it listed a provider that had come back.
+
 ## 📈 Token usage
 
 The bridge sees every Anthropic-shaped `usage` block that reaches ccp, whichever
