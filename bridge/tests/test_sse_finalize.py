@@ -1,4 +1,10 @@
 import json
+import sys
+from pathlib import Path
+
+# The bridge modules are imported by name; put the bridge directory on the
+# path so this file also runs on its own, not only inside the whole suite.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sse_finalize import SseCutState, clamp_max_tokens, event_is_ping, resolve_max_output, sse_should_close, split_complete_events, strip_1m_beta
 
@@ -432,3 +438,109 @@ def test_sanitize_channel_rewords_it_in_an_assistant_turn_too():
     out, applied = sanitize_channel_markers(body)
     assert "refused-line" in applied, applied
     assert "you will usually use this for PRs" not in json.loads(out)["messages"][1]["content"]
+
+
+# ── media downgrade ──────────────────────────────────────────────────────
+# A text-only upstream refuses the *whole* request when it meets an image
+# (Qianfan: 400 "Invalid content type. image_url is only supported by certain
+# models"), and the image is already in the durable history — so every later
+# turn of that session fails the same way. Replacing the pixels with a marker
+# keeps the session alive.
+
+
+def test_downgrade_media_replaces_an_anthropic_image_block():
+    """The Anthropic `image` block must become text, not vanish silently."""
+    from sse_finalize import downgrade_media
+
+    body = json.dumps({
+        "model": "qianfan-deepseek-v4-flash",
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "look at this"},
+                {"type": "image", "source": {"type": "base64",
+                                             "media_type": "image/png",
+                                             "data": "AAAA"}},
+            ],
+        }],
+    }).encode()
+    out, n = downgrade_media(body, "qianfan-deepseek-v4-flash")
+    assert n == 1
+    parts = json.loads(out)["messages"][0]["content"]
+    assert parts[0] == {"type": "text", "text": "look at this"}
+    # the pixels are gone, and the model is told why
+    assert "AAAA" not in out.decode()
+    assert "cannot read images" in parts[1]["text"]
+    assert "qianfan-deepseek-v4-flash" in parts[1]["text"]
+
+
+def test_downgrade_media_reaches_into_a_tool_result():
+    """The image that broke a real session arrived inside a tool result.
+
+    The agent reads a screenshot with a tool, and the tool result is what
+    carries the pixels — a rewrite that only looked at the top level would
+    have missed exactly that case.
+    """
+    from sse_finalize import downgrade_media
+
+    body = json.dumps({
+        "messages": [{
+            "role": "tool",
+            "content": [{
+                "type": "tool_result",
+                "tool_use_id": "t1",
+                "content": [
+                    {"type": "text", "text": "captured"},
+                    {"type": "image", "source": {"type": "base64",
+                                                 "media_type": "image/webp",
+                                                 "data": "BBBB"}},
+                ],
+            }],
+        }],
+    }).encode()
+    out, n = downgrade_media(body, "qianfan-deepseek-v4-flash")
+    assert n == 1
+    inner = json.loads(out)["messages"][0]["content"][0]["content"]
+    assert inner[0]["text"] == "captured"
+    assert "BBBB" not in out.decode()
+    assert "cannot read images" in inner[1]["text"]
+
+
+def test_downgrade_media_handles_the_openai_image_url_part():
+    """OpenAI chat spells the same thing `image_url`; both must be caught."""
+    from sse_finalize import downgrade_media
+
+    body = json.dumps({
+        "model": "qianfan-deepseek-v4-flash",
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "hi"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,CCCC"}},
+            ],
+        }],
+    }).encode()
+    out, n = downgrade_media(body, "qianfan-deepseek-v4-flash")
+    assert n == 1
+    assert "CCCC" not in out.decode()
+    assert "cannot read images" in json.loads(out)["messages"][0]["content"][1]["text"]
+
+
+def test_downgrade_media_leaves_a_text_only_request_untouched():
+    """No media means no rewrite: the original bytes go upstream."""
+    from sse_finalize import downgrade_media
+
+    body = json.dumps({
+        "messages": [{"role": "user", "content": "just text"}],
+    }).encode()
+    out, n = downgrade_media(body, "qianfan-deepseek-v4-flash")
+    assert n == 0
+    assert out == body
+
+
+def test_downgrade_media_never_turns_a_bad_body_into_a_worse_one():
+    """Unparseable input is returned as-is — a rewrite must not be the failure."""
+    from sse_finalize import downgrade_media
+
+    assert downgrade_media(b"not json at all", "m") == (b"not json at all", 0)
+    assert downgrade_media(b"", "m") == (b"", 0)

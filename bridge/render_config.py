@@ -461,6 +461,43 @@ def render_request_rules(profiles_doc: dict, emitted_by_provider: dict[str, set[
     return rules
 
 
+def render_media_rules(
+    models: dict, profiles_doc: dict, emitted_by_provider: dict[str, set[str]]
+) -> list[str]:
+    """Names of emitted models the registry records as text-only.
+
+    Derived, never hand-written: ``vision`` is a *discovered* fact in
+    ``registry/models.yaml``, so a model that gains or loses image input changes
+    this list on the next ``ccp render`` with nobody editing a second place. A
+    hand-kept list is the failure this replaces — it would have named the Qianfan
+    flash id that broke, and missed whichever id the next key serves.
+
+    Only an explicit ``vision: false`` qualifies. ``vision: null`` means the
+    probe never established the capability, and downgrading on a guess would
+    silently discard a screenshot on a model that could have read it; an unknown
+    model therefore keeps its pixels and, if it cannot take them, fails loudly
+    instead of degenerating quietly.
+    """
+    aliases = profiles_doc.get("aliases") or {}
+
+    def vision_of(pname: str, name: str):
+        spec = aliases.get(name)
+        if isinstance(spec, dict) and spec.get("provider") == pname:
+            return (models.get((pname, spec.get("model"))) or {}).get("vision")
+        for candidate in (name, name.split("[", 1)[0]):
+            meta = models.get((pname, candidate))
+            if meta is not None:
+                return meta.get("vision")
+        return None
+
+    text_only: set[str] = set()
+    for pname, names in (emitted_by_provider or {}).items():
+        for name in names:
+            if vision_of(pname, name) is False:
+                text_only.add(name)
+    return sorted(text_only)
+
+
 def litellm_model_string_override(pname: str, mname: str, profiles_doc: dict | None = None) -> str | None:
     """LiteLLM model string for non-registry providers (copilot uses its native
     ``github_copilot/`` prefix and must NOT get an ``openai/`` prefix)."""
@@ -669,6 +706,10 @@ def main() -> None:
     clamp = render_clamp(models, providers, profiles_doc)
     clamp_text = json.dumps(clamp, indent=2, sort_keys=True) + "\n"
     rules = render_request_rules(profiles_doc, emitted_by_provider)
+    # `media_downgrade` is derived from the registry, not declared in
+    # profiles.yaml: the capability is a discovered fact, so the rule set has to
+    # follow it rather than be a second place to keep in sync.
+    rules["media_downgrade"] = render_media_rules(models, profiles_doc, emitted_by_provider)
     rules_text = json.dumps(rules, indent=2, sort_keys=True) + "\n"
 
     profile_texts = {}

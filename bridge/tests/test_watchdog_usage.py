@@ -142,3 +142,115 @@ def test_failed_request_is_not_logged(tmp_path):
 def test_usage_can_be_switched_off(tmp_path):
     app = sse_watchdog.build_app("http://127.0.0.1:4001", 0.0, 90.0, usage_path=None)
     assert app.state.ledger is None
+
+
+# ── media downgrade, end to end ──────────────────────────────────────────
+# The unit tests prove the rewrite. This proves the wiring: a request that
+# carries an image to a text-only model reaches the upstream without it, so
+# the upstream cannot answer 400 and kill the turn.
+
+
+def _capture_app(tmp_path, request_rules, response_chunks=None, content_type="application/json"):
+    """A proxy whose upstream records the body it was handed."""
+    app = sse_watchdog.build_app(
+        "http://127.0.0.1:4001",
+        0.0,
+        90.0,
+        usage_path=None,
+        request_rules=request_rules,
+    )
+    client = app.state.client
+    seen: list[bytes] = []
+
+    async def fake_send(req, stream=False):
+        seen.append(req.content)
+        return httpx.Response(
+            200,
+            headers={"content-type": content_type},
+            stream=_FakeStream(response_chunks or [b'{"ok":true}']),
+            request=req,
+        )
+
+    client.send = fake_send
+    return app, seen
+
+
+def test_image_is_removed_for_a_text_only_model(tmp_path):
+    """The upstream must never see an image_url for a model that cannot read it."""
+    app, seen = _capture_app(
+        tmp_path, {"media_downgrade": {"qianfan-deepseek-v4-flash"}}
+    )
+    tc = TestClient(app)
+    tc.post(
+        "/v1/chat/completions",
+        json={
+            "model": "qianfan-deepseek-v4-flash",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "what is this?"},
+                        {"type": "image_url",
+                         "image_url": {"url": "data:image/png;base64,AAAA"}},
+                    ],
+                }
+            ],
+        },
+    )
+    assert seen, "upstream was never called"
+    body = seen[0].decode()
+    assert "AAAA" not in body
+    assert "cannot read images" in body
+    assert "what is this?" in body
+
+
+def test_a_vision_model_keeps_its_image(tmp_path):
+    """A model the registry calls vision-capable must keep its pixels."""
+    app, seen = _capture_app(
+        tmp_path, {"media_downgrade": {"qianfan-deepseek-v4-flash"}}
+    )
+    tc = TestClient(app)
+    tc.post(
+        "/v1/chat/completions",
+        json={
+            "model": "qianfan-deepseek-v4.1-flash",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "what is this?"},
+                        {"type": "image_url",
+                         "image_url": {"url": "data:image/png;base64,AAAA"}},
+                    ],
+                }
+            ],
+        },
+    )
+    body = seen[0].decode()
+    assert "AAAA" in body
+    assert "cannot read images" not in body
+
+
+def test_the_1m_spelling_is_downgraded_too(tmp_path):
+    """Claude Code appends `[1m]`; the rule is matched after normalisation."""
+    app, seen = _capture_app(
+        tmp_path, {"media_downgrade": {"qianfan-deepseek-v4-flash"}}
+    )
+    tc = TestClient(app)
+    tc.post(
+        "/v1/chat/completions",
+        json={
+            "model": "qianfan-deepseek-v4-flash[1m]",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "hi"},
+                        {"type": "image_url",
+                         "image_url": {"url": "data:image/png;base64,AAAA"}},
+                    ],
+                }
+            ],
+        },
+    )
+    assert "AAAA" not in seen[0].decode()

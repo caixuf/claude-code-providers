@@ -26,6 +26,7 @@ if str(_BRIDGE_DIR) not in sys.path:
 from sse_finalize import (  # noqa: E402
     SseCutState,
     clamp_max_tokens,
+    downgrade_media,
     event_is_ping,
     norm_model_key,
     sanitize_channel_markers,
@@ -141,6 +142,7 @@ async def proxy(request: Request) -> Response:
     clamp_fallback = getattr(request.app.state, "clamp_fallback", None)
     rules = getattr(request.app.state, "request_rules", None) or {}
     sanitize_models = rules.get("sanitize_channel") or frozenset()
+    text_only_models = rules.get("media_downgrade") or frozenset()
     try:
         import json as _j
         _sent_model = (_j.loads(forward_body) or {}).get("model", "") if forward_body else ""
@@ -149,6 +151,15 @@ async def proxy(request: Request) -> Response:
     channel_rewrites: list[str] = []
     if sanitize_models and norm_model_key(_sent_model) in sanitize_models:
         forward_body, channel_rewrites = sanitize_channel_markers(forward_body)
+    # A text-only upstream refuses the whole request when it meets an image
+    # (Qianfan: 400 "image_url is only supported by certain models"), and the
+    # image is already in the durable history, so every later turn of that
+    # session would fail the same way. Replacing the pixels with a marker keeps
+    # the session alive; which models need it comes from the registry's
+    # discovered `vision` flag via bridge/request_rules.json.
+    media_dropped = 0
+    if text_only_models and norm_model_key(_sent_model) in text_only_models:
+        forward_body, media_dropped = downgrade_media(forward_body, _sent_model)
     forward_body, clamped = clamp_max_tokens(forward_body, clamp_map, fallback=clamp_fallback)
     try:
         import json as _j
@@ -157,6 +168,8 @@ async def proxy(request: Request) -> Response:
             print(f"[WATCHDOG] Stripped 1M suffix: {stripped_model} -> {_b.get('model')}", flush=True)
         if channel_rewrites:
             print(f"[WATCHDOG] Channel rewrites ({', '.join(channel_rewrites)}) for model={_b.get('model')}", flush=True)
+        if media_dropped:
+            print(f"[WATCHDOG] Dropped {media_dropped} media block(s) for text-only model={_b.get('model')}", flush=True)
         if clamped is not None:
             print(f"[WATCHDOG] Clamped max_tokens -> {clamped} for model={_b.get('model')}", flush=True)
         print(f"[WATCHDOG] Request: path={request.url.path} model={_b.get('model')} thinking={_b.get('thinking')} max_tokens={_b.get('max_tokens')} body_bytes={len(forward_body)}", flush=True)

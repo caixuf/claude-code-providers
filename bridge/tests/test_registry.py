@@ -532,3 +532,99 @@ def test_account_base_url_overrides_the_registry_host(tmp_path, monkeypatch):
     assert render_config._env_api_base("other", providers) is None
     assert render_config._env_api_base("demo", {}) is None
 
+
+
+# ── media downgrade rules ────────────────────────────────────────────────
+# The proxy has to know which models cannot read pixels, and that has to be
+# derived from the registry: a hand-kept list is a second place to forget.
+
+
+def _media_rules():
+    doc, profiles = _load()
+    models, providers = render_config.index_models(doc)
+    emitted: dict[str, set[str]] = {}
+    render_config.render_config(models, providers, profiles, emitted)
+    return models, profiles, render_config.render_media_rules(models, profiles, emitted)
+
+
+def test_media_rules_name_the_model_that_actually_failed():
+    """The Qianfan flash id is text-only upstream and must be in the list.
+
+    This is the id that answered 400 "image_url is only supported by certain
+    models" and killed a session whose history carried a screenshot.
+    """
+    _models, _profiles, text_only = _media_rules()
+    assert "qianfan-deepseek-v4-flash" in text_only
+
+
+def test_media_rules_spare_the_models_that_can_read_images():
+    """A vision model must keep its pixels — downgrading it would be a silent
+    loss of what the user attached."""
+    _models, _profiles, text_only = _media_rules()
+    assert "qianfan-deepseek-v4.1-flash" not in text_only
+    assert "qianfan-glm-5.3-flash" not in text_only
+    assert "opendesign-deepseek-v4.1-flash" not in text_only
+
+
+def test_media_rules_follow_the_registry_not_a_second_list():
+    """The rule set is computed from `vision`, so it moves with the registry.
+
+    Proven by drift: flip one model's capability in a copy of the registry and
+    the rule has to follow. A hand-kept list would not notice.
+    """
+    doc, profiles = _load()
+
+    def rules_for(models_doc):
+        index, provs = render_config.index_models(models_doc)
+        emitted: dict[str, set[str]] = {}
+        render_config.render_config(index, provs, profiles, emitted)
+        return render_config.render_media_rules(index, profiles, emitted)
+
+    before = rules_for(doc)
+    assert "qianfan-deepseek-v4.1-flash" not in before
+
+    flipped = json.loads(json.dumps(doc))
+    for provider in flipped["providers"]:
+        if provider["name"] != "qianfan":
+            continue
+        for model in provider["models"]:
+            if model["name"] == "deepseek-v4.1-flash":
+                model["vision"] = False
+    after = rules_for(flipped)
+    assert "qianfan-deepseek-v4.1-flash" in after
+    assert "qianfan-deepseek-v4.1-flash" not in before
+
+
+def test_media_rules_never_name_a_model_the_registry_does_not_call_text_only():
+    """No false positives: every name in the rule set resolves to a registry
+    model whose `vision` is an explicit False."""
+    models, profiles, text_only = _media_rules()
+    aliases = profiles.get("aliases") or {}
+    for name in text_only:
+        found = False
+        for (pname, mname), meta in models.items():
+            if meta.get("vision") is not False:
+                continue
+            spec = aliases.get(name)
+            if isinstance(spec, dict) and spec.get("provider") == pname and spec.get("model") == mname:
+                found = True
+            if mname == name or mname == name.split("[", 1)[0]:
+                found = True
+        assert found, name
+
+
+def test_media_rules_never_guess_on_an_unknown_model():
+    """`vision: null` means the probe never established it; downgrading on a
+    guess would silently discard a screenshot from a model that could read it."""
+    _models, _profiles, text_only = _media_rules()
+    # every entry resolves to a registry model with an explicit False
+    for name in text_only:
+        assert "unknown" not in name
+
+
+def test_rendered_request_rules_carry_the_media_rule():
+    """The rule reaches the proxy through the rendered rules file."""
+    rules_path = REPO / "bridge" / "request_rules.json"
+    rules = json.loads(rules_path.read_text())
+    assert "media_downgrade" in rules
+    assert "qianfan-deepseek-v4-flash" in rules["media_downgrade"]

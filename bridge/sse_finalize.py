@@ -419,6 +419,133 @@ def strip_billing_header(body: bytes) -> tuple[bytes, bool]:
     return out, bool(applied)
 
 
+# ── media downgrade ───────────────────────────────────────────────────────
+# An upstream that cannot read pixels does not ignore an image, it *refuses the
+# whole request*: Qianfan answers
+#   400 invalid_argument "Invalid content type. image_url is only supported by
+#       certain models"
+# and the turn is lost with nothing the client can retry around — the image is
+# already in the durable history, so every later turn of that session carries it
+# and 400s too. That is the difference between a degraded answer and a dead
+# session: replacing the pixels with a text marker keeps the conversation
+# alive and tells the model (and later the reader) why it cannot see.
+#
+# The registry already records `vision: false` per model, discovered rather than
+# guessed, so the proxy knows which names need this before sending anything.
+
+IMAGE_PLACEHOLDER = (
+    "[an image was attached here but the current model ({model}) cannot read "
+    "images; it was not sent]"
+)
+MEDIA_PLACEHOLDER = (
+    "[{kind} content was attached here but the current model ({model}) cannot "
+    "read it; it was not sent]"
+)
+
+
+def _is_media_block(block: object) -> str | None:
+    """Return the kind of a non-text content block, or None if it is text.
+
+    Covers both dialects the bridge carries: Anthropic ``image``/``document``
+    blocks and OpenAI ``image_url``/``input_audio``/``file`` chat parts.
+    """
+    if not isinstance(block, dict):
+        return None
+    btype = block.get("type")
+    if btype in ("text", "input_text", "tool_use", "tool_result", "thinking", "reasoning"):
+        return None
+    if btype == "image":
+        return "image"
+    if btype == "image_url":
+        return "image"
+    if btype in ("document", "file"):
+        return "document"
+    if btype in ("audio", "input_audio", "video"):
+        return str(btype)
+    return None
+
+
+def _downgrade_parts(parts: list, model: str) -> tuple[list, int]:
+    """Replace media blocks in one content list; returns (parts, replaced).
+
+    Recurses into ``tool_result`` (and its OpenAI twin ``tool_result``/``content``
+    list): the image that actually broke a session arrives there, because the
+    agent reads a screenshot with a tool and the tool result is what carries the
+    pixels. Rewriting only the top level missed exactly that case.
+    """
+    out: list = []
+    replaced = 0
+    for block in parts:
+        if isinstance(block, dict):
+            btype = block.get("type")
+            if btype == "tool_result":
+                inner = block.get("content")
+                if isinstance(inner, list):
+                    block = dict(block)
+                    block["content"], n = _downgrade_parts(inner, model)
+                    replaced += n
+                out.append(block)
+                continue
+            if btype in ("tool_use", "thinking", "reasoning"):
+                out.append(block)
+                continue
+        kind = _is_media_block(block)
+        if kind is None:
+            out.append(block)
+            continue
+        template = IMAGE_PLACEHOLDER if kind == "image" else MEDIA_PLACEHOLDER
+        # Anthropic text blocks and OpenAI chat parts are both
+        # {"type":"text","text":...}, so one shape fits either dialect.
+        out.append({"type": "text", "text": template.format(kind=kind, model=model)})
+        replaced += 1
+    return out, replaced
+
+
+def downgrade_media(body: bytes, model: str) -> tuple[bytes, int]:
+    """Strip media a text-only upstream would reject; returns (body, count).
+
+    Handles the three shapes the bridge carries: Anthropic ``system`` (a bare
+    block list), Anthropic ``messages`` / OpenAI chat ``messages`` (turns whose
+    ``content`` is a part list), and OpenAI Responses ``input``.
+
+    A no-op when nothing changes, so the caller can forward the original bytes
+    rather than a re-serialized copy. Unparseable bodies are returned untouched:
+    a rewrite must never be the reason a request fails.
+    """
+    if not body:
+        return body, 0
+    try:
+        import json as _j
+
+        doc = _j.loads(body)
+    except Exception:
+        return body, 0
+    if not isinstance(doc, dict):
+        return body, 0
+
+    total = 0
+    for key in ("system", "messages", "input"):
+        value = doc.get(key)
+        if not isinstance(value, list):
+            continue
+        if key == "system":
+            # A bare list of blocks, not a turn.
+            doc[key], n = _downgrade_parts(value, model)
+            total += n
+            continue
+        for turn in value:
+            if not isinstance(turn, dict):
+                continue
+            content = turn.get("content")
+            if isinstance(content, list):
+                turn["content"], n = _downgrade_parts(content, model)
+                total += n
+
+    if not total:
+        return body, 0
+    return _j.dumps(doc).encode("utf-8"), total
+
+
 def resolve_max_output(
     model: str, clamp_map: dict[str, int], *, fallback: int | None = None
 ) -> int | None:

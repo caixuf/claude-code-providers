@@ -254,13 +254,14 @@ place the request-rewriting layer exists.
 | `strip_1m_model` | Drops the `[1m]` suffix the registry names carry; strict gateways reject it |
 | `strip_1m_beta` | Drops the `anthropic-beta` 1M-context token that triggers `400` upstream |
 | `clamp_max_tokens` | Caps `max_tokens` at the model's discovered output limit, fixing `400 Invalid max_tokens value` |
+| `downgrade_media` | Replaces an image with a text marker for a model the registry records as text-only, fixing `400 Invalid content type. image_url is only supported by certain models` |
 | `sanitize_channel` *(no provider uses it today)* | Satisfies a gateway's *client-identity check*: it strips the `x-anthropic-billing-header` block and neutralises Claude Code's identity line wherever a gateway inspects it. Applies **only** to providers listed under `request_rules:` in `registry/profiles.yaml`, because stripping the billing header anywhere else is a silent prompt mutation. Built for WorkBuddy, which is retired — `docs/workbuddy-channel-check.md` keeps the measurement |
 
 It also closes the stream after a complete `message_stop` and drops trailing
 keepalives.
 
 **Single process (lossy).** `setup_bridge.sh --no-watchdog` puts LiteLLM on
-`:4000` directly: one hop, nothing to keep in sync, and **none** of the four
+`:4000` directly: one hop, nothing to keep in sync, and **none** of the five
 rewrites. A real Claude Code client on a 1M model sends all three problematic
 things at once (`max_tokens: 1000000`, a `[1m]` name, the 1M beta header) and
 upstream answers `400`. This is why a `curl` smoke test looks fine and the client
@@ -504,6 +505,21 @@ loads as `EnvironmentFile` — a new key reaches the bridge only after
 `systemctl --user restart litellm-cmdc.service`, not after a `ccp render`. And
 the catalogue endpoint answers `429 Over rate limit` when probed in a burst, so
 the probe retries instead of concluding that the plan is gone.
+
+**A text-only rung refuses the whole turn when it meets a picture.** Qianfan
+answers `400 invalid_argument "Invalid content type. image_url is only supported
+by certain models"`, and the picture is already in the conversation's durable
+history — so *every* later turn of that session carries it and 400s the same
+way. The session is not slow, it is dead. `deepseek-v4-flash-0731` is the rung
+that does this; `deepseek-v4.1-flash` and `glm-5.3-flash` read images fine.
+
+The bridge therefore rewrites the request instead of forwarding it: for a model
+the registry records as text-only, `downgrade_media` replaces every image (and
+every other media block) with a text marker naming the model, so the turn
+completes and the reader knows the pixels never arrived. Which models need it
+comes from the registry's *discovered* `vision` flag — `ccp render` derives the
+list, so a model that gains or loses image input changes it with nobody editing
+a second place.
 
 ### Trae CLI
 
