@@ -31,6 +31,7 @@ claude ──> ccp profile ──┬─> vendor's /anthropic endpoint         (n
 | `opendesign/` | DeepSeek-V4.1-Flash (1.05M) | native, Anthropic-native aggregator | 11 |
 | `cline/` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 6 |
 | `trae/` | DeepSeek-V4.1-Flash (1M) | local adapter `:4100` | 19 |
+| `codex/` | gpt-6.1-sol (272k) | native Anthropic, local gateway `:56895` | 8 |
 
 Several folders start on the *same* underlying model. That is the point: same
 model, different pipe, price and quota. Every folder also holds the other models
@@ -429,6 +430,42 @@ travels through the adapter and the model names the colours correctly.
 > `ctx_default` overrides it, verified across four families. A request that
 > returns 200 is not proof; only retrieving something from the far end is.
 
+### Codex (local gateway on `:56895`)
+
+A local gateway that fronts a Codex account and speaks **Anthropic Messages** at
+`http://localhost:56895/v1/messages`, so this profile is `native: true`: Claude
+Code talks to it directly, with no bridge in the way.
+
+```bash
+ccp codex            # default tier: gpt-6.1-sol
+ccp codex gpt-6-astra
+```
+
+**Every model here is 272k-context and text-only.** The window is the
+catalogue's own `context_length` and it is advertised as 272000, so Claude Code
+compacts at the point the gateway would truncate; a pasted screenshot has
+nowhere to go on any tier. `max_output` is left null on purpose — the gateway
+accepts `max_tokens=300000` on a 272k model, so any cap read from it (or from
+LiteLLM's cost map, which answers 128000 for some of these ids) would be fiction.
+
+**Two catalogue ids are excluded.** `gpt-image-2.5` and `gpt-reserve` answer
+`503 no_available_account`; they are held to the same rule as ClinePass and
+MiniMax's legacy family — the registry lists what has been verified to answer.
+
+**The bridged copy needs a different LiteLLM prefix.** A `anthropic/` deployment
+reached through LiteLLM's own `/v1/messages` is forwarded to the gateway as an
+OpenAI **Responses** request, and that path answers
+`unsupported_endpoint … not supported by the native Responses service` — even
+though `/v1/responses` looks alive when probed by hand. `render_config.py`
+therefore emits `hosted_vllm/` for this provider (the same opt-out CodeBuddy
+needed), which keeps the chat/completions builder per deployment.
+
+**The probe had a related bug, now fixed.** `ccp_probe` appended `/v1/messages`
+to whatever base the profile carried, so this endpoint — whose base is already
+`…/v1` — was asked for `/v1/v1/messages`, and the gateway answered that with the
+same `unsupported_endpoint` 404. `ccp ping codex` reported 0/8 responsive for
+models that answer in two seconds; the base is now used as written.
+
 ---
 
 ## 🔑 Credentials
@@ -532,6 +569,8 @@ row (2 rounds, ~200 output tokens per round):
 | trae | `DeepSeek-V4.1-Flash` | 3.4 s | 63.8² | 3.5 s | 1M |
 | trae | `DeepSeek-V4-Flash-Official` | 3.9 s | 166.5 | 5.0 s | 1M |
 | trae | `DeepSeek-V4-Pro-Official` | 6.4 s | 45.5² | 6.6 s | 1M |
+| codex | `gpt-6-sol` | 2.2 s | 39.7² | 2.6 s | 272k |
+| codex | `gpt-6.1-sol` | 3.1 s | 5.0² | 3.6 s | 272k |
 
 ² **No decode window to measure**: the model thinks for seconds and then
 releases the whole answer at once, so the speed is scored against the whole

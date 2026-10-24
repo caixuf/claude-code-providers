@@ -468,6 +468,19 @@ def litellm_model_string_override(pname: str, mname: str, profiles_doc: dict | N
         # server prefix: it keeps the chat/completions builder *per deployment*,
         # so nothing else in the bridge changes behaviour.
         return f"hosted_vllm/{mname}"
+    if pname == "codex":
+        # The local Codex gateway has an Anthropic front door (:56895/v1/messages,
+        # which is what the native profile uses) and, on the same base URL, an
+        # OpenAI chat/completions one. It does NOT have an OpenAI *Responses*
+        # front door, whatever /v1/responses appears to return: forwarded there,
+        # a request comes back as "unsupported_endpoint ... not supported by the
+        # native Responses service". That is exactly the path an ``anthropic/``
+        # deployment takes when reached through LiteLLM's own /v1/messages, so
+        # the bridged copy would 404 for a model the direct one answers in 2s.
+        # ``hosted_vllm/`` is LiteLLM's generic OpenAI-compatible prefix: it keeps
+        # the chat/completions builder per deployment, the same opt-out
+        # CodeBuddy needed, without touching any other provider.
+        return f"hosted_vllm/{mname}"
     if mname.startswith(("github_copilot/", "anthropic/", "openai/", "openrouter/")):
         return mname
     if pname == "copilot":
