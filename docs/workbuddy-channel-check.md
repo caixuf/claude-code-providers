@@ -4,12 +4,16 @@
 below comes from a request that was actually sent and answered; nothing is
 inferred from documentation.
 
-This file contradicts an earlier conclusion in this repo. The archived
-CodeBuddy section of [`archived-providers.md`](archived-providers.md) says the
-gateway's channel check "is not something a proxy can guarantee". That is
-wrong: the check is a fixed, reproducible rule, and it was found by capturing
-what the official client sends and then replaying it from an ordinary HTTP
-client.
+**The provider is live.** Since 2026-10-24 this is `workbuddy/` in ccp: the
+template, the profile, the seventeen aliases, the importer
+(`bridge/workbuddy_auth.py`, `ccp auth workbuddy`) and the discovery entry are
+all in place, and `claude -p` through the bridge answers on
+`workbuddy-deepseek-v4.1-flash[1m]`. This file is the reasoning behind it, and
+it corrects an earlier conclusion in this repo: the archived CodeBuddy section
+of [`archived-providers.md`](archived-providers.md) says the gateway's channel
+check "is not something a proxy can guarantee". That is wrong: the check is a
+fixed, reproducible rule, and it was found by capturing what the official
+client sends and then replaying it from an ordinary HTTP client.
 
 ---
 
@@ -208,7 +212,7 @@ is still plaintext.
 
 ---
 
-## What this means for ccp
+## What this means for ccp — and what was done
 
 The archived conclusion was reached with a body sanitiser that could not see
 the headers: LiteLLM forwards `Authorization` and little else, so the request
@@ -217,24 +221,27 @@ arrived with no conversation family at all and was refused as
 gate — its rule (neutralise the identity in *every* system block and *every*
 assistant turn, not just the first) matches what was measured here.
 
-Restoring the provider needs three things:
+The restore needed three things, and all three are in the tree now:
 
-1. **The three headers on every upstream request.** LiteLLM deployments can
-   carry `extra_headers`, but a fixed value would be wrong — the gateway
-   correlates a conversation with a session, and the watchdog that already
-   rewrites the body (`bridge/sse_watchdog.py`) is the natural place to mint
-   one id per request and stamp it on.
+1. **The three headers on every upstream request.** `extra_headers` on the
+   deployment (a provider-level field in `bridge/discover_models.py`, written
+   into `registry/models.yaml` and emitted by `bridge/render_config.py`). One
+   fixed set of values serves every request: the gateway does not validate
+   them — the literal string `abc123` is as good as a UUID.
 2. **The sanitiser back**, scoped to this provider's models, via
-   `request_rules` in `registry/profiles.yaml` — the plumbing is still there
+   `request_rules` in `registry/profiles.yaml` — the plumbing was still there
    (`sanitize_channel_markers` in `bridge/sse_finalize.py`), only the rule was
-   dropped with the provider.
+   dropped with the provider. One thing it was missing: the chat must *open*
+   with a system message, so a request that carries none now gets a neutral
+   one (`system-default`) even when no identity had to be neutralised.
 3. **The identity moved out of the system role.** A foreign identity is
    refused in system *and* assistant messages; putting the agent's own
    instructions into the first user message instead is what magpie's plugin
    does (`systemAsUser`, and its 0.1.29 changelog entry: "a system prompt
    WorkBuddy refuses as an unapproved channel (11128) is sent once more as the
    first user message's instructions, with WorkBuddy's default system prompt,
-   since WorkBuddy checks only system and assistant messages").
+   since WorkBuddy checks only system and assistant messages"). ccp does not
+   need this: it neutralises the identity where it stands instead.
 
 The credentials side is unchanged and still applies: magpie reads WorkBuddy's
 own account from `<shared data>/auth/workbuddy-desktop.info` and never writes

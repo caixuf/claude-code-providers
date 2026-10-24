@@ -124,6 +124,29 @@ profiles:
       sonnet:  {model: deepseek-v4.1-flash}
       haiku:   {model: glm-5.3-flash}
 
+  # ── WorkBuddy (Tencent's coding-copilot plan) ──────────────────────────
+  # The same plan CodeBuddy Code (the CLI) and the WorkBuddy desktop app sign
+  # into, fronted through LiteLLM: plain OpenAI Chat Completions under /v2, so
+  # it is a normal *bridged* provider with no adapter.
+  #
+  # Two gateway quirks, both handled for you: the request must carry the three
+  # conversation headers the gateway's channel check reads (they ride on every
+  # deployment), and the body must open with a system message that names no
+  # other client — `request_rules.sanitize_channel` rewrites that part.
+  # docs/workbuddy-channel-check.md has the capture and the ablation.
+  #
+  # deepseek-v4.1-flash takes the top tiers: 1M context, the fastest first
+  # token on the plan, and the model the CLI itself asks for.
+  workbuddy:
+    provider: workbuddy
+    primary_tier: default
+    tiers:
+      default: {model: deepseek-v4.1-flash}
+      opus:    {model: deepseek-v4.1-flash}
+      fable:   {model: deepseek-v4.1-flash}
+      sonnet:  {model: deepseek-v4.1-flash}
+      haiku:   {model: glm-5.3-flash}
+
   # ── Trae CLI (ByteDance enterprise coding agent) ──────────────────────
   # Also `native: true`: bridge/trae_bridge.py speaks the Anthropic Messages
   # API directly, so Claude Code talks to :4100 with no LiteLLM hop. The
@@ -175,6 +198,24 @@ aliases:
   qianfan-glm-5.3-flash:                {provider: qianfan, model: glm-5.3-flash, ctx: 1179648}
   qianfan-glm-5.2:                      {provider: qianfan, model: glm-5.2, ctx: 1179648}
   qianfan-glm-5.1:                      {provider: qianfan, model: glm-5.1, ctx: 333824}
+  # WorkBuddy: the plan's own model ids, bridged through LiteLLM.
+  workbuddy-deepseek-v4.1-flash:          {provider: workbuddy, model: deepseek-v4.1-flash, ctx: 1000000}
+  workbuddy-glm-5.3:                      {provider: workbuddy, model: glm-5.3, ctx: 1000000}
+  workbuddy-glm-5.3-flash:                {provider: workbuddy, model: glm-5.3-flash, ctx: 1000000}
+  workbuddy-glm-5.2:                      {provider: workbuddy, model: glm-5.2, ctx: 1000000}
+  workbuddy-glm-5.1:                      {provider: workbuddy, model: glm-5.1, ctx: 200000}
+  workbuddy-glm-5v-turbo:                 {provider: workbuddy, model: glm-5v-turbo, ctx: 200000}
+  workbuddy-kimi-k3:                     {provider: workbuddy, model: kimi-k3, ctx: 1000000}
+  workbuddy-kimi-k2.6:                   {provider: workbuddy, model: kimi-k2.6, ctx: 256000}
+  workbuddy-kimi-k2.7:                   {provider: workbuddy, model: kimi-k2.7, ctx: 256000}
+  workbuddy-minimax-m3:                  {provider: workbuddy, model: minimax-m3, ctx: 512000}
+  workbuddy-hy3:                         {provider: workbuddy, model: hy3, ctx: 192000}
+  workbuddy-hy4-preview:                 {provider: workbuddy, model: hy4-preview, ctx: 1000000}
+  workbuddy-hy4-preview-f:               {provider: workbuddy, model: hy4-preview-f, ctx: 1000000}
+  workbuddy-default-model:               {provider: workbuddy, model: default-model, ctx: 176000}
+  workbuddy-fast-model:                  {provider: workbuddy, model: fast-model, ctx: 200000}
+  workbuddy-balanced-model:              {provider: workbuddy, model: balanced-model, ctx: 256000}
+  workbuddy-auto:                        {provider: workbuddy, model: auto, ctx: 168000}
   # OpenDesign: hot-swap between the aggregator's rungs with `ccp -m`
   opendesign-deepseek-v4.1-flash:       {provider: opendesign, model: deepseek-v4.1-flash, ctx: 1048000}
   opendesign-deepseek-v4-pro:           {provider: opendesign, model: deepseek-v4-pro, ctx: 1048000}
@@ -263,17 +304,23 @@ groups:
 # are curation choices, not discovered facts.
 #
 #   sanitize_channel: satisfy the provider's client-identity check before
-#     forwarding. CodeBuddy/WorkBuddy answer 400
+#     forwarding. WorkBuddy/CodeBuddy answer 400
 #     {"code":11128,"msg":"Illegal API invocation from an unapproved channel"}
 #     for two things Claude Code always sends: the `x-anthropic-billing-header`
-#     system block, and Claude Code's own identity line when it opens the first
-#     system message (the interactive TUI always does). One of the two has to be
-#     removed and the other neutralised with a leading newline. Anthropic's own
-#     API wants the header untouched, so this stays scoped to providers whose
-#     gateway inspects it.
-request_rules: {}
-# The one rule this repo ever carried — codebuddy's `sanitize_channel` client
-# check — went with the provider. See docs/archived-providers.md to restore it.
+#     system block, and Claude Code's own identity line (the interactive TUI
+#     always sends it). One of the two has to be removed and the other
+#     neutralised with a leading newline — and the gateway inspects *every*
+#     system block and *every* assistant turn, so a resumed conversation's past
+#     assistant message counts too. Anthropic's own API wants the header
+#     untouched, so this stays scoped to providers whose gateway inspects it.
+#
+#     The other half of that gateway's check is the three conversation headers
+#     (X-Conversation-ID and friends), which are not a body rewrite and so
+#     cannot live here: they ride on every deployment as extra_headers.
+#     docs/workbuddy-channel-check.md has both halves.
+request_rules:
+  sanitize_channel:
+  - workbuddy
 
 # ── Models that get individual LiteLLM entries (so `ccp -m <name>` works) ─
 # Keep this list short: each entry becomes a selectable model name, and a raw

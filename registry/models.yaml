@@ -251,6 +251,142 @@ providers:
         endpoint_kind: openai
         aliases: []
         tiers: []
+  - name: workbuddy
+    api_base: https://www.codebuddy.ai/v2
+    endpoint_kind: openai
+    auth_env: WORKBUDDY_API_KEY
+    extra_headers:
+      X-Conversation-ID: ccp-workbuddy-conv
+      X-Conversation-Message-ID: ccp-workbuddy-msg
+      X-Conversation-Request-ID: ccp-workbuddy-req
+    models:
+      - name: auto
+        ctx: 168000
+        max_output: null
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+        hints: {ctx: 168000}
+      - name: balanced-model
+        ctx: 256000
+        max_output: 32000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: deepseek-v4.1-flash
+        ctx: 1000000
+        max_output: null
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+        hints: {ctx: 1000000}
+      - name: default-model
+        ctx: 176000
+        max_output: 24000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: fast-model
+        ctx: 200000
+        max_output: 32000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: glm-5.1
+        ctx: 200000
+        max_output: null
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+        hints: {ctx: 200000}
+      - name: glm-5.2
+        ctx: 1000000
+        max_output: 48000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: glm-5.3
+        ctx: 1000000
+        max_output: 48000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: glm-5.3-flash
+        ctx: 1000000
+        max_output: null
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+        hints: {ctx: 1000000}
+      - name: glm-5v-turbo
+        ctx: 200000
+        max_output: null
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+        hints: {ctx: 200000}
+      - name: hy3
+        ctx: 192000
+        max_output: 64000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: hy4-preview
+        ctx: 1000000
+        max_output: 64000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: hy4-preview-f
+        ctx: 1000000
+        max_output: null
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+        hints: {ctx: 1000000}
+      - name: kimi-k2.6
+        ctx: 256000
+        max_output: 32000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: kimi-k2.7
+        ctx: 256000
+        max_output: null
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+        hints: {ctx: 256000}
+      - name: kimi-k3
+        ctx: 1000000
+        max_output: 32000
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+      - name: minimax-m3
+        ctx: 512000
+        max_output: null
+        vision: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+        hints: {ctx: 512000}
   - name: trae
     api_base: http://127.0.0.1:4100
     endpoint_kind: anthropic

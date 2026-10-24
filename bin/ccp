@@ -64,9 +64,10 @@ Usage:
   ccp sync                   Sync local profiles with repository templates
   ccp bridge [action]        Manage local bridge: status, restart, start, stop,
                              deploy, logs, start-trae/stop-trae/restart-trae (the Trae adapter)
-  ccp auth [copilot|trae]
-                             Authenticate a provider (Copilot device flow, or the
-                             TraeCLI personal access token)
+  ccp auth [copilot|trae|workbuddy]
+                             Authenticate a provider (Copilot device flow, the
+                             TraeCLI personal access token, or the WorkBuddy /
+                             CodeBuddy Code session)
   ccp accounts [action]      Several logins for one provider, and routing groups:
                              list | add <provider> <suffix> | remove <provider> <suffix>
                              | group add <name> <member...> | group remove <name>
@@ -88,13 +89,14 @@ Examples:
   ccp ping trae -s           # Benchmark Trae models and auto-switch to the winner
   ccp cline deepseek-v4.1-flash  # Switch to ClinePass Token Plan and its default model
   ccp auth trae              # Import the TraeCLI personal access token into the bridge
+  ccp auth workbuddy         # Import the CodeBuddy Code session (log in with `codebuddy` once)
   ccp accounts add cline a2       # Name a second login, then `ccp render`
   ccp accounts group add daily cline-deepseek-v4.1-flash opendesign-deepseek-v4.1-flash
   ccp -m group/daily         # One name over several models; fails over when one runs out
 
-Note: CommandCode, CodeBuddy, GitHub Copilot, OpenCode, Antigravity and Qianfan
-are archived — see docs/archived-providers.md. `ccp auth copilot` still runs the
-Copilot device flow.
+Note: CommandCode, GitHub Copilot, OpenCode and Antigravity are archived — see
+docs/archived-providers.md. `ccp auth copilot` still runs the Copilot device
+flow.
 
 Directories:
   Profiles:  ~/.claude/providers/*.json
@@ -635,8 +637,26 @@ except Exception as e:
       "$py_bin" "$repo_dir/bridge/trae_auth.py" "${@:2}"
       return $?
       ;;
+    workbuddy|codebuddy)
+      # WorkBuddy / CodeBuddy Code: the gateway authenticates the *session* the
+      # CodeBuddy Code CLI holds, not an API key. Log in with `codebuddy` once
+      # (that is the sign-in step — this command only reads the session), then
+      # let ccp import it and prove the plan answers.
+      local repo_dir py_bin
+      repo_dir=$(ccp_repo_dir)
+      if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/workbuddy_auth.py" ]; then
+        echo -e "\033[31mError: repo checkout not found (need bridge/workbuddy_auth.py).\033[0m" >&2
+        return 1
+      fi
+      py_bin=$(ccp_python)
+      echo -e "\033[36m=== WorkBuddy Authentication (import the CodeBuddy CLI session) ===\033[0m"
+      echo -e "If you have not signed in yet: run \033[1mcodebuddy\033[0m once and log in there."
+      echo ""
+      "$py_bin" "$repo_dir/bridge/workbuddy_auth.py" "${@:2}"
+      return $?
+      ;;
     *)
-      echo "Usage: ccp auth [copilot|trae]" >&2
+      echo "Usage: ccp auth [copilot|trae|workbuddy]" >&2
       return 1
       ;;
   esac

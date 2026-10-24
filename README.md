@@ -4,7 +4,7 @@
 [![Platform: Linux / macOS / WSL](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20WSL-green.svg)]()
 [![Tested on: Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-purple.svg)]()
 
-> **Switch the model behind Claude Code in one command, across six providers** —
+> **Switch the model behind Claude Code in one command, across seven providers** —
 > native Anthropic endpoints, one OpenAI-compatible gateway, and a local adapter
 > for a subscription that publishes no API at all.
 
@@ -31,6 +31,7 @@ claude ──> ccp profile ──┬─> vendor's /anthropic endpoint         (n
 | `opendesign/` | DeepSeek-V4.1-Flash (1.05M) | native, Anthropic-native aggregator | 11 |
 | `cline/` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 6 |
 | `qianfan/` | DeepSeek-V4.1-Flash (1.44M) | bridged → LiteLLM | 9 |
+| `workbuddy/` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 17 |
 | `trae/` | Qwen3.8-Max (1M) | local adapter `:4100` | 19 |
 
 Several folders start on the *same* underlying model. That is the point: same
@@ -184,10 +185,10 @@ token instantly and still never act, which is the failure that wastes the turn.
 
 ## 🌉 The bridge
 
-Two providers, `cline/` and `qianfan/`, speak plain OpenAI `chat/completions`
-and are **bridged**: Claude Code talks to a local gateway that translates on the
-way out. Every other folder takes one of the other two paths — an
-Anthropic-native endpoint or the Trae local adapter — both covered below.
+Three providers, `cline/`, `qianfan/` and `workbuddy/`, speak plain OpenAI
+`chat/completions` and are **bridged**: Claude Code talks to a local gateway that
+translates on the way out. Every other folder takes one of the other two paths —
+an Anthropic-native endpoint or the Trae local adapter — both covered below.
 
 ```
 claude ──> :4000 sse_watchdog ──> :4001 LiteLLM ──> upstream OpenAI gateway
@@ -214,7 +215,7 @@ place the request-rewriting layer exists.
 | `strip_1m_model` | Drops the `[1m]` suffix the registry names carry; strict gateways reject it |
 | `strip_1m_beta` | Drops the `anthropic-beta` 1M-context token that triggers `400` upstream |
 | `clamp_max_tokens` | Caps `max_tokens` at the model's discovered output limit, fixing `400 Invalid max_tokens value` |
-| `sanitize_channel` *(currently unused — its only provider, CodeBuddy, is archived again: see [docs/archived-providers.md](docs/archived-providers.md))* | Satisfies a gateway's *client-identity check*: it strips the `x-anthropic-billing-header` block and neutralises Claude Code's identity line wherever a gateway inspects it. Applies **only** to providers listed under `request_rules:` in `registry/profiles.yaml`, because stripping the billing header anywhere else is a silent prompt mutation |
+| `sanitize_channel` *(in use by `workbuddy/` only)* | Satisfies a gateway's *client-identity check*: it strips the `x-anthropic-billing-header` block and neutralises Claude Code's identity line wherever a gateway inspects it. Applies **only** to providers listed under `request_rules:` in `registry/profiles.yaml`, because stripping the billing header anywhere else is a silent prompt mutation |
 
 It also closes the stream after a complete `message_stop` and drops trailing
 keepalives.
@@ -378,6 +379,49 @@ loads as `EnvironmentFile` — a new key reaches the bridge only after
 `systemctl --user restart litellm-cmdc.service`, not after a `ccp render`. And
 the catalogue endpoint answers `429 Over rate limit` when probed in a burst, so
 the probe retries instead of concluding that the plan is gone.
+
+### WorkBuddy (Tencent's coding-copilot plan)
+
+WorkBuddy is Tencent's coding-copilot desktop app and CodeBuddy Code is the
+CLI it is packaged from; both sign into the same plan, and this folder fronts
+it. It is a normal bridged provider — plain OpenAI `chat/completions` under
+`/v2` — with two gateway quirks that are handled for you.
+
+**The channel check.** The gateway refuses a request that does not carry
+`X-Conversation-ID`, `X-Conversation-Message-ID` and
+`X-Conversation-Request-ID` with `400 {"code":11128,"msg":"request illegal"}`,
+and it refuses a chat that does not open with a system message, or whose
+system and assistant messages carry another client's identity line, with
+`400 {"code":11128,"msg":"Illegal API invocation from an unapproved channel"}`.
+The three headers ride on every deployment (`extra_headers` in the generated
+config); the body is rewritten by `request_rules.sanitize_channel`, which
+neutralises Claude Code's identity in *every* system block and *every*
+assistant turn — a resumed conversation carries it in a past assistant message
+too. The full rule, the capture of the official client and the ablation behind
+it are in [`docs/workbuddy-channel-check.md`](docs/workbuddy-channel-check.md).
+
+**The login.** The gateway authenticates the *session* the CodeBuddy Code CLI
+holds, not an API key, so there is no key to paste. Sign in with the CLI once:
+
+```bash
+codebuddy          # log in there, once
+ccp auth workbuddy # import the session into proxy.env, then verify it
+ccp workbuddy      # switch to the folder
+```
+
+`ccp auth workbuddy` only ever *reads* the session — CodeBuddy rotates its
+refresh token on every refresh, and the CLI is its single holder, so
+refreshing here would sign the CLI out. When the access token lapses, run
+`codebuddy` once and `ccp bridge restart` re-reads it.
+
+**What the plan serves.** `ccp models workbuddy` lists 17 ids, all verified
+against the live gateway: `deepseek-v4.1-flash` (1M, the model the CLI itself
+asks for), `glm-5.3`, `glm-5.3-flash`, `glm-5.2`, `glm-5.1`, `glm-5v-turbo`,
+`kimi-k3`, `kimi-k2.6`, `kimi-k2.7`, `minimax-m3`, `hy3`, `hy4-preview`,
+`hy4-preview-f`, and the plan's own logical tiers `auto`, `default-model`,
+`fast-model` and `balanced-model`. The catalogue also lists GPT and Gemini
+rungs, but this account is a `personal_free_user` and the gateway refuses them
+with `not allowed for user type`.
 
 ### Trae CLI
 
@@ -621,9 +665,9 @@ gateway error on a loopback endpoint is the proxy answering for it.
 
 ## 📦 Archived providers
 
-CommandCode (out of credits), GitHub Copilot (no healthy deployments), CodeBuddy,
-OpenCode and Antigravity (`agy`) are archived, along with what it takes to bring
-one back: [`docs/archived-providers.md`](docs/archived-providers.md).
+CommandCode (out of credits), GitHub Copilot (no healthy deployments), OpenCode
+and Antigravity (`agy`) are archived, along with what it takes to bring one back:
+[`docs/archived-providers.md`](docs/archived-providers.md).
 
 ---
 

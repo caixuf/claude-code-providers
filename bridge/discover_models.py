@@ -201,6 +201,102 @@ PROVIDERS = {
         ],
         "max_output_default": 32000,
     },
+    # WorkBuddy (Tencent's coding-copilot desktop app) and CodeBuddy Code
+    # (the CLI it is packaged from) sign into the same plan, and this entry
+    # fronts it. Three things are not obvious and all three are handled here:
+    #
+    #   * The host comes from the login, not from us: a session is valid at
+    #     exactly the site it was issued by (www.codebuddy.ai for the
+    #     international plan, copilot.tencent.com for the CN one), and the
+    #     wrong host answers a bare 401 that looks like an expired login.
+    #   * Only ``/v2/chat/completions`` exists. ``/v1/*`` and the OpenAI
+    #     Responses API 404, so the deployment uses LiteLLM's
+    #     ``hosted_vllm/`` prefix (see render_config.py) and streaming is
+    #     mandatory — a non-stream request is refused with 11101.
+    #   * The gateway runs a channel check: a request without the three
+    #     conversation headers is refused with 11128 "request illegal", and
+    #     the body must open with a system message that names no other
+    #     client. The headers are sent on every request (extra_headers) and
+    #     the body is rewritten by request_rules.sanitize_channel. Both come
+    #     from a capture of the official client; docs/workbuddy-channel-check.md
+    #     has the capture, the ablation and the open questions.
+    #
+    # The catalogue is the account's own: /v2/enterprises/personal/models, so
+    # it lists what this plan can call. It is also wider than the plan in two
+    # ways — it names logical ids (``default-model``, ``fast-model``) that the
+    # gateway maps to a concrete model, and it omits the concrete ids the CLI
+    # actually asks for (``deepseek-v4.1-flash``). ``extra_models`` adds the
+    # latter, ``only_models`` keeps the registry to what was verified to
+    # answer.
+    "workbuddy": {
+        "models_url": "https://www.codebuddy.ai/v2/enterprises/personal/models",
+        "models_json_path": ("data", "models"),
+        "api_base": "https://www.codebuddy.ai/v2",
+        "endpoint_kind": "openai",
+        "litellm_prefix": "hosted_vllm/",
+        "auth_env": "WORKBUDDY_API_KEY",
+        "auth_file": "~/.config/litellm/config.yaml",
+        "auth_grep": "codebuddy.ai",
+        # The channel check's three headers. The values are not validated by
+        # the gateway, so one set is enough for every request.
+        "extra_headers": {
+            "X-Conversation-ID": "ccp-workbuddy-conv",
+            "X-Conversation-Message-ID": "ccp-workbuddy-msg",
+            "X-Conversation-Request-ID": "ccp-workbuddy-req",
+        },
+        # Verified to answer on 2026-10-24 (personal_free_user plan): every id
+        # below streamed a completion. The rest of the catalogue is refused —
+        # the GPT and Gemini rungs with "not allowed for user type
+        # [personal_free_user]", and "service info not found" for the ids the
+        # plan does not carry.
+        "only_models": [
+            "auto",
+            "balanced-model",
+            "default-model",
+            "deepseek-v4.1-flash",
+            "fast-model",
+            "glm-5.1",
+            "glm-5.2",
+            "glm-5.3",
+            "glm-5.3-flash",
+            "glm-5v-turbo",
+            "hy3",
+            "hy4-preview",
+            "hy4-preview-f",
+            "kimi-k2.6",
+            "kimi-k2.7",
+            "kimi-k3",
+            "minimax-m3",
+        ],
+        # Ids the gateway routes that this account's catalogue omits — the
+        # concrete model names the CLI asks for.
+        "extra_models": [
+            {"name": "auto"},
+            {"name": "deepseek-v4.1-flash"},
+            {"name": "glm-5.1"},
+            {"name": "glm-5.3-flash"},
+            {"name": "glm-5v-turbo"},
+            {"name": "hy4-preview-f"},
+            {"name": "kimi-k2.7"},
+            {"name": "minimax-m3"},
+        ],
+        # Facts the catalogue does not publish for the ids it omits. The
+        # windows are magpie's WorkBuddy table (packages/workbuddy); the
+        # output cap is left alone on purpose — the gateway clamps a large
+        # max_tokens silently instead of refusing it, so clamping here would
+        # only truncate answers.
+        "hints": {
+            "auto": {"ctx": 168000},
+            "deepseek-v4.1-flash": {"ctx": 1000000},
+            "glm-5.1": {"ctx": 200000},
+            "glm-5.3-flash": {"ctx": 1000000},
+            "glm-5v-turbo": {"ctx": 200000},
+            "hy4-preview-f": {"ctx": 1000000},
+            "kimi-k2.7": {"ctx": 256000},
+            "minimax-m3": {"ctx": 512000},
+        },
+        "max_output_default": None,
+    },
     # TraeCLI (ByteDance's enterprise coding agent). There is no public API and
     # no /models endpoint: `bridge/trae_bridge.py` owns the private
     # `llm_raw_chat` protocol and is what `ccp trae` points at. Discovery and
@@ -254,7 +350,9 @@ def read_token(provider: dict) -> str | None:
         text = fp.read_text()
     except Exception:
         return None
-    marker = provider["auth_grep"]
+    marker = provider.get("auth_grep")
+    if not marker:
+        return None
     idx = text.find(marker)
     if idx == -1:
         return None
@@ -476,6 +574,29 @@ def norm_qianfan(entry: dict, provider: dict, cmap: dict, idx: dict | None = Non
     }
 
 
+def norm_workbuddy(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
+    """WorkBuddy's plan catalogue carries its own facts.
+
+    ``/v2/enterprises/personal/models`` publishes ``maxInputTokens`` /
+    ``maxOutputTokens`` and ``supportsImages`` per model, so the window, the
+    output cap and the vision flag come from the vendor rather than from a
+    cost map. Ids the catalogue omits arrive through ``extra_models`` with a
+    ``name`` only, and their facts come from ``hints``.
+
+    The catalogue's ``maxAllowedSize`` is not the window — it is the largest
+    request the plan accepts — so ``maxInputTokens`` is preferred and
+    ``maxAllowedSize`` is only the fallback.
+    """
+    name = entry.get("id") or entry.get("name") or ""
+    return {
+        "name": name,
+        "ctx": entry.get("maxInputTokens") or entry.get("maxAllowedSize"),
+        "max_output": entry.get("maxOutputTokens") or provider.get("max_output_default"),
+        "vision": entry.get("supportsImages"),
+        "endpoint_kind": "openai",
+    }
+
+
 NORMALIZERS = {
     "cline": norm_generic,
     "deepseek": norm_deepseek,
@@ -483,6 +604,7 @@ NORMALIZERS = {
     "opendesign": norm_opendesign,
     "qianfan": norm_qianfan,
     "trae": norm_trae,
+    "workbuddy": norm_workbuddy,
 }
 
 # Speed-tier variants that share every fact with their base model. Neither the
@@ -551,13 +673,21 @@ def build(only: str | None) -> dict:
     existing_by_prov = load_existing_by_provider()
 
     def provider_block(pname: str, pdef: dict, models: list) -> dict:
-        return {
+        block = {
             "name": pname,
             "api_base": pdef["api_base"],
             "endpoint_kind": pdef["endpoint_kind"],
             "auth_env": pdef["auth_env"],
             "models": models,
         }
+        # Headers every request to this gateway must carry, whatever the model.
+        # WorkBuddy's channel check reads them; see
+        # docs/workbuddy-channel-check.md. They belong to the provider, not to
+        # a model, so they travel with the block and `ccp render` puts them on
+        # every deployment.
+        if pdef.get("extra_headers"):
+            block["extra_headers"] = pdef["extra_headers"]
+        return block
 
     # Seed from the current registry so `--provider X` never drops the others.
     #
@@ -666,6 +796,14 @@ def to_yaml(doc: dict) -> str:
         lines.append(f"    api_base: {p['api_base']}")
         lines.append(f"    endpoint_kind: {p['endpoint_kind']}")
         lines.append(f"    auth_env: {p['auth_env']}")
+        # Headers that belong to the provider (WorkBuddy's channel check).
+        # They must survive the round trip, or a refresh would silently drop
+        # them from the config and every request would be refused again.
+        eh = p.get("extra_headers") or {}
+        if eh:
+            lines.append("    extra_headers:")
+            for k in eh:
+                lines.append(f"      {k}: {_yaml_scalar(eh[k])}")
         lines.append("    models:")
         if not p["models"]:
             lines[-1] = "    models: []"

@@ -437,10 +437,11 @@ def test_opendesign_is_registered_and_discovered():
 
 
 # ── request rewrites ──────────────────────────────────────────────────────
-# The one rule ccp ever shipped — codebuddy's `sanitize_channel` client check —
-# was archived with that provider, so the table is empty. These tests pin that:
-# an empty table must stay a no-op, and must not start rewriting requests for
-# the providers that remain.
+# One rule is in force: `sanitize_channel`, for WorkBuddy alone. Its gateway
+# demands that no foreign client identity reaches it
+# (docs/workbuddy-channel-check.md), and Claude Code always sends one.
+# Everywhere else the rewrite must not fire: stripping Anthropic's billing
+# header anywhere but the gateway that asks for it is a silent prompt mutation.
 
 
 def _emitted_and_rules():
@@ -452,23 +453,40 @@ def _emitted_and_rules():
     return models, profiles, emitted, render_config.render_request_rules(profiles, emitted)
 
 
-def test_request_rules_are_empty_and_rewrite_nothing():
-    """Nothing in the kept set may have its request rewritten.
-
-    Stripping Anthropic's billing header anywhere but the gateway that demands
-    it is a silent prompt mutation, so an empty table has to mean *empty*.
-    """
+def test_sanitize_channel_is_scoped_to_the_provider_that_needs_it():
+    """Only WorkBuddy's own model names may be rewritten."""
     from sse_finalize import norm_model_key
 
     models, profiles, emitted, rules = _emitted_and_rules()
-    assert (profiles.get("request_rules") or {}) == {}
-    assert rules.get("sanitize_channel") in (None, [])
-    # non-vacuous: providers really did emit names to check against
-    assert any(names for names in emitted.values()), "nothing was emitted at all"
-    listed = {norm_model_key(n) for n in (rules.get("sanitize_channel") or [])}
+    assert set(rules) == {"sanitize_channel"}, f"unexpected rules: {sorted(rules)}"
+    listed = {norm_model_key(n) for n in (rules["sanitize_channel"] or [])}
+    assert listed, "the rule covers nothing, so it would never fire"
+    workbuddy_names = {norm_model_key(n) for n in emitted.get("workbuddy", ())}
+    assert listed <= workbuddy_names, f"rewritten but not WorkBuddy's: {listed - workbuddy_names}"
     for pname, names in emitted.items():
+        if pname == "workbuddy":
+            continue
         for name in names:
             assert norm_model_key(name) not in listed, f"{pname}/{name} would be rewritten"
+    # non-vacuous: providers really did emit names to check against
+    assert any(names for names in emitted.values()), "nothing was emitted at all"
+
+
+def test_workbuddy_deployments_carry_the_conversation_headers():
+    """The channel check reads three headers; they must be on every deployment."""
+    doc, profiles = _load()
+    models, providers = render_config.index_models(doc)
+    text = render_config.render_config(models, providers, profiles)
+    cfg = yaml.safe_load(text)
+    deployments = [
+        d for d in cfg.get("model_list", [])
+        if str(d.get("litellm_params", {}).get("api_base", "")).startswith("https://www.codebuddy.ai")
+    ]
+    assert deployments, "no WorkBuddy deployment was rendered"
+    for d in deployments:
+        eh = d["litellm_params"].get("extra_headers") or {}
+        for h in ("X-Conversation-ID", "X-Conversation-Message-ID", "X-Conversation-Request-ID"):
+            assert h in eh, f"{d['model_name']} is missing {h}"
 
 
 def test_rendered_config_has_drop_params_setting():

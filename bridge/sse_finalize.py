@@ -256,25 +256,26 @@ def sanitize_channel_markers(body: bytes) -> tuple[bytes, list[str]]:
     """Make an Anthropic request acceptable to a gateway with a channel check.
 
     Returns ``(body, applied)`` where ``applied`` names the rewrites that fired
-    (empty list = the body is unchanged). Two things are removed/neutralised:
+    (empty list = the body is unchanged). Three things are done:
 
     ``billing-header``
         Claude Code's ``x-anthropic-billing-header`` block, dropped from
         ``system`` — and from message contents, in case a variant inlines it.
     ``claude-identity``
         The Claude Code identity line, neutralised with a leading newline when
-        it would open the first system message.
+        it would open the first system message — and in every assistant turn,
+        because the gateway inspects those too.
+    ``system-default``
+        The gateway refuses a chat that does not open with a system message
+        ("first message is not system prompt"), so a request that carries no
+        system prompt gets a neutral one.
 
     Anything unparseable is returned untouched: a rewrite must never be the
     reason a request fails. The rewrites are scoped per model by
     ``bridge/request_rules.json``, so Anthropic-native profiles still get the
     original bytes.
     """
-    marker_present = b"x-anthropic-billing-header" in body.lower()
-    identity_present = any(
-        o.encode() in body.lower() for o in CLAUDE_IDENTITY_OPENINGS
-    )
-    if not body or not (marker_present or identity_present):
+    if not body:
         return body, []
     try:
         import json as _j
@@ -285,7 +286,13 @@ def sanitize_channel_markers(body: bytes) -> tuple[bytes, list[str]]:
     if not isinstance(doc, dict):
         return body, []
 
+    marker_present = b"x-anthropic-billing-header" in body.lower()
+    identity_present = any(
+        o.encode() in body.lower() for o in CLAUDE_IDENTITY_OPENINGS
+    )
+
     applied: list[str] = []
+    had_system = bool(doc.get("system"))
     if marker_present and "system" in doc:
         doc["system"], hit = _clean_content(doc["system"])
         if hit:
@@ -322,10 +329,18 @@ def sanitize_channel_markers(body: bytes) -> tuple[bytes, list[str]]:
                 if hit and "claude-identity" not in applied:
                     applied.append("claude-identity")
 
+    # The gateway wants the chat to open with a system message, whether or not
+    # anything above fired: a plain probe (no system prompt, no identity) is
+    # refused with "first message is not system prompt" just the same. A system
+    # prompt that a rewrite above emptied counts as one that was there — the
+    # rewrite's own tag already explains the change.
+    if not doc.get("system") and (had_system or doc.get("messages")):
+        doc["system"] = [{"type": "text", "text": DEFAULT_SYSTEM_PROMPT}]
+        if not had_system:
+            applied.append("system-default")
+
     if not applied:
         return body, []
-    if not doc.get("system"):
-        doc["system"] = [{"type": "text", "text": DEFAULT_SYSTEM_PROMPT}]
     return _j.dumps(doc).encode("utf-8"), applied
 
 

@@ -147,6 +147,15 @@ def render_config(
         pmeta = providers.get(provider, {})
         if pmeta.get("api_base"):
             lines.append(f"      api_base: {pmeta['api_base']}")
+        # Headers every request to this provider must carry. WorkBuddy's
+        # channel check refuses a request without its three conversation
+        # headers with 11128 "request illegal" (docs/workbuddy-channel-check.md),
+        # so they belong to the deployment, not to the model.
+        eh = pmeta.get("extra_headers") or {}
+        if eh:
+            lines.append("      extra_headers:")
+            for k in eh:
+                lines.append(f"        {k}: {eh[k]}")
         # key from env (proxy.env supplies it) — never inline secrets.
         # Copilot authenticates via its own token store, so no api_key.
         auth_env = api_key_env or pmeta.get("auth_env")
@@ -457,16 +466,17 @@ def litellm_model_string_override(pname: str, mname: str, profiles_doc: dict | N
         # pay-as-you-go credits instead of the pass. Documented in
         # bridge/config.example.yaml; dropping it here re-broke that (402).
         return f"openai/cline-pass/{mname.rsplit('/', 1)[-1]}"
-    if pname == "codebuddy":
-        # CodeBuddy serves /chat/completions ONLY under /v2 and 404s the whole
-        # /v1/* and /responses surface. LiteLLM 1.103 routes every ``openai/``
-        # deployment reached through Anthropic /v1/messages to the Responses API
-        # (→ POST https://www.codebuddy.ai/v2/responses → 404). The documented
-        # opt-out is the global LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES
-        # env flag, which would also re-route the working cmdc/cline
-        # deployments. ``hosted_vllm/`` is LiteLLM's generic OpenAI-compatible
-        # server prefix: it keeps the chat/completions builder *per deployment*,
-        # so nothing else in the bridge changes behaviour.
+    if pname in ("codebuddy", "workbuddy"):
+        # WorkBuddy / CodeBuddy serve /chat/completions ONLY under /v2 and 404
+        # the whole /v1/* and /responses surface. LiteLLM 1.103 routes every
+        # ``openai/`` deployment reached through Anthropic /v1/messages to the
+        # Responses API (→ POST https://www.codebuddy.ai/v2/responses → 404).
+        # The documented opt-out is the global
+        # LITELLM_USE_CHAT_COMPLETIONS_URL_FOR_ANTHROPIC_MESSAGES env flag,
+        # which would also re-route the working cmdc/cline deployments.
+        # ``hosted_vllm/`` is LiteLLM's generic OpenAI-compatible server
+        # prefix: it keeps the chat/completions builder *per deployment*, so
+        # nothing else in the bridge changes behaviour.
         return f"hosted_vllm/{mname}"
     if mname.startswith(("github_copilot/", "anthropic/", "openai/", "openrouter/")):
         return mname

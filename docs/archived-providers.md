@@ -145,7 +145,7 @@ Restoring it is the four steps above, with the qianfan-specific parts spelled ou
 
 ---
 
-## CodeBuddy (Tencent coding-copilot) — archived 2026-10-16
+## CodeBuddy (Tencent coding-copilot) — archived 2026-10-16, back as `workbuddy/`
 
 [CodeBuddy](https://www.codebuddy.ai/cli) (Tencent coding-copilot) is a flat
 subscription that fronts a whole fleet of third-party models — DeepSeek, GLM,
@@ -153,11 +153,15 @@ Kimi, GPT, Gemini, Hunyuan. It has **no API-key product**: the gateway
 authenticates the session the CodeBuddy Code CLI already holds, so `ccp`
 imports that session.
 
-> Archived: the template, the importer (`bridge/archived/codebuddy_auth.py`) and
-> its tests are under `archived/`; the registry entries and the `ccp auth
-> codebuddy` command are gone. The section below is the operator's reference.
+> **Restored on 2026-10-24 as the `workbuddy/` folder.** The name follows
+> magpie and the product (WorkBuddy is the desktop app, CodeBuddy Code the CLI
+> it is packaged from; one plan, one session, one gateway). The importer is
+> `bridge/workbuddy_auth.py`, the command is `ccp auth workbuddy`, and the
+> registry entries are in `registry/profiles.yaml` and
+> `bridge/discover_models.py`. The diagnosis below is kept because it is the
+> reasoning that made the restore possible.
 
-### Why it is out: the channel check was believed to be unproxyable
+### Why it went out: the channel check was believed to be unproxyable
 
 > **Corrected on 2026-10-24.** The channel check *is* proxyable: the refusal was
 > caused by the request carrying none of the gateway's conversation headers, not
@@ -165,7 +169,8 @@ imports that session.
 > three-header recipe are in
 > [`workbuddy-channel-check.md`](workbuddy-channel-check.md). The diagnosis
 > below is kept because the sanitiser bug it found is still real and still
-> needed — but the conclusion "a proxy cannot guarantee it" does not hold.
+> needed — but the conclusion "a proxy cannot guarantee it" does not hold, and
+> the provider is live again.
 
 Two things had to be true for it to work, and only the first was fixable:
 
