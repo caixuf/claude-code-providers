@@ -699,3 +699,43 @@ def test_a_buffered_round_is_flagged_to_the_reader(capsys):
     out = capsys.readouterr().out
     assert "no decode window" in out
     assert "deepseek-v4-flash" in out
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "base,expected",
+    [
+        ("http://127.0.0.1:4000", "http://127.0.0.1:4000/v1/messages"),
+        ("http://localhost:56895/v1", "http://localhost:56895/v1/messages"),
+        ("http://localhost:56895/v1/", "http://localhost:56895/v1/messages"),
+    ],
+)
+async def test_the_messages_url_respects_a_base_that_already_ends_in_v1(base, expected):
+    """A native base is used as written, not with /v1 appended blindly.
+
+    The Codex gateway profile points at .../v1 because that is its Anthropic
+    base. Appending /v1/messages to it asked for /v1/v1/messages, and that 404
+    body reads "unsupported_endpoint" — so `ccp ping codex` reported 0/8
+    responsive for models that answer every other request in two seconds.
+    """
+    from ccp_probe import _probe_single_round
+
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 200
+
+    async def mock_aiter_lines():
+        yield 'data: {"type": "message_delta", "usage": {"output_tokens": 3}}'
+
+    mock_resp.aiter_lines = mock_aiter_lines
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__.return_value = mock_resp
+    mock_ctx.__aexit__.return_value = None
+    client = MagicMock()
+    client.stream = MagicMock(return_value=mock_ctx)
+
+    await _probe_single_round(
+        client=client, wire_name="m", base_url=base,
+        master_key="k", prompt="hi", max_tokens=50, timeout_s=5.0,
+    )
+
+    assert client.stream.call_args[0][1] == expected

@@ -53,6 +53,9 @@ Usage:
   ccp -m, --model <model>    Switch model within the current active provider
   ccp -c, --current          Show currently active provider, model, and endpoints
   ccp -r, --rollback [N]     Roll back to the Nth most recent backup (default: 1)
+  ccp restore                Return Claude Code to its pre-ccp settings and stop
+                             the local bridges (alias: ccp reset; options:
+                             --dry-run, --yes, --keep-services, --strip, --from FILE)
   ccp -t, --test [name]      Quick test: send a ping through Claude Code
   ccp ping [provider|model]  Probe model health, TTFT & token speed (options:
                              -q/--quick, -b/--bench, -n/--rounds, --tokens, --sort,
@@ -73,6 +76,11 @@ Usage:
                              | group add <name> <member...> | group remove <name>
                              (a pool fails over natively when a quota runs out)
   ccp quota [provider]       What is left on each plan
+  ccp hermes [provider]      Point the local Hermes agent at a provider's model.
+                             Bare `ccp hermes` shows what it runs now. Writes
+                             ~/.hermes/profiles/<profile>/config.yaml and
+                             restarts the gateway; options: --profile, --dry-run,
+                             --json, --config
   ccp -h, --help             Show this help message
 
 In-Session Model Hot-Switching:
@@ -93,6 +101,8 @@ Examples:
   ccp accounts add cline a2       # Name a second login, then `ccp render`
   ccp accounts group add daily cline-deepseek-v4.1-flash opendesign-deepseek-v4.1-flash
   ccp -m group/daily         # One name over several models; fails over when one runs out
+  ccp hermes                 # What model the local Hermes bot is running
+  ccp hermes codex           # Point the bot at codex's default model too
 
 Note: CommandCode, GitHub Copilot, OpenCode and Antigravity are archived — see
 docs/archived-providers.md. `ccp auth copilot` still runs the Copilot device
@@ -221,6 +231,237 @@ rollback_backup() {
     echo "Rolled back settings.json to backup: $bak"
   else
     echo "No backups available to roll back."
+  fi
+}
+
+# Where `switch_provider` keeps the settings.json it found before the first
+# replace. ccp overwrites the whole file per provider, so this snapshot is the
+# only exact way back to the user's pre-ccp configuration.
+SETTINGS_SNAPSHOT="${SETTINGS_FILE}.ccp-original"
+
+# A ccp-rendered profile always carries the Fable tier, and nothing else does.
+# `render_config.py` writes `ANTHROPIC_DEFAULT_FABLE_MODEL` into every profile
+# it emits, unconditionally; it is the only key in the tier map that a file
+# written before ccp existed never had.
+#
+# Deliberately NOT part of this test:
+#   * `ANTHROPIC_BASE_URL` — the user may have configured the same gateway
+#     themselves before installing ccp; that file is still "original".
+#   * `CLAUDE_CODE_AUTO_COMPACT_WINDOW` — this one was in the user's own
+#     hand-written settings long before ccp (measured here 2026-10-23: it
+#     appears in all 20 pre-ccp backups and in all 93 ccp-rendered ones).
+#     Treating it as a ccp fingerprint classified every original as ccp-made,
+#     so `capture_pristine_settings` refused every file and the snapshot was
+#     never taken, and `restore` reported "No pre-ccp settings found" while
+#     holding 113 backups.
+#
+# Older ccp builds (before the Fable tier existed) wrote no such marker, but
+# they did write a provider profile pointed at ccp's own loopback bridges. A
+# file that points at a bridge ccp renders is not "original" whatever else it
+# says: restoring it would leave the user aimed at a bridge that `restore`
+# itself just stopped. That is a second, independent signal rather than a
+# looser regex, so a self-configured third-party gateway still counts as the
+# user's own.
+CCP_LOOPBACK_RE='(127\.0\.0\.1|localhost):(4000|4001|4100)'
+
+is_ccp_managed_settings() {
+  [ -f "$1" ] || return 1
+  grep -qE '"ANTHROPIC_DEFAULT_FABLE_MODEL"' "$1" 2>/dev/null && return 0
+  grep -qE '"ANTHROPIC_BASE_URL"[[:space:]]*:[[:space:]]*"http://'"$CCP_LOOPBACK_RE"'"' "$1" 2>/dev/null && return 0
+  return 1
+}
+
+# Called before ccp replaces settings.json. Never overwrites an existing
+# snapshot and never captures a file ccp itself rendered.
+capture_pristine_settings() {
+  [ -f "$SETTINGS_FILE" ] || return 0
+  [ -f "$SETTINGS_SNAPSHOT" ] && return 0
+  is_ccp_managed_settings "$SETTINGS_FILE" && return 0
+  if cp "$SETTINGS_FILE" "$SETTINGS_SNAPSHOT"; then
+    chmod 600 "$SETTINGS_SNAPSHOT"  # settings.json can hold a token
+  fi
+}
+
+# Existing installs predate the snapshot. Their first switch did leave a
+# timestamped backup, so the oldest backup that is not ccp-rendered is the
+# best available "original".
+oldest_pristine_backup() {
+  local bak
+  # compgen keeps the glob safe when nothing matches; backup names carry a
+  # timestamp, so lexical order is also chronological.
+  while IFS= read -r bak; do
+    [ -n "$bak" ] || continue
+    if ! is_ccp_managed_settings "$bak"; then
+      printf '%s\n' "$bak"
+      return 0
+    fi
+  done < <(compgen -G "$SETTINGS_FILE.bak.*" | sort)
+  return 1
+}
+
+# Remove only the keys ccp injects; everything else in settings.json (permissions,
+# hooks, statusLine, ...) is the user's and must survive.
+strip_ccp_settings() {
+  local src="$1" dst="$2"
+  if command -v jq >/dev/null 2>&1; then
+    jq 'del(.model)
+        | del(.env.ANTHROPIC_BASE_URL,
+              .env.ANTHROPIC_AUTH_TOKEN,
+              .env.ANTHROPIC_MODEL,
+              .env.ANTHROPIC_DEFAULT_OPUS_MODEL,
+              .env.ANTHROPIC_DEFAULT_FABLE_MODEL,
+              .env.ANTHROPIC_DEFAULT_SONNET_MODEL,
+              .env.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+              .env.ANTHROPIC_SMALL_FAST_MODEL,
+              .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS,
+              .env.CLAUDE_CODE_AUTO_COMPACT_WINDOW)' "$src" > "$dst"
+    return
+  fi
+  python3 - "$src" "$dst" <<'PY'
+import json, sys
+
+src, dst = sys.argv[1], sys.argv[2]
+with open(src, encoding="utf-8") as fh:
+    data = json.load(fh)
+
+data.pop("model", None)
+env = data.get("env")
+if isinstance(env, dict):
+    for key in (
+        "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_MODEL",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+        "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+        "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+    ):
+        env.pop(key, None)
+    if not env:
+        data.pop("env", None)
+
+with open(dst, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, ensure_ascii=False, indent=2)
+    fh.write("\n")
+PY
+}
+
+restore_original() {
+  local dry_run=0 assume_yes=0 keep_services=0 strip=0 from=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dry-run) dry_run=1 ;;
+      -y|--yes) assume_yes=1 ;;
+      --keep-services) keep_services=1 ;;
+      --strip) strip=1 ;;
+      --from)
+        shift
+        from="${1:-}"
+        [ -n "$from" ] || { echo "--from needs a file" >&2; return 2; }
+        ;;
+      -h|--help)
+        echo "Usage: ccp restore [--dry-run] [--yes] [--keep-services] [--strip] [--from FILE]"
+        echo "  Restore settings.json to its pre-ccp state and stop the local bridges."
+        echo "  --dry-run        Show what would change without touching anything"
+        echo "  --yes            Do not ask for confirmation"
+        echo "  --keep-services  Restore settings but leave litellm/watchdog/trae running"
+        echo "  --strip          No pristine copy? Remove ccp keys from the current settings"
+        echo "  --from FILE      Restore a specific backup instead of the snapshot"
+        return 0
+        ;;
+      *) echo "Unknown option: $1" >&2; return 2 ;;
+    esac
+    shift
+  done
+
+  local src="" how=""
+  if [ -n "$from" ]; then
+    [ -r "$from" ] || { echo "Cannot read $from" >&2; return 1; }
+    src="$from"
+    how="explicit file"
+  elif [ -f "$SETTINGS_SNAPSHOT" ]; then
+    src="$SETTINGS_SNAPSHOT"
+    how="pre-ccp snapshot"
+  elif src=$(oldest_pristine_backup); then
+    how="oldest non-ccp backup"
+  elif [ "$strip" = 1 ]; then
+    how="strip ccp keys from the current settings"
+  else
+    echo "No pre-ccp settings found." >&2
+    echo "  Looked for: $SETTINGS_SNAPSHOT and non-ccp $SETTINGS_FILE.bak.*" >&2
+    echo "  If the current file is the only one, run: ccp restore --strip" >&2
+    echo "  Nothing was changed." >&2
+    return 1
+  fi
+
+  echo "Restore plan:"
+  echo "  Settings: ${SETTINGS_FILE}"
+  if [ "$how" = "strip ccp keys from the current settings" ]; then
+    echo "  Source:   (in place; ccp-injected keys removed)"
+  else
+    echo "  Source:   $src ($how)"
+  fi
+  # A settings.json carrying no credential is only usable if the user is
+  # signed in to claude.ai instead (OAuth keeps its token elsewhere). Saying so
+  # matters precisely now: with the marker fixed, `restore` can pick the oldest
+  # backup — which on this machine predates every provider key, and restoring it
+  # without a word would leave Claude Code unable to authenticate.
+  if [ "$how" != "strip ccp keys from the current settings" ] \
+     && ! grep -qE '"(ANTHROPIC_AUTH_TOKEN|ANTHROPIC_API_KEY)"' "$src" 2>/dev/null; then
+    echo -e "  \033[33m⚠ This source carries no API key or auth token.\033[0m"
+    echo "    It only works if Claude Code is signed in to claude.ai (OAuth)."
+    echo "    Pick a later backup with --from, or use --strip to keep the current one."
+  fi
+  if [ "$keep_services" = 1 ]; then
+    echo "  Services: keep running"
+  else
+    echo "  Services: stop + disable litellm-cmdc, ccp-sse-watchdog, ccp-trae-bridge"
+  fi
+
+  if [ "$dry_run" = 1 ]; then
+    echo "Dry run — nothing changed."
+    return 0
+  fi
+
+  if [ "$assume_yes" != 1 ]; then
+    local answer=""
+    read -r -p "Proceed? [y/N] " answer || answer=""
+    case "$answer" in
+      y|Y|yes|YES) ;;
+      *) echo "Aborted."; return 1 ;;
+    esac
+  fi
+
+  mkdir -p "$CLAUDE_DIR"
+  # Keep what we are about to replace, exactly like a provider switch does.
+  if [ -f "$SETTINGS_FILE" ]; then
+    cp "$SETTINGS_FILE" "$SETTINGS_FILE.bak.$(date +%Y%m%d-%H%M%S)"
+  fi
+
+  if [ "$how" = "strip ccp keys from the current settings" ]; then
+    local tmp
+    tmp=$(mktemp)
+    if ! strip_ccp_settings "$SETTINGS_FILE" "$tmp"; then
+      rm -f "$tmp"
+      echo "Failed to rewrite $SETTINGS_FILE" >&2
+      return 1
+    fi
+    mv "$tmp" "$SETTINGS_FILE"
+  else
+    cp "$src" "$SETTINGS_FILE"
+  fi
+  chmod 600 "$SETTINGS_FILE"
+
+  if [ "$keep_services" != 1 ]; then
+    local unit
+    for unit in litellm-cmdc.service ccp-sse-watchdog.service ccp-trae-bridge.service; do
+      systemctl --user stop "$unit" 2>/dev/null || true
+      systemctl --user disable "$unit" 2>/dev/null || true
+    done
+  fi
+
+  echo -e "\033[32m✔ Restored Claude Code settings from $how\033[0m"
+  show_current
+  if [ "$keep_services" != 1 ]; then
+    echo "  Bridges stopped and disabled (re-enable with: ccp bridge start)."
   fi
 }
 
@@ -869,6 +1110,9 @@ switch_provider() {
   fi
 
   mkdir -p "$CLAUDE_DIR"
+  # Remember the pre-ccp file before the first replace, so `ccp restore` has an
+  # exact target rather than "whichever backup looks least provider-shaped".
+  capture_pristine_settings
   if [ -f "$SETTINGS_FILE" ]; then
     cp "$SETTINGS_FILE" "$SETTINGS_FILE.bak.$(date +%Y%m%d-%H%M%S)"
   fi
@@ -928,6 +1172,9 @@ main() {
     -r|--rollback|rollback)
       rollback_backup "${2:-1}"
       ;;
+    restore|reset)
+      restore_original "${@:2}"
+      ;;
     -m|--model|model)
       set_active_model "${2:-}"
       ;;
@@ -936,6 +1183,63 @@ main() {
       ;;
     bridge)
       manage_bridge "${2:-status}"
+      ;;
+    hermes)
+      local repo_dir py_bin
+      repo_dir=$(ccp_repo_dir)
+      if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/hermes_config.py" ]; then
+        echo -e "\033[31mError: repo checkout not found (need bridge/hermes_config.py).\033[0m" >&2
+        return 1
+      fi
+      py_bin=$(ccp_python)
+
+      # The helper takes a verb; the command is spelled `ccp hermes [provider]`, so
+      # the verb is put back here. A leading flag is a query about the profile
+      # (`ccp hermes --profile x`), a leading word is the provider to point at.
+      local -a hargs=("${@:2}")
+      if [ "${#hargs[@]}" -eq 0 ]; then
+        hargs=(status)
+      else
+        case "${hargs[0]}" in
+          render|status) : ;;
+          -*) hargs=(status "${hargs[@]}") ;;
+          *)  hargs=(render "${hargs[@]}") ;;
+        esac
+      fi
+
+      local tmp rc=0
+      tmp=$(mktemp)
+      "$py_bin" "$repo_dir/bridge/hermes_config.py" "${hargs[@]}" >"$tmp" || rc=$?
+      cat "$tmp"
+      if [ "$rc" -ne 0 ]; then
+        rm -f "$tmp"
+        return "$rc"
+      fi
+
+      local changed profile
+      changed=$(sed -n 's/^CHANGED=//p' "$tmp" | tail -1)
+      profile=$(sed -n 's/^PROFILE=//p' "$tmp" | tail -1)
+      rm -f "$tmp"
+
+      # Only a real rewrite owes a restart. `status`, `--dry-run` and `--json`
+      # emit no CHANGED line, so asking what the bot runs never bounces it.
+      [ "$changed" = "1" ] || return 0
+
+      # Hermes caches the agent at startup: the new model is inert until the
+      # gateway is bounced, and a bot still answering on the old model is worse
+      # than one that was never switched.
+      local unit="hermes-gateway-${profile:-imfl}.service"
+      if ! systemctl --user restart "$unit" 2>/dev/null; then
+        echo -e "\033[33m! $unit did not restart — bounce it yourself; the new model is inert until then.\033[0m" >&2
+        return 0
+      fi
+      sleep 2
+      if systemctl --user is-active --quiet "$unit"; then
+        echo -e "\033[32m✔ $unit restarted\033[0m"
+      else
+        echo -e "\033[31m✗ $unit is not active — journalctl --user -u $unit -n 50\033[0m" >&2
+        return 1
+      fi
       ;;
     auth)
       # Forward every argument: `ccp auth trae --status` must reach the
@@ -1052,4 +1356,8 @@ main() {
   esac
 }
 
-main "$@"
+# Tests source this file to exercise helpers directly; every normal invocation
+# runs one command and exits.
+if [ -z "${CCP_LIB_ONLY:-}" ]; then
+  main "$@"
+fi

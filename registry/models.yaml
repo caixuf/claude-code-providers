@@ -532,3 +532,64 @@ providers:
         endpoint_kind: anthropic
         aliases: []
         tiers: []
+  - name: codex
+    api_base: http://localhost:56895/v1
+    endpoint_kind: anthropic
+    auth_env: CODEX_API_KEY
+    models:
+      - name: codex-auto-review
+        ctx: 272000
+        max_output: null
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: gpt-5.6-luna
+        ctx: 272000
+        max_output: null
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: gpt-5.6-sol
+        ctx: 272000
+        max_output: null
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: gpt-5.6-terra
+        ctx: 272000
+        max_output: null
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: gpt-6-astra
+        ctx: 272000
+        max_output: null
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: gpt-6-luna
+        ctx: 272000
+        max_output: null
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: gpt-6-sol
+        ctx: 272000
+        max_output: null
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+      - name: gpt-6.1-sol
+        ctx: 272000
+        max_output: null
+        vision: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []

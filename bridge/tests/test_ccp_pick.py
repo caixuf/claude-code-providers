@@ -108,7 +108,7 @@ def test_native_folders_expose_upstream_ids(providers):
 # ── resolution ───────────────────────────────────────────────────────────
 
 def test_resolve_without_a_model_gives_the_profile_default(providers):
-    assert providers["trae"].resolve("")[0] == "qwen3.8-max"
+    assert providers["trae"].resolve("")[0] == "DeepSeek-V4.1-Flash"
     assert providers["cline"].resolve("")[0] == "deepseek-v4.1-flash"
 
 

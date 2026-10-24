@@ -316,6 +316,44 @@ PROVIDERS = {
         "ctx_default": 1000000,
         "max_output_default": None,
     },
+    # Codex (a local gateway on :56895). It speaks the Anthropic Messages API
+    # itself, so this is `native: true` in the strictest sense: no bridge, no
+    # clamps, the profile points straight at :56895.
+    #
+    # The loopback means discovery fails whenever the gateway is not running,
+    # and `build()` then keeps the previous entries rather than emptying the
+    # registry — that is the intended behaviour, not an accident.
+    #
+    # Measured 2026-10-23 against http://localhost:56895/v1:
+    #   * ctx 272000 — the catalogue's own context_length, and the same for
+    #     every model here.
+    #   * every model is TEXT-ONLY (`input_modalities: ["text"]`); a pasted
+    #     screenshot has nowhere to go.
+    #   * `max_output` is left null: the gateway accepts max_tokens=300000 on a
+    #     272k model and answers normally, so it does not enforce a cap and a
+    #     number taken from it would be fiction.
+    #   * two catalogue ids answer 503 `no_available_account`
+    #     (gpt-image-2.5, gpt-reserve). They are excluded by `only_models`, the
+    #     same rule ClinePass and MiniMax's legacy family are held to: the
+    #     registry lists what has been verified to answer.
+    "codex": {
+        "models_url": "http://localhost:56895/v1/models",
+        "api_base": "http://localhost:56895/v1",
+        "endpoint_kind": "anthropic",
+        "auth_env": "CODEX_API_KEY",
+        "profile_file": "~/.claude/providers/codex.json",
+        "only_models": [
+            "gpt-6.1-sol",
+            "gpt-6-astra",
+            "gpt-6-sol",
+            "gpt-6-luna",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
+            "codex-auto-review",
+        ],
+        "max_output_default": None,
+    },
 }
 
 
@@ -493,6 +531,52 @@ def norm_generic(entry: dict, provider: dict, cmap: dict, idx: dict | None = Non
     }
 
 
+def norm_codex(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
+    """The local Codex gateway publishes the catalogue's own facts.
+
+    ``context_length`` is the window and ``model_info.input_modalities`` the
+    modality list, so neither has to come from LiteLLM's cost map — which
+    knows none of these ids and would leave all three null. Vision stays
+    False when nothing is declared, because the field is always present here.
+    """
+    mid = entry.get("id", "")
+    mods = (entry.get("model_info") or {}).get("input_modalities") or []
+    return {
+        "name": mid,
+        "ctx": entry.get("context_length"),
+        # Deliberately not from the cost map: it recognises some of these ids
+        # as OpenAI models and answers 128000, while the gateway happily took a
+        # max_tokens=300000 request. Publishing either number would be a
+        # guess dressed as a fact.
+        "max_output": provider["max_output_default"],
+        "vision": "image" in mods,
+        "endpoint_kind": provider["endpoint_kind"],
+    }
+
+
+def norm_qianfan(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
+    """Qianfan's /v2/models carries real capability metadata per model.
+
+    Unlike most OpenAI-shaped catalogues this one publishes
+    ``context_length`` / ``max_completions_tokens`` and
+    ``architecture.input_modalities``, so nothing has to be guessed or
+    cross-checked against LiteLLM's cost map. ``type: multimodal`` plus an
+    ``image`` input modality is the vision signal.
+    """
+    arch = entry.get("architecture") or {}
+    mods = arch.get("input_modalities") or []
+    vision = "image" in mods if mods else None
+    return {
+        "name": entry.get("id", ""),
+        "ctx": entry.get("context_length") or entry.get("prompt_tokens"),
+        "max_output": (entry.get("max_completions_tokens")
+                       or entry.get("max_tokens")
+                       or provider.get("max_output_default")),
+        "vision": vision,
+        "endpoint_kind": provider["endpoint_kind"],
+    }
+
+
 def norm_opendesign(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
     """OpenDesign exposes everything the registry needs inside the model entry.
 
@@ -604,6 +688,7 @@ NORMALIZERS = {
     "opendesign": norm_opendesign,
     "qianfan": norm_qianfan,
     "trae": norm_trae,
+    "codex": norm_codex,
     "workbuddy": norm_workbuddy,
 }
 

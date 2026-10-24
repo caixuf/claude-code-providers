@@ -153,11 +153,11 @@ profiles:
   # endpoint is the local adapter, not Trae itself — the adapter replays Trae's
   # private `llm_raw_chat` RPC using the PAT TraeCLI already stores on disk.
   #
-  # Tiers are all VISION-capable on purpose. TraeCLI decides whether an image
-  # reaches the model, and with a text-only model it substitutes
-  # "[image/png content is not supported by current model]" — so a pasted
-  # screenshot silently degrades on a text-only tier. glm-5.3 (the strongest
-  # tool-caller on this subscription) is text-only, so it is reached via the
+  # The default/sonnet tier is DeepSeek-V4.1-Flash, which is TEXT-ONLY: TraeCLI
+  # substitutes "[image/png content is not supported by current model]" if an
+  # image reaches it, so a pasted screenshot silently degrades. opus/fable stay
+  # on vision-capable Doubao-Seed-2.1-pro for image work; glm-5.3 (the strongest
+  # tool-caller on this subscription) is also text-only and is reached via the
   # `trae-glm` alias instead of holding a tier.
   # Names are registry names (Trae `config_name`), which is what the adapter
   # matches against the live catalogue.
@@ -166,11 +166,36 @@ profiles:
     native: true
     primary_tier: sonnet
     tiers:
-      default: {model: qwen3.8-max}
+      default: {model: DeepSeek-V4.1-Flash}
       opus:    {model: Doubao-Seed-2.1-pro}
       fable:   {model: Doubao-Seed-2.1-pro}
-      sonnet:  {model: qwen3.8-max}
+      sonnet:  {model: DeepSeek-V4.1-Flash}
       haiku:   {model: glm-5.3-flash}
+
+  # ── Codex (local gateway on :56895) ───────────────────────────────────
+  # `native: true`: the gateway speaks Anthropic Messages itself, so the
+  # profile points straight at :56895 — no bridge, no clamps, no :4000 hop.
+  #
+  # Every model here is 272k-context and TEXT-ONLY. The window is well under
+  # 1M, so this profile advertises 272000 and Claude Code compacts at that
+  # point instead of overrunning it. A pasted screenshot has nowhere to go on
+  # any tier, which is the one thing to remember before switching to it.
+  #
+  # Tiers follow capability, not price: gpt-6.1-sol and gpt-6-astra describe
+  # themselves as the workhorse and the hardest-task model, so they hold
+  # default/opus/fable; the Luna rungs are the "fast and affordable" ones and
+  # hold sonnet/haiku. `codex-auto-review` is a review-only id and holds no
+  # tier — it is reachable as `codex-auto-review` if a review needs it.
+  codex:
+    provider: codex
+    native: true
+    primary_tier: default
+    tiers:
+      default: {model: gpt-6.1-sol}
+      opus:    {model: gpt-6-astra}
+      fable:   {model: gpt-6.1-sol}
+      sonnet:  {model: gpt-6-luna}
+      haiku:   {model: gpt-5.6-luna}
 
 # ── Short aliases exposed to LiteLLM (config.yaml model_name) ──────────
 # These are the names Claude Code puts in ANTHROPIC_MODEL. The `[1m]` marker
@@ -232,6 +257,19 @@ aliases:
   trae-minimax-m3:                      {provider: trae, model: minimax-m3, ctx: 184000}
   trae-qwen3.8-max:                     {provider: trae, model: qwen3.8-max, ctx: 168000}
   trae-doubao-seed-2.1-pro:             {provider: trae, model: Doubao-Seed-2.1-pro, ctx: 184000}
+  # Codex: one alias per model, so the source of the name does not decide
+  # whether a rung can be reached. All five tiers already resolve (the tier's
+  # upstream id is the name a native profile sends), but an alias is what the
+  # generated LiteLLM config keys on and what a bridged picker shows — leaving
+  # three rungs unaliased would make them reachable only by spelling them
+  # exactly and only from a native profile.
+  codex-gpt-6.1-sol:                    {provider: codex, model: gpt-6.1-sol, ctx: 272000}
+  codex-gpt-6-astra:                    {provider: codex, model: gpt-6-astra, ctx: 272000}
+  codex-gpt-6-luna:                     {provider: codex, model: gpt-6-luna, ctx: 272000}
+  codex-gpt-5.6-sol:                    {provider: codex, model: gpt-5.6-sol, ctx: 272000}
+  codex-gpt-5.6-terra:                  {provider: codex, model: gpt-5.6-terra, ctx: 272000}
+  codex-gpt-5.6-luna:                   {provider: codex, model: gpt-5.6-luna, ctx: 272000}
+  codex-codex-auto-review:              {provider: codex, model: codex-auto-review, ctx: 272000}
 
 # ── Accounts: several logins for one provider ──────────────────────────
 # Each extra account becomes its own LiteLLM deployment named

@@ -423,6 +423,36 @@ def test_bridged_profiles_still_use_alias_and_1m_marker():
     assert env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:4000"
 
 
+def test_codex_is_native_and_answers_on_the_loopback():
+    """Codex is a local gateway that speaks Anthropic, so nothing may be bridged.
+
+    Two things are easy to get wrong here and neither fails loudly at runtime:
+    a native profile must advertise the REAL window (272k — under 1M, so a
+    `[1m]` marker or a 1048000 context would let Claude Code overrun it), and
+    its tiers must not drift onto an id the gateway answers 503 for.
+    """
+    doc, profiles = _load()
+    models, providers = render_config.index_models(doc)
+    spec = profiles["profiles"]["codex"]
+    assert spec["native"] is True
+    assert providers["codex"]["api_base"].startswith("http://localhost:")
+
+    known = {m for (p, m) in models if p == "codex"}
+    assert known, "codex models missing from registry/models.yaml"
+    for tier, tspec in spec["tiers"].items():
+        assert tspec["model"] in known, f"tier {tier} -> {tspec['model']} not in the catalogue"
+
+    env = json.loads(
+        render_config.render_profile(
+            "codex", spec, models, providers, render_config._alias_index(profiles), profiles
+        )
+    )["env"]
+    assert env["ANTHROPIC_BASE_URL"] == providers["codex"]["api_base"]
+    assert env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] == "272000"
+    for key, val in env.items():
+        assert "[1m]" not in str(val), f"{key} carries the bridged marker: {val}"
+
+
 def test_opendesign_is_registered_and_discovered():
     """The provider must declare itself discoverable and native, and its tiers
     must resolve to ids the catalogue actually lists."""
