@@ -31,7 +31,8 @@ claude ──> ccp profile ──┬─> vendor's /anthropic endpoint         (n
 | `opendesign/` | DeepSeek-V4.1-Flash (1.05M) | native, Anthropic-native aggregator | 11 |
 | `cline/` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 6 |
 | `qianfan/` | DeepSeek-V4.1-Flash (1.44M) | bridged → LiteLLM | 9 |
-| `trae/` | Qwen3.8-Max (1M) | local adapter `:4100` | 19 |
+| `trae/` | DeepSeek-V4.1-Flash (1M) | local adapter `:4100` | 20 |
+| `codex/` | gpt-6.1-sol (272k) | native Anthropic, local gateway `:56895` | 8 |
 
 Several folders start on the *same* underlying model. That is the point: same
 model, different pipe, price and quota. Every folder also holds the other models
@@ -75,10 +76,47 @@ ccp trae/deepseek-v4.1-flash         # same thing, as a path
 ccp -c                               # show what is active, and where it points
 ccp ping trae -s                     # benchmark this provider's models, switch to the winner
 ccp --rollback                       # undo the last switch
+ccp restore --dry-run                # see how to get back to the pre-ccp settings
 ```
 
 Inside a running session, `/model` switches between Opus / Sonnet / Haiku — each
 is pinned by the active profile to a real model.
+
+---
+
+## ↩ Returning to the pre-ccp state
+
+`ccp restore` puts back the `settings.json` ccp found before its first switch and
+stops + disables the three user services (`litellm-cmdc`, `ccp-sse-watchdog`,
+`ccp-trae-bridge`). It never deletes profiles, keys, or the checkout, so
+`ccp <provider>` works again immediately.
+
+- The exact source is `settings.json.ccp-original`, captured by `ccp <provider>`
+  the first time it replaces a file ccp did not render.
+- Older installs have no snapshot; restore falls back to the **oldest**
+  timestamped backup that is not ccp-rendered. A rendered profile is recognised
+  by the `ANTHROPIC_DEFAULT_FABLE_MODEL` tier key, which ccp writes into every
+  profile it emits and which no pre-ccp file contains; an early ccp profile that
+  predates that key is still recognised by its base URL pointing at one of ccp's
+  own loopback bridges (`:4000`, `:4001`, `:4100`). A gateway the user configured
+  themselves — any other URL — is correctly treated as original.
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is **not** a marker: people set it by hand,
+  and treating it as one classified every original as ccp-made, which left the
+  snapshot never captured and made `restore` report "No pre-ccp settings found"
+  while holding a directory full of backups.
+- The oldest backup can predate every provider key on the machine. When the
+  chosen source carries no `ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY`, the plan
+  says so, because such a file only works if Claude Code is signed in to
+  claude.ai (OAuth). Choose a later backup with `--from`, or use `--strip`.
+- If neither exists, it refuses rather than guessing. `--strip` is the explicit
+  opt-in: it removes only ccp-injected keys (`ANTHROPIC_BASE_URL`, the tier map,
+  context window), preserving permissions, hooks and unknown keys.
+- `--dry-run` shows the plan, `--yes` skips the prompt, `--keep-services`
+  restores settings but leaves the bridges running, and `--from FILE` picks a
+  specific backup.
+
+Before replacing anything it writes another `settings.json.bak.<timestamp>`, so
+the restore itself is undoable with `ccp --rollback`.
 
 ---
 
@@ -158,6 +196,7 @@ call is evidence:
 | `ccp <provider> [model]` | Switch provider, optionally to a specific model |
 | `ccp -m <model>` | Hot-switch model inside the current provider |
 | `ccp -c` / `ccp -r [N]` | Show active state / roll back N backups |
+| `ccp restore` / `ccp reset` | Return to the pre-ccp settings and stop the bridges |
 | `ccp models [provider]` | List models with context, output cap and vision |
 | `ccp discover [provider]` | Refresh model metadata from the provider APIs |
 | `ccp render` | Regenerate config + profiles + clamp/rule maps from the registry |
@@ -168,6 +207,7 @@ call is evidence:
 | `ccp bridge {start\|stop\|restart}-trae` | Address the local Trae adapter |
 | `ccp accounts …` | Extra logins and routing groups (see below) |
 | `ccp quota [provider]` | What is left on each plan |
+| `ccp hermes [provider]` | Point the local Hermes agent at a provider's model |
 | `ccp -t` / `ccp --test` | Quick round-trip through Claude Code |
 
 `ccp ping` rounds: default 2 rounds (~200 output tokens), `-q` 1 round (~64, for
@@ -280,6 +320,56 @@ Fix it in the shell with:
 ```bash
 export no_proxy="127.0.0.1,::1,localhost,$no_proxy"
 ```
+
+---
+
+## 🤖 The Hermes agent
+
+The local [Hermes](https://hermes-agent.nousresearch.com) agent reaches every
+provider through the same bridge, so switching provider changes exactly one
+thing for it: the model name it asks for.
+
+```bash
+ccp hermes                 # what the bot is running right now
+ccp hermes codex           # point it at codex's default model
+ccp hermes trae deepseek-v4.1-flash
+ccp hermes codex --dry-run # show the change, write nothing
+```
+
+The name written is the one the proxy **actually emitted** — the curated alias
+when the registry has one, otherwise the bare registry id — resolved by the same
+`litellm_key_for()` that `ccp render` used to write
+`~/.config/litellm/config.yaml`. `minimax` therefore gets `MiniMax-M3.1-Flash`
+and not a `minimax-MiniMax-M3.1-Flash` nobody serves; a name guessed rather than
+resolved comes back as a 400 that reads like the bridge is down.
+
+Two things this deliberately does not do:
+
+* **It edits two lines, not the file.** `~/.hermes/profiles/<profile>/config.yaml`
+  is hand-written and carries comments that matter — compression thresholds, the
+  reason `telegram.enabled` is spelled out, the MCP command. Re-emitting the YAML
+  through a parser would drop every one of them. Only `model.default` and
+  `providers.ccp.default_model` move; a sibling provider (`imfl`, the direct
+  MiniMax fallback) is left byte-identical.
+* **It bounces the gateway only after a real rewrite.** Hermes caches its agent
+  at startup, so a rewritten config is inert until
+  `hermes-gateway-<profile>.service` is restarted — and a bot still answering on
+  the old model is worse than one that was never switched. `ccp hermes`,
+  `--dry-run` and `--json` write nothing and restart nothing.
+
+A profile whose `model.provider` is not `custom:ccp` is refused rather than
+half-edited: a ccp model name in someone else's provider block would be a name
+that provider cannot serve. A `.bak.<timestamp>` copy of the pre-change file is
+written first — note that Hermes snapshots the profile's config into
+`<profile>/backups/config/` too, so ours is filed there beside its own
+`.good.<timestamp>` entries rather than left in the profile root. `--config`
+points the command at a file outside `~/.hermes/profiles/` when you are testing.
+
+> **One Feishu app, one gateway.** If a second host runs a gateway for the same
+> profile, both connect to the same app and the same home channel, and messages
+> are served by whichever one the platform picks — including the host you did
+> not mean. Give the leftover profile `platforms.feishu.enabled: false` before
+> pointing it anywhere else; it is otherwise a live copy of the bot.
 
 ---
 
@@ -412,12 +502,17 @@ ccp trae                 # ccp auto-starts the adapter if it is down
 **Images work, but the tier has to be a vision model.** The adapter emits
 OpenAI-style `image_url` data URLs correctly; the catch is that *TraeCLI* decides
 whether pixels reach the model and substitutes
-`[image/png content is not supported by current model]` on a text-only one. The
-tiers are therefore all vision-capable (qwen3.8-max / Doubao-Seed-2.1-pro /
-glm-5.3-flash); `glm-5.3`, the strongest tool-caller on the subscription, is
-text-only and reachable through the `trae-glm-5.3` alias. Verified end to end:
-Claude Code's `Read` on a PNG travels through the adapter and the model names the
-colours correctly.
+`[image/png content is not supported by current model]` on a text-only one.
+
+**The tiers are not uniform, so this depends on the tier you are on.** `opus` and
+`fable` are Doubao-Seed-2.1-pro and `haiku` is glm-5.3-flash, all three
+vision-capable; `default` and `sonnet` are DeepSeek-V4.1-Flash, which is
+text-only. Because `default` and `sonnet` are what this profile starts on, image
+work needs a vision tier selected explicitly: switch to `/model opus`, or name
+`trae-doubao-seed-2.1-pro` directly. `glm-5.3`, the strongest tool-caller on the
+subscription, is text-only and reachable through the `trae-glm-5.3` alias. With a
+vision tier selected, this was verified end to end: Claude Code's `Read` on a PNG
+travels through the adapter and the model names the colours correctly.
 
 > **Trae's catalogue reports 96k–184k; the real window is 1M.** `prompt_max_tokens`
 > is what *its own CLI* will put in one request, not the model's context. Taking
@@ -426,6 +521,42 @@ colours correctly.
 > 200 with empty content and zero usage — a silent failure, not an error.
 > `ctx_default` overrides it, verified across four families. A request that
 > returns 200 is not proof; only retrieving something from the far end is.
+
+### Codex (local gateway on `:56895`)
+
+A local gateway that fronts a Codex account and speaks **Anthropic Messages** at
+`http://localhost:56895/v1/messages`, so this profile is `native: true`: Claude
+Code talks to it directly, with no bridge in the way.
+
+```bash
+ccp codex            # default tier: gpt-6.1-sol
+ccp codex gpt-6-astra
+```
+
+**Every model here is 272k-context and text-only.** The window is the
+catalogue's own `context_length` and it is advertised as 272000, so Claude Code
+compacts at the point the gateway would truncate; a pasted screenshot has
+nowhere to go on any tier. `max_output` is left null on purpose — the gateway
+accepts `max_tokens=300000` on a 272k model, so any cap read from it (or from
+LiteLLM's cost map, which answers 128000 for some of these ids) would be fiction.
+
+**Two catalogue ids are excluded.** `gpt-image-2.5` and `gpt-reserve` answer
+`503 no_available_account`; they are held to the same rule as ClinePass and
+MiniMax's legacy family — the registry lists what has been verified to answer.
+
+**The bridged copy needs a different LiteLLM prefix.** A `anthropic/` deployment
+reached through LiteLLM's own `/v1/messages` is forwarded to the gateway as an
+OpenAI **Responses** request, and that path answers
+`unsupported_endpoint … not supported by the native Responses service` — even
+though `/v1/responses` looks alive when probed by hand. `render_config.py`
+therefore emits `hosted_vllm/` for this provider (the same opt-out CodeBuddy
+needed), which keeps the chat/completions builder per deployment.
+
+**The probe had a related bug, now fixed.** `ccp_probe` appended `/v1/messages`
+to whatever base the profile carried, so this endpoint — whose base is already
+`…/v1` — was asked for `/v1/v1/messages`, and the gateway answered that with the
+same `unsupported_endpoint` 404. `ccp ping codex` reported 0/8 responsive for
+models that answer in two seconds; the base is now used as written.
 
 ---
 
@@ -530,6 +661,8 @@ row (2 rounds, ~200 output tokens per round):
 | trae | `DeepSeek-V4.1-Flash` | 3.4 s | 63.8² | 3.5 s | 1M |
 | trae | `DeepSeek-V4-Flash-Official` | 3.9 s | 166.5 | 5.0 s | 1M |
 | trae | `DeepSeek-V4-Pro-Official` | 6.4 s | 45.5² | 6.6 s | 1M |
+| codex | `gpt-6-sol` | 2.2 s | 39.7² | 2.6 s | 272k |
+| codex | `gpt-6.1-sol` | 3.1 s | 5.0² | 3.6 s | 272k |
 
 ² **No decode window to measure**: the model thinks for seconds and then
 releases the whole answer at once, so the speed is scored against the whole

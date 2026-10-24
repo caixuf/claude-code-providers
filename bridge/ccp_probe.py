@@ -539,7 +539,13 @@ async def _probe_single_round(
         # accept either, and sending both is accepted everywhere here.
         headers["x-api-key"] = master_key
         headers["Authorization"] = f"Bearer {master_key}"
-    url = f"{base_url.rstrip('/')}/v1/messages"
+    # The base is used as the caller wrote it: an endpoint that already ends in
+    # /v1 (the native Codex gateway does) would otherwise be asked for
+    # /v1/v1/messages, and that 404 comes back as an opaque `unsupported_endpoint`
+    # from the gateway — a probe that says "not responsive" about a model that
+    # answers in 2 s.
+    root = base_url.rstrip("/")
+    url = f"{root}/messages" if root.endswith("/v1") else f"{root}/v1/messages"
 
     t0 = time.perf_counter()
     t_first = None
