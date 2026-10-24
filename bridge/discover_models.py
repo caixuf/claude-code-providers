@@ -10,6 +10,8 @@ this pulls them from, in priority order:
        - MiniMax     : ids only, still listing the legacy M2 rungs — the
                        allow-list and per-model ``hints`` carry the facts
        - OpenDesign  : metadata.context_limit / context_budget
+       - Qianfan     : context_length / max_completions_tokens /
+                       architecture.input_modalities (the richest of the lot)
        - Trae        : no /models at all — trae_bridge.py's own catalogue RPC
    2. LiteLLM's bundled cost map (``litellm.model_cost``, ~4500 entries) for
       max_input_tokens / max_output_tokens / supports_vision.
@@ -160,6 +162,36 @@ PROVIDERS = {
         "profile_file": "~/.claude/providers/opendesign.json",
         "max_output_default": None,
     },
+    # Baidu Qianfan (文心 / 千帆) Token Plan, personal tier. Standard
+    # OpenAI-compatible Chat Completions, so it goes through the normal bridge
+    # with no adapter. Two quirks, both verified against the live endpoint:
+    #   * the Token Plan key is only accepted on the `/v2/tokenplan/personal/`
+    #     prefix — the same key gets `token_plan_person_api_key_not_allowed`
+    #     on plain `/v2/chat/completions`;
+    #   * the catalogue lists ~34 models but Token Plan Person only serves the
+    #     GLM / DeepSeek families; the ERNIE, Qwen, VL, OCR and embedding ids
+    #     all answer `token_plan_person_model_not_supported`. ``only_models``
+    #     narrows the registry to the verified set so no profile advertises a
+    #     model this key cannot call.
+    "qianfan": {
+        "models_url": "https://qianfan.baidubce.com/v2/models",
+        "api_base": "https://qianfan.baidubce.com/v2/tokenplan/personal",
+        "endpoint_kind": "openai",
+        "litellm_prefix": "openai/",
+        "auth_env": "QIANFAN_API_KEY",
+        "auth_file": "~/.config/litellm/config.yaml",
+        "auth_grep": "qianfan.baidubce.com",
+        # Verified to answer on the Token Plan Person endpoint.
+        "only_models": [
+            "deepseek-v4.1-flash",
+            "deepseek-v4-pro",
+            "deepseek-v4-flash-0731",
+            "glm-5.3",
+            "glm-5.3-flash",
+            "glm-5.2",
+        ],
+        "max_output_default": 32000,
+    },
     # TraeCLI (ByteDance's enterprise coding agent). There is no public API and
     # no /models endpoint: `bridge/trae_bridge.py` owns the private
     # `llm_raw_chat` protocol and is what `ccp trae` points at. Discovery and
@@ -177,6 +209,44 @@ PROVIDERS = {
         # context; 1.25M returns 200 with empty content. Real window is 1M —
         # the same as every other provider here — not the 96k–184k Trae reports.
         "ctx_default": 1000000,
+        "max_output_default": None,
+    },
+    # Codex (a local gateway on :56895). It speaks the Anthropic Messages API
+    # itself, so this is `native: true` in the strictest sense: no bridge, no
+    # clamps, the profile points straight at :56895.
+    #
+    # The loopback means discovery fails whenever the gateway is not running,
+    # and `build()` then keeps the previous entries rather than emptying the
+    # registry — that is the intended behaviour, not an accident.
+    #
+    # Measured 2026-10-23 against http://localhost:56895/v1:
+    #   * ctx 272000 — the catalogue's own context_length, and the same for
+    #     every model here.
+    #   * every model is TEXT-ONLY (`input_modalities: ["text"]`); a pasted
+    #     screenshot has nowhere to go.
+    #   * `max_output` is left null: the gateway accepts max_tokens=300000 on a
+    #     272k model and answers normally, so it does not enforce a cap and a
+    #     number taken from it would be fiction.
+    #   * two catalogue ids answer 503 `no_available_account`
+    #     (gpt-image-2.5, gpt-reserve). They are excluded by `only_models`, the
+    #     same rule ClinePass and MiniMax's legacy family are held to: the
+    #     registry lists what has been verified to answer.
+    "codex": {
+        "models_url": "http://localhost:56895/v1/models",
+        "api_base": "http://localhost:56895/v1",
+        "endpoint_kind": "anthropic",
+        "auth_env": "CODEX_API_KEY",
+        "profile_file": "~/.claude/providers/codex.json",
+        "only_models": [
+            "gpt-6.1-sol",
+            "gpt-6-astra",
+            "gpt-6-sol",
+            "gpt-6-luna",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
+            "codex-auto-review",
+        ],
         "max_output_default": None,
     },
 }
@@ -354,6 +424,52 @@ def norm_generic(entry: dict, provider: dict, cmap: dict, idx: dict | None = Non
     }
 
 
+def norm_codex(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
+    """The local Codex gateway publishes the catalogue's own facts.
+
+    ``context_length`` is the window and ``model_info.input_modalities`` the
+    modality list, so neither has to come from LiteLLM's cost map — which
+    knows none of these ids and would leave all three null. Vision stays
+    False when nothing is declared, because the field is always present here.
+    """
+    mid = entry.get("id", "")
+    mods = (entry.get("model_info") or {}).get("input_modalities") or []
+    return {
+        "name": mid,
+        "ctx": entry.get("context_length"),
+        # Deliberately not from the cost map: it recognises some of these ids
+        # as OpenAI models and answers 128000, while the gateway happily took a
+        # max_tokens=300000 request. Publishing either number would be a
+        # guess dressed as a fact.
+        "max_output": provider["max_output_default"],
+        "vision": "image" in mods,
+        "endpoint_kind": provider["endpoint_kind"],
+    }
+
+
+def norm_qianfan(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
+    """Qianfan's /v2/models carries real capability metadata per model.
+
+    Unlike most OpenAI-shaped catalogues this one publishes
+    ``context_length`` / ``max_completions_tokens`` and
+    ``architecture.input_modalities``, so nothing has to be guessed or
+    cross-checked against LiteLLM's cost map. ``type: multimodal`` plus an
+    ``image`` input modality is the vision signal.
+    """
+    arch = entry.get("architecture") or {}
+    mods = arch.get("input_modalities") or []
+    vision = "image" in mods if mods else None
+    return {
+        "name": entry.get("id", ""),
+        "ctx": entry.get("context_length") or entry.get("prompt_tokens"),
+        "max_output": (entry.get("max_completions_tokens")
+                       or entry.get("max_tokens")
+                       or provider.get("max_output_default")),
+        "vision": vision,
+        "endpoint_kind": provider["endpoint_kind"],
+    }
+
+
 def norm_opendesign(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
     """OpenDesign exposes everything the registry needs inside the model entry.
 
@@ -418,6 +534,8 @@ NORMALIZERS = {
     "minimax": norm_generic,
     "opendesign": norm_opendesign,
     "trae": norm_trae,
+    "codex": norm_codex,
+    "qianfan": norm_qianfan,
 }
 
 # Speed-tier variants that share every fact with their base model. Neither the

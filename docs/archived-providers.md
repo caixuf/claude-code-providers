@@ -2,8 +2,8 @@
 
 These were kept by ccp until it pruned them. The 2026-10-14 cut took the active
 set down to what actually worked; **Baidu Qianfan was archived on 2026-10-20**
-(the plan is no longer used) and **MiniMax was narrowed to two models the same
-day** — `MiniMax-M3` and `MiniMax-M3.1-Flash` — which is a curation cut, not an
+(the plan was no longer used — **restored 2026-10-24**) and **MiniMax was
+narrowed to two models the same day** — `MiniMax-M3` and `MiniMax-M3.1-Flash` — which is a curation cut, not an
 archive: its folder stays, the M2.x rungs are gone from the registry. The active
 set is five folders now: `deepseek/`, `minimax/`, `opendesign/`, `cline/`, `trae/`.
 
@@ -59,7 +59,19 @@ was sound. Top the balance up and the revert restores it unchanged.
 
 ---
 
-## Baidu Qianfan (百度千帆 Token Plan) — archived 2026-10-20
+## Baidu Qianfan (百度千帆 Token Plan) — archived 2026-10-20, restored 2026-10-24
+
+> **Restored 2026-10-24.** The plan is in use again; the four steps below were
+> carried out (template back in `providers/`, profile + `qianfan-*` aliases in
+> `registry/profiles.yaml`, the `PROVIDERS`/normalizer entries back in
+> `bridge/discover_models.py`) and discovered models written to the registry.
+> The section stays here for its findings. The routing groups were left as the
+> archive re-pointed them — Qianfan holds no group membership.
+>
+> Note at restore time: the key answers the catalogue (`GET /v2/models`, 200)
+> but every completion comes back `429 credit_quota_exceeded — Token Plan Person
+> monthly quota limit exceeded`, so the profile is installed and wired but
+> currently unusable until the quota resets or is topped up.
 
 **Archived because the plan is no longer used**, not because anything broke. It
 was a normal bridged provider: plain OpenAI Chat Completions through LiteLLM,

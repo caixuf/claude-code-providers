@@ -624,9 +624,12 @@ gateway error on a loopback endpoint is the proxy answering for it.
 ## 📦 Archived providers
 
 CommandCode (out of credits), GitHub Copilot (no healthy deployments), CodeBuddy,
-OpenCode, Antigravity (`agy`) and Baidu Qianfan (plan no longer used) are
-archived, along with what it takes to bring one back:
-[`docs/archived-providers.md`](docs/archived-providers.md).
+OpenCode and Antigravity (`agy`) are archived, along with what it takes to bring
+one back: [`docs/archived-providers.md`](docs/archived-providers.md).
+
+Baidu Qianfan was archived on 2026-10-20 and restored on 2026-10-24 (the plan is
+back in use), so it is an active provider again — see its section there for the
+Token-Plan-only prefix and the six ids that actually answer.
 
 ---
 
