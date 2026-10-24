@@ -16,8 +16,11 @@ YAML. A round trip through a parser drops every comment in the file, which
 nobody notices until the next person has to read it.
 
 Usage:
-  hermes_config.py render <provider> [model] [--profile imfl] [--dry-run]
-  hermes_config.py status [--profile imfl]
+  hermes_config.py render <provider> [model] [--profile <name>] [--dry-run]
+  hermes_config.py status [--profile <name>]
+
+`--profile` defaults to $HERMES_PROFILE, else to `~/.hermes/active_profile` —
+the profile the bot is actually running on this host.
 """
 from __future__ import annotations
 
@@ -57,19 +60,22 @@ def hermes_home() -> Path:
 
 
 def default_profile() -> str | None:
-    """The profile whose gateway is installed — the bot this host actually runs.
+    """The profile the bot is running right now — read from Hermes, not guessed.
 
     Naming one host's profile in the shared repo would be wrong everywhere else:
     the bot on a workstation is `caixuf`, on the server it is `imfl`. The
-    installed `hermes-gateway-<name>.service` says which, per host.
+    installed `hermes-gateway-<name>.service` names a profile, but it is not the
+    one being asked about: several can be installed while `active_profile` holds
+    the single file that says which is live.
     """
     env = os.environ.get("HERMES_PROFILE")
     if env:
         return env
-    units = sorted((Path.home() / ".config/systemd/user").glob("hermes-gateway-*.service"))
-    if len(units) == 1:
-        return units[0].name[len("hermes-gateway-"):-len(".service")]
-    return None
+    try:
+        active = (hermes_home() / "active_profile").read_text(encoding="utf-8").strip()
+    except OSError:
+        active = ""
+    return active or None
 
 
 def profile_config(profile: str) -> Path:
@@ -296,8 +302,8 @@ def main(argv: list[str] | None = None) -> int:
         # No hard-coded profile name: the bot is `caixuf` on a workstation and
         # `imfl` on the server, and this file ships to both.
         p.add_argument("--profile", default=default_profile(),
-                       help="Hermes profile to edit (default: $HERMES_PROFILE, else the one "
-                            "whose hermes-gateway-*.service is installed)")
+                       help="Hermes profile to edit (default: $HERMES_PROFILE, else "
+                            "~/.hermes/active_profile — the one the bot is running)")
         p.add_argument("--config", help="explicit config.yaml (bypasses --profile)")
         p.add_argument("--repo", help="checkout holding registry/ (default: this repo)")
 
