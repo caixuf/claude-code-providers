@@ -289,9 +289,8 @@ groups:
   main:
     # >>> qianfan-window
     members:
-    - qianfan-deepseek-v4.1-flash
-    fallback:
     - opendesign-deepseek-v4.1-flash
+    fallback:
     - cline-deepseek-v4.1-flash
     # <<< qianfan-window
   pro:
