@@ -1,0 +1,11 @@
+[Unit]
+Description=CCP Qianfan window opens at 21:00
+
+[Timer]
+OnCalendar=*-*-* 21:00:00
+# Persistent: a machine asleep at the boundary still catches up on wake, so a
+# missed 08:00 does not leave the night rate running all day.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

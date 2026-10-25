@@ -280,6 +280,61 @@ EOF
   echo "✔ LiteLLM on 127.0.0.1:$LITELLM_PORT ; SSE watchdog on 127.0.0.1:4000 (Claude Code target)"
 fi
 
+# The Qianfan window is a wall-clock fact, not a LiteLLM setting: nothing in
+# the proxy can move a group at 21:00. Install both timers here so a fresh
+# checkout is on the day routing now and switches itself tonight -- the two
+# halves are useless apart, and a machine with only the `on` timer bills the
+# night rate until someone notices.
+cat > "$SERVICE_DIR/ccp-qianfan-on.service" <<EOF
+[Unit]
+Description=CCP Qianfan window -- Qianfan first, for the cheap hours
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=$SCRIPT_DIR
+ExecStart=/usr/bin/env python3 $SCRIPT_DIR/qianfan_window.py --on
+EOF
+
+cat > "$SERVICE_DIR/ccp-qianfan-on.timer" <<EOF
+[Unit]
+Description=CCP Qianfan window opens at 21:00
+
+[Timer]
+OnCalendar=*-*-* 21:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+cat > "$SERVICE_DIR/ccp-qianfan-off.service" <<EOF
+[Unit]
+Description=CCP Qianfan window -- Qianfan out, back to the day routing
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=$SCRIPT_DIR
+ExecStart=/usr/bin/env python3 $SCRIPT_DIR/qianfan_window.py --off
+EOF
+
+cat > "$SERVICE_DIR/ccp-qianfan-off.timer" <<EOF
+[Unit]
+Description=CCP Qianfan window closes at 08:00
+
+[Timer]
+OnCalendar=*-*-* 08:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl --user daemon-reload
+systemctl --user enable --now ccp-qianfan-on.timer ccp-qianfan-off.timer
+echo "✔ Qianfan window timers enabled (on 21:00, off 08:00)"
+
 echo ""
 echo "=== Setup Complete! ==="
 echo "The bridge is listening on http://127.0.0.1:4000"

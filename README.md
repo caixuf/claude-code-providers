@@ -690,10 +690,20 @@ Readings are cached for two minutes because these endpoints are rate limited.
 > second CodeBuddy or CommandCode login, both archived. The three groups in
 > `registry/profiles.yaml` (`main`/`pro`/`flash`) are curation, not usage: each
 > pairs one subscription with another vendor's, so no single subscription is a
-> hard stop. `main` and `pro` lead with `cline` and fall back to `opendesign`;
-> `flash` leads with `opendesign-glm-5.3-flash` and falls back to `cline-glm-5.3`,
-> because ClinePass has no flash-tier variant. They are illustrative in the same
-> sense — swap the members for whatever you actually run.
+> hard stop. All three resolve to `deepseek-v4.1-flash`; the names stay separate
+> because the client picks a tier by name, and a `pro` that quietly answered with
+> a different model would be answering a question nobody asked. `main` leads with
+> `opendesign` and falls back to `cline`; `pro` and `flash` do the same. They are
+> illustrative in the same sense — swap the members for whatever you actually run.
+>
+> **Qianfan is the one member whose price depends on the clock** — full rate by
+> day, 20% after 21:00 — so it is deliberately absent from the committed
+> defaults: a failover that fires at midday bills five times what the same turn
+> costs after dark. `bridge/qianfan_window.py` rewrites the marked block in
+> `registry/profiles.yaml` and re-renders; the `ccp-qianfan-on` / `ccp-qianfan-off`
+> timers run it at 21:00 and 08:00. Both are `Persistent`, so a machine asleep at
+> 08:00 catches up instead of billing the night rate all day. `setup_bridge.sh`
+> installs the units.
 
 ---
 
