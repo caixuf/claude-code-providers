@@ -237,8 +237,8 @@ http_proxy=$PROXY_URL
 https_proxy=$PROXY_URL
 HTTP_PROXY=$PROXY_URL
 HTTPS_PROXY=$PROXY_URL
-no_proxy=localhost,127.0.0.1,::1,.local
-NO_PROXY=localhost,127.0.0.1,::1,.local
+no_proxy=localhost,127.0.0.1,::1,.local,api.deepseek.com,api.minimax.cn,api.cline.bot,qianfan.baidubce.com
+NO_PROXY=localhost,127.0.0.1,::1,.local,api.deepseek.com,api.minimax.cn,api.cline.bot,qianfan.baidubce.com
 EOF
   echo "✔ Detected proxy and wrote $CONFIG_DIR/proxy.env"
 fi
