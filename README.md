@@ -87,7 +87,7 @@ is pinned by the active profile to a real model.
 ## ↩ Returning to the pre-ccp state
 
 `ccp restore` puts back the `settings.json` ccp found before its first switch and
-stops + disables the three user services (`litellm-cmdc`, `ccp-sse-watchdog`,
+stops + disables the three user services (`litellm-ccp`, `ccp-sse-watchdog`,
 `ccp-trae-bridge`). It never deletes profiles, keys, or the checkout, so
 `ccp <provider>` works again immediately.
 
@@ -268,7 +268,7 @@ upstream answers `400`. This is why a `curl` smoke test looks fine and the clien
 still fails — the hand-written request does not carry those three attributes.
 
 ```bash
-systemctl --user status litellm-cmdc ccp-sse-watchdog
+systemctl --user status litellm-ccp ccp-sse-watchdog
 ss -ltnp | grep 4000          # sse_watchdog.py = complete; litellm = lossy
 ```
 
@@ -388,7 +388,7 @@ a `hermes-gateway-ccp.service` that does not exist, leaving the real bot
 untouched and no error anywhere in the output.
 
 **A bot on an older provider moves, it is not refused.** Profiles that predate
-ccp — on `commandcode`, `openrouter`, the `cmdc-*` bridges — are the ones with
+ccp — on `commandcode`, `openrouter`, the bridged providers — are the ones with
 somewhere to go, so `ccp hermes <provider>` migrates them: it rewrites
 `model.default`, `providers.ccp.default_model` **and** `model.provider`, because
 that last key is what picks the entry point. Writing only the model name would
@@ -502,7 +502,7 @@ python3 bridge/qianfan_probe.py --emit-only-models   # re-derive the allow-list
 
 Two operational notes. The key lives in `proxy.env`, which the systemd unit
 loads as `EnvironmentFile` — a new key reaches the bridge only after
-`systemctl --user restart litellm-cmdc.service`, not after a `ccp render`. And
+`systemctl --user restart litellm-ccp.service`, not after a `ccp render`. And
 the catalogue endpoint answers `429 Over rate limit` when probed in a burst, so
 the probe retries instead of concluding that the plan is gone.
 

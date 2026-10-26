@@ -47,7 +47,7 @@ MODEL_KEYS = (
 )
 
 DEFAULT_BRIDGE = "http://127.0.0.1:4000"
-MASTER_KEY = "sk-cmdc-litellm-local"
+MASTER_KEY = "sk-ccp-litellm-local"
 
 
 def profile_models(path: Path) -> list[str]:

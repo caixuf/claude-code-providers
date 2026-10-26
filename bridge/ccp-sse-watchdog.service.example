@@ -1,7 +1,7 @@
 [Unit]
 Description=CCP SSE watchdog in front of LiteLLM (close Anthropic streams after message_stop)
-After=network.target litellm-cmdc.service
-Requires=litellm-cmdc.service
+After=network.target litellm-ccp.service
+Requires=litellm-ccp.service
 
 [Service]
 Type=simple

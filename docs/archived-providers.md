@@ -150,7 +150,7 @@ Restoring it is the four steps above, with the qianfan-specific parts spelled ou
 >
 > **Two operational notes.** The key lives in `proxy.env`, which the systemd
 > unit loads as `EnvironmentFile` — a new key only reaches the bridge after
-> `systemctl --user restart litellm-cmdc.service`, not after a `ccp render`.
+> `systemctl --user restart litellm-ccp.service`, not after a `ccp render`.
 > And the catalogue endpoint answers `429 Over rate limit` when probed in a
 > burst, so the probe retries with a backoff instead of concluding that the
 > plan is gone.

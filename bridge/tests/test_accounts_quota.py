@@ -105,7 +105,7 @@ def _args(**kw):
 
 def test_env_var_name_is_derived_from_provider_and_suffix():
     assert ca.env_var_for("cline", "a2") == "CLINE_API_KEY_A2"
-    assert ca.env_var_for("cmdc", "edu") == "CMDC_API_KEY_EDU"
+    assert ca.env_var_for("qianfan", "edu") == "QIANFAN_API_KEY_EDU"
 
 
 def test_add_writes_credential_and_registry(tmp_path, monkeypatch):

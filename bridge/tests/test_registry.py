@@ -40,7 +40,7 @@ def test_models_yaml_has_no_duplicate_names():
 def test_every_discovered_model_has_context():
     """Context must be auto-filled for the vast majority of models.
 
-    Providers whose /models endpoint exposes metadata (cmdc, deepseek)
+    Providers whose /models endpoint exposes metadata (a provider whose catalogue carries output caps)
     are near-complete; providers that only return ids (cline, minimax) are
     filled from LiteLLM's map and may have a small unfilled tail. Either way
     every provider must clear 0.9 — no per-provider escape hatch, so a genuine
@@ -72,7 +72,7 @@ def test_clamp_map_covers_all_providers_with_output_cap():
     doc, profiles = _load()
     models, providers = render_config.index_models(doc)
     clamp = render_config.render_clamp(models, providers, profiles)
-    # every cmdc model caps at 393216 -> must appear in the clamp map
+    # every model of a capped provider must appear in the clamp map
     for (pname, name), meta in models.items():
         if pname == "cmdc" and meta.get("max_output"):
             assert clamp.get(name) == meta["max_output"]

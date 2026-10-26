@@ -48,7 +48,7 @@ providers:
     name: ccp
     base_url: "http://127.0.0.1:4000/v1"
     api_mode: chat_completions
-    api_key: "sk-cmdc-litellm-local"
+    api_key: "sk-ccp-litellm-local"
     default_model: main
   imfl:
     name: imfl

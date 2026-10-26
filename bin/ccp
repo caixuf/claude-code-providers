@@ -416,7 +416,7 @@ restore_original() {
   if [ "$keep_services" = 1 ]; then
     echo "  Services: keep running"
   else
-    echo "  Services: stop + disable litellm-cmdc, ccp-sse-watchdog, ccp-trae-bridge"
+    echo "  Services: stop + disable litellm-ccp, ccp-sse-watchdog, ccp-trae-bridge"
   fi
 
   if [ "$dry_run" = 1 ]; then
@@ -455,7 +455,7 @@ restore_original() {
 
   if [ "$keep_services" != 1 ]; then
     local unit
-    for unit in litellm-cmdc.service ccp-sse-watchdog.service ccp-trae-bridge.service; do
+    for unit in litellm-ccp.service ccp-sse-watchdog.service ccp-trae-bridge.service; do
       systemctl --user stop "$unit" 2>/dev/null || true
       systemctl --user disable "$unit" 2>/dev/null || true
     done
@@ -546,7 +546,7 @@ bridge_health() {
   local url="$1"
   local code
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 --noproxy '*' \
-          -H "Authorization: Bearer sk-cmdc-litellm-local" \
+          -H "Authorization: Bearer sk-ccp-litellm-local" \
           "$url/v1/models" 2>/dev/null) || code=""
   [ "$code" = "200" ]
 }
@@ -622,7 +622,7 @@ ensure_bridge_running() {
 
     if [ "$p4000" -eq 0 ] || [ "$p4001" -eq 0 ]; then
       echo -e "  \033[33m⚡ Universal Bridge (:4000 -> :4001) not running. Auto-starting...\033[0m"
-      systemctl --user start litellm-cmdc.service ccp-sse-watchdog.service 2>/dev/null || true
+      systemctl --user start litellm-ccp.service ccp-sse-watchdog.service 2>/dev/null || true
       for _ in {1..10}; do
         sleep 0.5
         check_bridge_port 4000 && p4000=1
@@ -644,7 +644,7 @@ ensure_bridge_running() {
       else
         echo -e "  \033[31m✖ Universal Bridge is listening but not serving (LiteLLM :4001 does not answer).\033[0m" >&2
       fi
-      echo -e "    \033[31mRun 'ccp bridge restart' and check: systemctl --user status litellm-cmdc.service\033[0m" >&2
+      echo -e "    \033[31mRun 'ccp bridge restart' and check: systemctl --user status litellm-ccp.service\033[0m" >&2
     fi
   fi
 
@@ -774,7 +774,7 @@ manage_bridge() {
       echo "Restarting bridge services..."
       deploy_bridge_config
       sync_proxy_env
-      systemctl --user restart litellm-cmdc.service 2>/dev/null || true
+      systemctl --user restart litellm-ccp.service 2>/dev/null || true
       sleep 1.5
       systemctl --user restart ccp-sse-watchdog.service 2>/dev/null || true
       for u in ccp-trae-bridge; do
@@ -787,7 +787,7 @@ manage_bridge() {
       echo "Starting bridge services..."
       deploy_bridge_config
       sync_proxy_env
-      systemctl --user start litellm-cmdc.service ccp-sse-watchdog.service 2>/dev/null || true
+      systemctl --user start litellm-ccp.service ccp-sse-watchdog.service 2>/dev/null || true
       # Adapters, where installed: each is optional and independent, so a
       # unit that was never installed must not fail the whole start.
       for u in ccp-trae-bridge; do
@@ -802,7 +802,7 @@ manage_bridge() {
       ;;
     stop)
       echo "Stopping bridge services..."
-      systemctl --user stop ccp-sse-watchdog.service litellm-cmdc.service 2>/dev/null || true
+      systemctl --user stop ccp-sse-watchdog.service litellm-ccp.service 2>/dev/null || true
       # Adapters stop too: they are listeners holding their own ports, and a
       # "stopped" bridge that is still answering is not stopped.
       for u in ccp-trae-bridge; do
@@ -811,7 +811,7 @@ manage_bridge() {
       manage_bridge status
       ;;
     logs)
-      journalctl --user -u ccp-sse-watchdog.service -u litellm-cmdc.service \
+      journalctl --user -u ccp-sse-watchdog.service -u litellm-ccp.service \
         -u ccp-trae-bridge.service -f -n 50
       ;;
     *)

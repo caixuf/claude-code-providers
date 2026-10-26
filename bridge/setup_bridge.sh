@@ -200,7 +200,7 @@ fi
 
 echo "=== 5. Setting up Systemd User Service ==="
 mkdir -p "$SERVICE_DIR"
-cat > "$SERVICE_DIR/litellm-cmdc.service" <<EOF
+cat > "$SERVICE_DIR/litellm-ccp.service" <<EOF
 [Unit]
 Description=LiteLLM Proxy Bridge for Claude Code
 After=network.target
@@ -250,15 +250,15 @@ if [ "$WITH_WATCHDOG" = 0 ]; then
     echo "-- Removed leftover ccp-sse-watchdog.service"
   fi
   systemctl --user daemon-reload
-  systemctl --user enable litellm-cmdc.service
-  systemctl --user restart litellm-cmdc.service
+  systemctl --user enable litellm-ccp.service
+  systemctl --user restart litellm-ccp.service
   echo "✔ LiteLLM on 127.0.0.1:$LITELLM_PORT (single process, LOSSY -- see warning above)"
 else
   cat > "$SERVICE_DIR/ccp-sse-watchdog.service" <<EOF
 [Unit]
 Description=CCP SSE watchdog in front of LiteLLM (close Anthropic streams after message_stop)
-After=network.target litellm-cmdc.service
-Requires=litellm-cmdc.service
+After=network.target litellm-ccp.service
+Requires=litellm-ccp.service
 
 [Service]
 Type=simple
@@ -273,8 +273,8 @@ WantedBy=default.target
 EOF
 
   systemctl --user daemon-reload
-  systemctl --user enable litellm-cmdc.service ccp-sse-watchdog.service
-  systemctl --user restart litellm-cmdc.service
+  systemctl --user enable litellm-ccp.service ccp-sse-watchdog.service
+  systemctl --user restart litellm-ccp.service
   sleep 2
   systemctl --user restart ccp-sse-watchdog.service
   echo "✔ LiteLLM on 127.0.0.1:$LITELLM_PORT ; SSE watchdog on 127.0.0.1:4000 (Claude Code target)"
@@ -283,4 +283,4 @@ fi
 echo ""
 echo "=== Setup Complete! ==="
 echo "The bridge is listening on http://127.0.0.1:4000"
-echo "You can check status with: systemctl --user status litellm-cmdc"
+echo "You can check status with: systemctl --user status litellm-ccp"
