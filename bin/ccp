@@ -1055,12 +1055,32 @@ reconcile_profile() {
   fi
 
   # Only proceed if a derived field actually changed.
-  local new_ctx new_model cur_ctx cur_model
+  local new_ctx new_model cur_ctx cur_model new_token cur_token new_base
   new_ctx=$(jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS // empty' "$template")
   new_model=$(jq -r '.env.ANTHROPIC_MODEL // empty' "$template")
   cur_ctx=$(jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS // empty' "$live")
   cur_model=$(jq -r '.env.ANTHROPIC_MODEL // empty' "$live")
-  if [ "$new_ctx" = "$cur_ctx" ] && [ "$new_model" = "$cur_model" ]; then
+  new_token=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$template")
+  cur_token=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$live")
+  new_base=$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$template")
+
+  # A bridged profile's ANTHROPIC_AUTH_TOKEN is the local bridge's master key,
+  # not a vendor credential: `ccp render` writes it and it has to follow the
+  # render. Keeping the live one is what breaks an upgrade — the key was
+  # renamed from sk-cmdc-litellm-local to sk-ccp-litellm-local, and a profile
+  # that kept the old token is refused with a 401 by a bridge that now expects
+  # the new one, with nothing in the message to say which of the two is wrong.
+  #
+  # A native profile's token IS the vendor's key, and that one stays.
+  local keep_filter="AUTH_TOKEN$|_API_KEY$" want_token="$cur_token"
+  case "$new_base" in
+    *:4000*|*:4001*)
+      keep_filter="_API_KEY$"
+      want_token="$new_token"
+      ;;
+  esac
+
+  if [ "$new_ctx" = "$cur_ctx" ] && [ "$new_model" = "$cur_model" ] && [ "$want_token" = "$cur_token" ]; then
     return 1
   fi
 
@@ -1069,7 +1089,8 @@ reconcile_profile() {
   tmp=$(mktemp)
   # take template, then re-apply any user credential overrides
   # (match credential keys exactly: AUTH_TOKEN / API_KEY — NOT *_TOKENS counts)
-  if jq -s '.[0] * {env: (.[0].env * (.[1].env | with_entries(select(.key|test("AUTH_TOKEN$|_API_KEY$")))))}' \
+  if jq -s --arg re "$keep_filter" \
+       '.[0] * {env: (.[0].env * (.[1].env | with_entries(select(.key|test($re)))))}' \
        "$template" "$live" > "$tmp" 2>/dev/null && mv "$tmp" "$live"; then
     echo -e "  \033[33m~ Reconciled $name (ctx $cur_ctx -> $new_ctx)\033[0m"
     return 0

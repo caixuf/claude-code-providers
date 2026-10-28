@@ -232,13 +232,22 @@ if [ -z "$PROXY_URL" ]; then
   done
 fi
 if [ -n "$PROXY_URL" ] && [ ! -f "$CONFIG_DIR/proxy.env" ]; then
+  # The bypass list is owned by bridge/loopback.py — the hosts a proxy cannot
+  # serve. Writing it in two places is how the two lists drift: this file
+  # would keep naming the CN APIs while the bridge named the loopback and the
+  # relay, and the provider that fell out of the union would go through a
+  # tunnel that cannot reach it.
+  NO_PROXY_LIST="$("$VENV_DIR/bin/python" "$SCRIPT_DIR/loopback.py" \
+    "localhost,127.0.0.1,::1,.local,api.deepseek.com,api.minimax.cn,api.cline.bot,qianfan.baidubce.com" \
+    2>/dev/null || true)"
+  [ -n "$NO_PROXY_LIST" ] || NO_PROXY_LIST="localhost,127.0.0.1,::1,.local,api.deepseek.com,api.minimax.cn,api.cline.bot,qianfan.baidubce.com"
   cat > "$CONFIG_DIR/proxy.env" <<EOF
 http_proxy=$PROXY_URL
 https_proxy=$PROXY_URL
 HTTP_PROXY=$PROXY_URL
 HTTPS_PROXY=$PROXY_URL
-no_proxy=localhost,127.0.0.1,::1,.local,api.deepseek.com,api.minimax.cn,api.cline.bot,qianfan.baidubce.com
-NO_PROXY=localhost,127.0.0.1,::1,.local,api.deepseek.com,api.minimax.cn,api.cline.bot,qianfan.baidubce.com
+no_proxy=$NO_PROXY_LIST
+NO_PROXY=$NO_PROXY_LIST
 EOF
   echo "✔ Detected proxy and wrote $CONFIG_DIR/proxy.env"
 fi
