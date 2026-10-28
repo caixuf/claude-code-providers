@@ -27,3 +27,6 @@ litellm-venv/
 
 # Scratch space for throwaway probes and notes
 .scratch/
+
+# Wall-clock state written by bridge/qianfan_window.py (see its docstring).
+registry/profiles.local.yaml

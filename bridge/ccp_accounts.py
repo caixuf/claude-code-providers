@@ -131,7 +131,7 @@ def load_registry() -> tuple[dict, dict]:
 
 
 def env_var_for(provider: str, suffix: str) -> str:
-    """CLINE_API_KEY_A2 for ('cline', 'a2'), CMDC_API_KEY_EDU for …"""
+    """CLINE_API_KEY_A2 for ('cline', 'a2'), CLINE_API_KEY_EDU for …"""
     return f"{provider.upper()}_API_KEY_{suffix.upper()}"
 
 

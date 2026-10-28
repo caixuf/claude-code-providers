@@ -41,7 +41,7 @@ PROFILES_PATH = REPO_DIR / "registry" / "profiles.yaml"
 MODELS_PATH = REPO_DIR / "registry" / "models.yaml"
 
 DEFAULT_BRIDGE_URL = "http://127.0.0.1:4000"
-DEFAULT_MASTER_KEY = "sk-cmdc-litellm-local"
+DEFAULT_MASTER_KEY = "sk-ccp-litellm-local"
 
 def _bulk_prompt(max_tokens: int) -> str:
     """A prompt whose answer actually FILLS the token budget.

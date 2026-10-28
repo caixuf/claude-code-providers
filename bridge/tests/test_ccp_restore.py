@@ -37,7 +37,7 @@ PRISTINE = {
 }
 
 UNITS = [
-    "litellm-cmdc.service",
+    "litellm-ccp.service",
     "ccp-sse-watchdog.service",
     "ccp-trae-bridge.service",
 ]

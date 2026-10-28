@@ -270,7 +270,7 @@ def _profile_of(args, path: Path) -> str:
 # The bridge's master key — the same literal render_config.py writes into the
 # generated config (its `general_settings.master_key`), and the one the Claude
 # Code profiles carry as ANTHROPIC_AUTH_TOKEN.
-BRIDGE_KEY = "sk-cmdc-litellm-local"
+BRIDGE_KEY = "sk-ccp-litellm-local"
 BRIDGE_BASE_URL = "http://127.0.0.1:4000/v1"
 
 
