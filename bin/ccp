@@ -1102,7 +1102,7 @@ reconcile_profile() {
   fi
 
   # Only proceed if a derived field actually changed.
-  local new_ctx new_model cur_ctx cur_model new_token cur_token new_base bridge_key
+  local new_ctx new_model cur_ctx cur_model new_token cur_token new_base cur_base bridge_key
   new_ctx=$(jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS // empty' "$template")
   new_model=$(jq -r '.env.ANTHROPIC_MODEL // empty' "$template")
   cur_ctx=$(jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS // empty' "$live")
@@ -1110,6 +1110,7 @@ reconcile_profile() {
   new_token=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$template")
   cur_token=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$live")
   new_base=$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$template")
+  cur_base=$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$live")
   # The bridge's own key, read from the module that owns it: a native profile
   # that still carries it is carrying a leftover, not a credential.
   local repo_dir py_bin
@@ -1142,7 +1143,11 @@ reconcile_profile() {
       ;;
   esac
 
-  if [ "$new_ctx" = "$cur_ctx" ] && [ "$new_model" = "$cur_model" ] && [ "$want_token" = "$cur_token" ]; then
+  # The base URL is part of what can change: a provider that moves its
+  # endpoint, or a profile that was installed against a wrong one, would
+  # otherwise keep calling the old address forever — the request 404s and
+  # nothing in the diff says why.
+  if [ "$new_ctx" = "$cur_ctx" ] && [ "$new_model" = "$cur_model" ] && [ "$want_token" = "$cur_token" ] && [ "$new_base" = "$cur_base" ]; then
     return 1
   fi
 

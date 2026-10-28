@@ -450,7 +450,15 @@ in the profile root. `--config` points the command at a file outside
 ### Native Anthropic endpoints
 
 `deepseek/` and `minimax/` point straight at the vendor's `/anthropic` endpoint —
-no bridge, no rewrites. DeepSeek's `/models` is rich (`context_window`,
+no bridge, no rewrites.
+
+**A native base URL has no trailing `/v1`.** Claude Code appends `/v1/messages`
+to whatever `ANTHROPIC_BASE_URL` says, verbatim, so a base that already ends in
+`/v1` asks for `/v1/v1/messages` and the vendor answers `404` with no body —
+the kind of failure that looks like a bad model id and is not. LiteLLM's
+anthropic provider appends the same suffix to the base it is handed, so the
+one convention serves both. `ccp sync` now notices a base URL that moved and
+rewrites the profile instead of leaving it on the old address. DeepSeek's `/models` is rich (`context_window`,
 `input_modalities`); MiniMax's is not, and that asymmetry is handled by discovery
 (see the `hints` rule above).
 
@@ -645,6 +653,13 @@ and Qwen on `messages` — and a model on the wrong one is refused outright.
 Muse Spark 1.3 Contributor is a third case: it is served by `/responses` only,
 and it answers `500` on the chat path.
 
+**One model on purpose.** DeepSeek V4.1 Flash, on every tier: TTFT 1.6s,
+242 tok/s, and the highest monthly allowance in the plan ($80). The plan
+carries more — MiMo-V2.6-Flash is cheaper and reads audio and video — but this
+account is cleared to exercise the DeepSeek Flash and the free models only, so
+nothing else goes in the registry. A catalogue entry is not a licence to probe
+it.
+
 **Two models are out of reach from here, and it is not the key.** Muse Spark
 1.3 Contributor (the cheapest model in the plan at $0.10/$0.20 per million
 tokens) and Beam Free answer `403 RegionError "This model is not available in
@@ -653,10 +668,19 @@ the console says as much when it lists them as "limited regions". `iceman-
 contributor-free` needs the workspace's Privacy setting flipped to allow
 endpoints that train on request data.
 
-Measured 2026-10-28: TTFT 1.46s, 197 tok/s, tool calls and image input both
-work, and the response carries its own accounting — `"opencode": {"billing_
-source": "go", "allowance": 0.0000117}` — so every call says what it cost
-against the monthly allowance.
+**The region is a property of the request, not of the account.** From a
+Chinese exit the gateway answers `403 RegionError — This model is not available
+in your country` for the models Meta restricts by geography (Muse Spark, Beam
+Free); through a US exit the same key gets `200` on the same model. The models
+that train on request data are a different question again and never a
+geography one: `iceman-contributor-free` and `muse-spark-1.3-contributor` both
+answer *"Allow paid endpoints that train on request data in your workspace's
+Privacy settings"* until that switch is flipped in the console.
+
+Measured 2026-10-28: DeepSeek V4.1 Flash TTFT 1.6s / 242 tok/s, tool calls
+and image input both work, and the response carries its own accounting — `"opencode": {"billing_source": "go",
+"allowance": 0.0000117}` — so every call says what it cost against the monthly
+allowance.
 
 **Do not hammer it.** The gateway sits behind Cloudflare, and a burst of
 requests trips its bot protection: the next call answers `403 error code:

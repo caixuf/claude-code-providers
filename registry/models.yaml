@@ -70,7 +70,7 @@ providers:
         aliases: []
         tiers: []
   - name: opencode
-    api_base: https://opencode.ai/inference/go/anthropic/v1
+    api_base: https://opencode.ai/inference/go/anthropic
     endpoint_kind: anthropic
     auth_env: OPENCODE_API_KEY
     extra_headers:

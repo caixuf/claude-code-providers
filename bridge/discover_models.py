@@ -236,7 +236,13 @@ PROVIDERS = {
         # to the vendor directly lets the client's own headers arrive
         # untouched, which is also what the console asks for: "your client
         # should send typical coding agent traffic".
-        "api_base": "https://opencode.ai/inference/go/anthropic/v1",
+        # No trailing /v1: Claude Code appends "/v1/messages" to the base
+        # verbatim, so a base that already ends in /v1 asks for
+        # /v1/v1/messages and the gateway answers 404. Every other native
+        # provider here is written the same way (deepseek, minimax,
+        # opendesign), and LiteLLM's anthropic provider appends the same
+        # suffix to the base it is given.
+        "api_base": "https://opencode.ai/inference/go/anthropic",
         # Go asks a client to identify itself rather than arrive as a generic
         # HTTP library: "Your client should send typical coding agent traffic"
         # and carry its own user agent. LiteLLM's default is python-httpx,
@@ -246,6 +252,11 @@ PROVIDERS = {
         },
         "endpoint_kind": "anthropic",
         "auth_env": "OPENCODE_API_KEY",
+        # One model on purpose. The plan carries more (MiMo-V2.6-Flash is
+        # cheaper and reads audio and video), but this account is cleared to
+        # exercise the DeepSeek Flash and the free models only, so nothing
+        # else goes in the registry — a catalogue entry is not a licence to
+        # probe it.
         "only_models": [
             "deepseek-v4.1-flash",
         ],

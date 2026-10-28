@@ -1,7 +1,7 @@
 {
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "YOUR_OPENCODE_API_KEY",
-    "ANTHROPIC_BASE_URL": "https://opencode.ai/inference/go/anthropic/v1",
+    "ANTHROPIC_BASE_URL": "https://opencode.ai/inference/go/anthropic",
     "ANTHROPIC_MODEL": "deepseek-v4.1-flash",
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4.1-flash",
     "ANTHROPIC_DEFAULT_FABLE_MODEL": "deepseek-v4.1-flash",
