@@ -130,6 +130,32 @@ profiles:
       haiku:   {model: deepseek-v4.1-flash}
 
 
+  # ── OpenCode Go (opencode.ai) ──────────────────────────────────────────
+  # A flat $10/month subscription, not a per-token gateway — so it is kept
+  # like MiniMax rather than narrowed to one family. DeepSeek V4.1 Flash
+  # alone gets 34,670 requests per 5 hours and 69,330 per month, which is
+  # the "near-unlimited cheap model" case: nothing about reaching for it can
+  # run a balance down.
+  #
+  # `native: true`: the console also serves an Anthropic Messages surface at
+  # /inference/go/anthropic/v1, and that is the one to use. The gateway
+  # refuses a request without a conversation id, and the id it wants is the
+  # header Claude Code already sends (`x-claude-code-session-id`) — talking
+  # to the vendor directly lets the client's own headers arrive untouched.
+  # Through LiteLLM that header would be dropped, and forwarding client
+  # headers globally would push `anthropic-beta` at every gateway in the
+  # fleet. The key lives in proxy.env; there is no `ccp auth` step.
+  opencode:
+    provider: opencode
+    native: true
+    primary_tier: default
+    tiers:
+      default: {model: deepseek-v4.1-flash}
+      opus:    {model: deepseek-v4.1-flash}
+      fable:   {model: deepseek-v4.1-flash}
+      sonnet:  {model: deepseek-v4.1-flash}
+      haiku:   {model: deepseek-v4.1-flash}
+
   # ── Trae CLI (ByteDance enterprise coding agent) ──────────────────────
   # Also `native: true`: bridge/trae_bridge.py speaks the Anthropic Messages
   # API directly, so Claude Code talks to :4100 with no LiteLLM hop. The
@@ -187,6 +213,7 @@ aliases:
   qianfan-deepseek-v4.1-flash:          {provider: qianfan, model: deepseek-v4.1-flash}
   # OpenDesign: hot-swap between the aggregator's rungs with `ccp -m`
   opendesign-deepseek-v4.1-flash:       {provider: opendesign, model: deepseek-v4.1-flash}
+  opencode-deepseek-v4.1-flash:        {provider: opencode, model: deepseek-v4.1-flash}
   # Trae: the model id on the right is the registry name (Trae's `config_name`),
   # which is also what the adapter matches against its live catalogue.
   trae-deepseek-v4.1-flash:             {provider: trae, model: DeepSeek-V4.1-Flash}

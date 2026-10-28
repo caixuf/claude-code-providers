@@ -27,6 +27,7 @@ import pathlib
 import re
 import sys
 import time
+import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -189,6 +190,10 @@ def default_timeout(tokens: int) -> float:
 
 
 # Terminal color codes (safe fallback when not a tty)
+# One conversation id per probe run: the gateway caches on it, and the rounds
+# of one measurement are the same conversation.
+_PROBE_SESSION_ID = "ccp-probe-" + uuid.uuid4().hex
+
 USE_COLOR = sys.stdout.isatty()
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
@@ -587,6 +592,13 @@ async def _probe_single_round(
     if tools:
         payload["tools"] = tools
     headers = {"Content-Type": "application/json", "anthropic-version": "2023-06-01"}
+    # Some gateways route on the conversation id the *client* sends. Claude
+    # Code sends `x-claude-code-session-id`, and OpenCode Go accepts exactly
+    # that header — a request without it is refused with "cannot be routed
+    # efficiently". A probe is a client like any other, so it identifies its
+    # run the same way: one id for the whole run, so the gateway can cache
+    # across the rounds of one measurement.
+    headers.setdefault("x-claude-code-session-id", _PROBE_SESSION_ID)
     if master_key:
         # Both spellings: the bridge wants x-api-key, several vendor endpoints
         # accept either, and sending both is accepted everywhere here.

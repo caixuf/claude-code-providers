@@ -70,7 +70,13 @@ def test_get_configured_models_specific_target():
     assert len(found) >= 1
     # every row is the model that was asked for, at the provider that serves it
     assert all("deepseek" in c["wire_name"].lower() for c in found)
-    assert {c["provider"] for c in found} <= {"cline", "opendesign", "qianfan", "trae"}
+    assert {c["provider"] for c in found} <= {
+        "cline",
+        "opendesign",
+        "qianfan",
+        "trae",
+        "opencode",
+    }
 
 
 def test_get_configured_models_all():

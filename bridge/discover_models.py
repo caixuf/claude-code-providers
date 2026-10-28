@@ -202,6 +202,63 @@ PROVIDERS = {
             ],
         "max_output_default": 32000,
     },
+    # ── OpenCode Go (opencode.ai) ───────────────────────────────────────
+    # A flat $10/month subscription with per-model request limits, not a
+    # per-token gateway: DeepSeek V4.1 Flash alone gets 34,670 requests per
+    # 5 hours and 69,330 per month. That is the "near-unlimited cheap model"
+    # case, the same shape as MiniMax's plan — a provider that can be kept
+    # in the picker without the spend question coming up.
+    #
+    # The API is OpenAI-compatible at /inference/openai/v1 and authenticates
+    # with a plain bearer token (OPENCODE_API_KEY in the client's own
+    # provider registry). The catalogue at models.opencode.ai publishes
+    # ids, context windows and output caps for every model without a key, so
+    # only the modality and the tool behaviour have to be measured.
+    #
+    # The model ids carry the vendor's own capitalisation (`DeepSeek-V4.1-
+    # Flash`, not `deepseek-v4.1-flash`), and that spelling is what the
+    # upstream expects — the same trap Trae's adapter has.
+    "opencode": {
+        "models_url": "https://models.opencode.ai/experimental/v2.0/api.json",
+        "models_json_path": ("opencode-go", "models"),
+        # The console publishes one endpoint per family (chat/completions,
+        # responses, anthropic/v1/messages, google/v1beta) and every text
+        # model is reachable through all of them.
+        #
+        # This one is the Anthropic surface, and that is the reason it is a
+        # *native* provider rather than a bridged one: the gateway refuses a
+        # request without a conversation id ("Request is missing
+        # x-opencode-session and cannot be routed efficiently"), and the id
+        # it wants is the header Claude Code already sends
+        # (`x-claude-code-session-id`). Going through LiteLLM would drop that
+        # header — LiteLLM only forwards client headers globally, and that
+        # would push `anthropic-beta` at every gateway in the fleet. Talking
+        # to the vendor directly lets the client's own headers arrive
+        # untouched, which is also what the console asks for: "your client
+        # should send typical coding agent traffic".
+        "api_base": "https://opencode.ai/inference/go/anthropic/v1",
+        # Go asks a client to identify itself rather than arrive as a generic
+        # HTTP library: "Your client should send typical coding agent traffic"
+        # and carry its own user agent. LiteLLM's default is python-httpx,
+        # which is exactly the shape the docs call out.
+        "extra_headers": {
+            "User-Agent": "claude-code-providers/1.0 (+https://github.com/caixuf/claude-code-providers)",
+        },
+        "endpoint_kind": "anthropic",
+        "auth_env": "OPENCODE_API_KEY",
+        "only_models": [
+            "deepseek-v4.1-flash",
+        ],
+        "hints": {
+            # ctx 1000000 / max_output 384000 and the image modalities come from
+            # the catalogue (models.opencode.ai), which publishes the limits
+            # and the modality list for every model without a key. The model
+            # id is lower-case here — the capitalised `DeepSeek-V4.1-Flash`
+            # belongs to the Zen catalogue, a different endpoint.
+            "deepseek-v4.1-flash": {"ctx": 1000000, "max_output": 384000, "vision": True},
+        },
+        "max_output_default": None,
+    },
     "trae": {
         "models_url": None,
         "api_base": "http://127.0.0.1:4100",
@@ -313,7 +370,22 @@ def fetch_models(url: str, token: str | None, json_path: tuple[str, ...] | None 
             if not isinstance(cur, dict) or key not in cur:
                 return []
             cur = cur[key]
-        return cur if isinstance(cur, list) else []
+        if isinstance(cur, list):
+            return cur
+        # models.dev publishes a provider's models as an object keyed by id
+        # ("deepseek-v4.1-flash": {...}), not as a list. Turn it into one,
+        # keeping the key as the id: the entry's own "id" is the catalogue's
+        # name for it, which is not always the id the API accepts.
+        if isinstance(cur, dict):
+            out = []
+            for key, entry in cur.items():
+                if not isinstance(entry, dict):
+                    continue
+                item = dict(entry)
+                item.setdefault("id", key)
+                out.append(item)
+            return out
+        return []
     if isinstance(data, dict) and "data" in data:
         return data["data"]
     if isinstance(data, list):
@@ -511,6 +583,7 @@ NORMALIZERS = {
     "qianfan": norm_qianfan,
     # 壹佳API publishes ids only, so the generic normalizer finds nothing and
     # the measured facts come from the provider's `hints` instead.
+    "opencode": norm_generic,
     "trae": norm_trae,
 }
 

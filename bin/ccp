@@ -1102,7 +1102,7 @@ reconcile_profile() {
   fi
 
   # Only proceed if a derived field actually changed.
-  local new_ctx new_model cur_ctx cur_model new_token cur_token new_base
+  local new_ctx new_model cur_ctx cur_model new_token cur_token new_base bridge_key
   new_ctx=$(jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS // empty' "$template")
   new_model=$(jq -r '.env.ANTHROPIC_MODEL // empty' "$template")
   cur_ctx=$(jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS // empty' "$live")
@@ -1110,6 +1110,12 @@ reconcile_profile() {
   new_token=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$template")
   cur_token=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$live")
   new_base=$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$template")
+  # The bridge's own key, read from the module that owns it: a native profile
+  # that still carries it is carrying a leftover, not a credential.
+  local repo_dir py_bin
+  repo_dir=$(ccp_repo_dir)
+  py_bin=$(ccp_python)
+  bridge_key=$("$py_bin" -c "import sys; sys.path.insert(0, '$repo_dir/bridge'); from bridge_auth import MASTER_KEY; print(MASTER_KEY)" 2>/dev/null || true)
 
   # A bridged profile's ANTHROPIC_AUTH_TOKEN is the local bridge's master key,
   # not a vendor credential: `ccp render` writes it and it has to follow the
@@ -1118,12 +1124,21 @@ reconcile_profile() {
   # that kept the old token is refused with a 401 by a bridge that now expects
   # the new one, with nothing in the message to say which of the two is wrong.
   #
-  # A native profile's token IS the vendor's key, and that one stays.
+  # A native profile's token IS the vendor's key, and that one stays — with
+  # one exception: a profile that used to point at the bridge and now points
+  # at a vendor still carries the bridge's master key, and handing that to
+  # the vendor is a 401 "Invalid credential". The token follows the base URL.
   local keep_filter="AUTH_TOKEN$|_API_KEY$" want_token="$cur_token"
   case "$new_base" in
     *:4000*|*:4001*)
       keep_filter="_API_KEY$"
       want_token="$new_token"
+      ;;
+    *)
+      if [ -n "$bridge_key" ] && [ "$cur_token" = "$bridge_key" ]; then
+        keep_filter="_API_KEY$"
+        want_token="$new_token"
+      fi
       ;;
   esac
 
@@ -1140,6 +1155,13 @@ reconcile_profile() {
        '.[0] * {env: (.[0].env * (.[1].env | with_entries(select(.key|test($re)))))}' \
        "$template" "$live" > "$tmp" 2>/dev/null && mv "$tmp" "$live"; then
     echo -e "  \033[33m~ Reconciled $name (ctx $cur_ctx -> $new_ctx)\033[0m"
+    # A native profile whose token is the template's placeholder needs the
+    # vendor's key: the template cannot carry a secret, and the bridge's key
+    # is not the vendor's.
+    case "$new_base" in
+      *:4000*|*:4001*) : ;;
+      *) fill_placeholder_credential "$base" "$name" ;;
+    esac
     return 0
   fi
   rm -f "$tmp"

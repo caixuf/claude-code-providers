@@ -32,13 +32,15 @@ claude ──> ccp profile ──┬─> vendor's /anthropic endpoint         (n
 | `cline/` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 1 |
 | `qianfan/` | DeepSeek-V4.1-Flash (1.44M) | bridged → LiteLLM | 1 |
 | `trae/` | DeepSeek-V4.1-Flash (1M) | local adapter `:4100` | 1 |
+| `opencode/` | DeepSeek-V4.1-Flash (1M) | native, Anthropic-native gateway | 1 |
 
 Several folders start on the *same* underlying model. That is the point: same
 model, different pipe, price and quota.
 
 **Every one of them lands on a DeepSeek Flash**, except `minimax/` — MiniMax's
 own M3 is a flat subscription, so it costs nothing to keep a second family
-around. That is the whole curation rule now: a model that bills by the token
+around. `opencode/` is a flat subscription too ($10/month), so it is kept for
+the same reason. That is the whole curation rule now: a model that bills by the token
 is only worth reaching when it is the cheap one, and every provider's
 catalogue is narrowed (`only_models`) to exactly the model it exposes. A
 GPT, a Kimi or a GLM rung that used to be one `ccp -m` away is gone — see
@@ -608,6 +610,59 @@ probe spend: ~1,536 of 150,000 tokens
 The default budget is 150k tokens, which covers a full sweep of the primary
 tiers with room to spare. It is a *ceiling on the probe*, not on your
 sessions.
+
+### OpenCode Go (opencode.ai)
+
+[OpenCode Go](https://opencode.ai/go) is a **flat $10/month subscription**, not
+a per-token gateway: DeepSeek V4.1 Flash alone gets 34,670 requests per 5 hours
+and 69,330 per month, worth $80 of list-price usage. It is kept for the same
+reason MiniMax is — a model that costs by the token is only worth reaching when
+it is the cheap one, and this one cannot run a balance down.
+
+```bash
+ccp opencode             # switch to it
+ccp models opencode      # the one id this group serves
+curl -s https://opencode.ai/inference/go/v1/models -H "Authorization: Bearer $OPENCODE_API_KEY"
+```
+
+**It is `native: true`, and that is the whole trick.** The console serves one
+endpoint per family — `chat/completions`, `responses`, `anthropic/v1/messages`,
+`google/v1beta` — and every text model is reachable through all of them, the
+console doing the translation. But the gateway *refuses a request without a
+conversation id*: "Request is missing x-opencode-session and cannot be routed
+efficiently". The id it wants is the header Claude Code already sends
+(`x-claude-code-session-id`), and Go recognises it as the native client's own.
+
+Going through LiteLLM would drop that header: LiteLLM forwards client headers
+only globally, and turning that on would push `anthropic-beta` at every
+gateway in the fleet — a strict one answers 400. Talking to the vendor
+directly lets the client's own headers arrive untouched, which is also what the
+console asks for ("your client should send typical coding agent traffic").
+
+**The endpoints are not interchangeable.** The catalogue splits the models
+between them — GLM, Kimi, DeepSeek and MiMo on `chat/completions`; MiniMax
+and Qwen on `messages` — and a model on the wrong one is refused outright.
+Muse Spark 1.3 Contributor is a third case: it is served by `/responses` only,
+and it answers `500` on the chat path.
+
+**Two models are out of reach from here, and it is not the key.** Muse Spark
+1.3 Contributor (the cheapest model in the plan at $0.10/$0.20 per million
+tokens) and Beam Free answer `403 RegionError "This model is not available in
+your country"` — Meta's geographic use policy does not cover this region, and
+the console says as much when it lists them as "limited regions". `iceman-
+contributor-free` needs the workspace's Privacy setting flipped to allow
+endpoints that train on request data.
+
+Measured 2026-10-28: TTFT 1.46s, 197 tok/s, tool calls and image input both
+work, and the response carries its own accounting — `"opencode": {"billing_
+source": "go", "allowance": 0.0000117}` — so every call says what it cost
+against the monthly allowance.
+
+**Do not hammer it.** The gateway sits behind Cloudflare, and a burst of
+requests trips its bot protection: the next call answers `403 error code:
+1010` (the owner's browser-signature ban) for a minute or two, and a request
+that gets through the ban comes back `401 Invalid credential` instead of the
+real error. One probe at a time is the working rate.
 
 ### Trae CLI
 
