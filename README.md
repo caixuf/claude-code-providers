@@ -257,13 +257,14 @@ place the request-rewriting layer exists.
 | `clamp_max_tokens` | Caps `max_tokens` at the model's discovered output limit, fixing `400 Invalid max_tokens value` |
 | `downgrade_media` | Replaces an image with a text marker for a model the registry records as text-only, fixing `400 Invalid content type. image_url is only supported by certain models` |
 | `sanitize_channel` *(no provider uses it today)* | Satisfies a gateway's *client-identity check*: it strips the `x-anthropic-billing-header` block and neutralises Claude Code's identity line wherever a gateway inspects it. Applies **only** to providers listed under `request_rules:` in `registry/profiles.yaml`, because stripping the billing header anywhere else is a silent prompt mutation. Built for WorkBuddy, which is retired — `docs/workbuddy-channel-check.md` keeps the measurement |
+| `normalize_auth` (`bridge/bridge_auth.py`) | Forwards the credential LiteLLM accepts, whatever the client sent. A stale key used to be answered `400 No connected db.`, and no key at all `500` — see below |
 
 It also closes the stream after a complete `message_stop` and drops trailing
 keepalives.
 
 **Single process (lossy).** `setup_bridge.sh --no-watchdog` puts LiteLLM on
-`:4000` directly: one hop, nothing to keep in sync, and **none** of the five
-rewrites. A real Claude Code client on a 1M model sends all three problematic
+`:4000` directly: one hop, nothing to keep in sync, and **none** of the
+rewrites above. A real Claude Code client on a 1M model sends all three problematic
 things at once (`max_tokens: 1000000`, a `[1m]` name, the 1M beta header) and
 upstream answers `400`. This is why a `curl` smoke test looks fine and the client
 still fails — the hand-written request does not carry those three attributes.
@@ -278,6 +279,32 @@ ss -ltnp | grep 4000          # sse_watchdog.py = complete; litellm = lossy
 > Code retried for ~10 minutes. That path is gone (idle injection is disabled by
 > default and the injector was removed). Do **not** "fix" anything by moving to
 > single-process — that trades an already-fixed bug for three missing rewrites.
+
+### The credential is the bridge's, not the client's
+
+LiteLLM accepts exactly one credential: the master key in the config it was
+started with. A client that carries another one is not answered "invalid key" —
+it is answered `400 {"error":{"message":"No connected db."}}`, because the
+virtual-key lookup wants a database and there is none. A client that carries
+**no** key is worse: LiteLLM's own error handler imports `prisma`, which is not
+installed, and the request dies with a `500`. Both read like the bridge is
+down, and both are the client's mistake.
+
+So the watchdog forwards the key LiteLLM actually enforces, whatever arrived —
+right, stale, mistyped or missing. The client decides *which model* to ask for;
+it does not decide whether the call happens. The key is read from the installed
+LiteLLM config (`bridge/bridge_auth.py`), because that document is what
+LiteLLM enforces — a hand-edited master key is the one that works — and the
+committed constant is only the fallback for a machine whose config cannot be
+read.
+
+The live config should still say what it means, so the tools keep it honest:
+
+* `ccp sync` rewrites the credential in the **active** `~/.claude/settings.json`
+  when that profile points at the bridge. A native profile's credential is the
+  vendor's own and is never touched.
+* `ccp doctor` reports a bridge-pointing config that carries a credential the
+  bridge will replace.
 
 ### Local adapter (Trae)
 
@@ -768,7 +795,9 @@ confusingly:
   400 that reads like the bridge is down;
 * the **active** profile naming a model the bridge no longer serves;
 * the **Hermes bot** left on a retired model, which fails only when somebody
-  messages it.
+  messages it;
+* a **credential** that is not the bridge's key — the calls still work, because
+  the bridge forwards its own, but the config no longer says what it means.
 
 ```bash
 ccp doctor          # what is installed, and what it points at

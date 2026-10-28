@@ -36,6 +36,7 @@ from pathlib import Path
 BRIDGE = Path(__file__).resolve().parent
 sys.path.insert(0, str(BRIDGE))
 import render_config  # noqa: E402
+from bridge_auth import MASTER_KEY as BRIDGE_KEY  # noqa: E402
 
 # The ccp entry point inside a Hermes profile. Hermes calls each provider by its
 # configured name, and `custom:` is how it spells "not built in".
@@ -270,7 +271,6 @@ def _profile_of(args, path: Path) -> str:
 # The bridge's master key — the same literal render_config.py writes into the
 # generated config (its `general_settings.master_key`), and the one the Claude
 # Code profiles carry as ANTHROPIC_AUTH_TOKEN.
-BRIDGE_KEY = "sk-ccp-litellm-local"
 BRIDGE_BASE_URL = "http://127.0.0.1:4000/v1"
 
 

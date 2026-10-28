@@ -1039,6 +1039,11 @@ sync_providers() {
     fi
   done
 
+  # The active profile is a copy of one of these, and it drifts the same way.
+  if reconcile_active_settings; then
+    reconciled=$((reconciled + 1))
+  fi
+
   echo -e "\033[32m✔ Sync complete (added $added, reconciled $reconciled). Active providers:\033[0m"
   list_providers
 }
@@ -1097,6 +1102,49 @@ reconcile_profile() {
   fi
   rm -f "$tmp"
   echo -e "  \033[31m! Failed to reconcile $name (jq error)\033[0m" >&2
+  return 1
+}
+
+# The live profile is what Claude Code actually reads, and it is a *copy* of a
+# provider profile - so it drifts exactly the way a profile drifts. When the
+# bridge's key was renamed, the copy kept the old one and every request failed
+# with a 400 that named neither the key nor the bridge:
+#
+#   {"error":{"message":"No connected db.","type":"no_db_connection","code":"400"}}
+#
+# The bridge now forwards its own key whatever the client sends, so the call
+# works anyway - but the config should still say what it means. A native
+# profile's credential is the vendor's own and is never touched.
+reconcile_active_settings() {
+  local repo_dir py key base cur
+  [ -f "$SETTINGS_FILE" ] || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+
+  repo_dir=$(ccp_repo_dir)
+  [ -n "$repo_dir" ] || return 1
+  py=$(ccp_python)
+
+  base=$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$SETTINGS_FILE" 2>/dev/null) || return 1
+  case "$base" in
+    *:4000*|*:4001*) ;;
+    *) return 1 ;;
+  esac
+
+  # The credential LiteLLM enforces, read from the config it runs on.
+  key=$("$py" "$repo_dir/bridge/bridge_auth.py" --print-master-key 2>/dev/null) || return 1
+  [ -n "$key" ] || return 1
+
+  cur=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$SETTINGS_FILE")
+  [ "$cur" = "$key" ] && return 1
+
+  cp "$SETTINGS_FILE" "$SETTINGS_FILE.bak.$(date +%Y%m%d-%H%M%S)"
+  local tmp
+  tmp=$(mktemp)
+  if jq --arg k "$key" '.env.ANTHROPIC_AUTH_TOKEN = $k' "$SETTINGS_FILE" > "$tmp" 2>/dev/null && mv "$tmp" "$SETTINGS_FILE"; then
+    echo -e "  \033[33m~ Reconciled the active profile's bridge credential\033[0m"
+    return 0
+  fi
+  rm -f "$tmp"
   return 1
 }
 

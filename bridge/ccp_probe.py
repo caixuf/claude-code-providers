@@ -35,13 +35,13 @@ import yaml
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from ccp_pick import _providers  # noqa: E402  (same derivation as `ccp`/switch)
 from loopback import ensure_loopback_bypass, is_loopback_url, loopback_mounts  # noqa: E402
+from bridge_auth import MASTER_KEY as DEFAULT_MASTER_KEY  # noqa: E402
 
 REPO_DIR = pathlib.Path(__file__).resolve().parent.parent
 PROFILES_PATH = REPO_DIR / "registry" / "profiles.yaml"
 MODELS_PATH = REPO_DIR / "registry" / "models.yaml"
 
 DEFAULT_BRIDGE_URL = "http://127.0.0.1:4000"
-DEFAULT_MASTER_KEY = "sk-ccp-litellm-local"
 
 def _bulk_prompt(max_tokens: int) -> str:
     """A prompt whose answer actually FILLS the token budget.

@@ -33,6 +33,7 @@ from sse_finalize import (  # noqa: E402
     strip_1m_beta,
     strip_1m_model,
 )
+from bridge_auth import load_master_key, normalize_auth  # noqa: E402
 from loopback import ensure_loopback_bypass, loopback_mounts  # noqa: E402
 from usage_ledger import UsageLedger, UsageTally  # noqa: E402
 
@@ -50,7 +51,9 @@ HOP = {
 }
 
 
-def _fwd_headers(request: Request) -> dict[str, str]:
+def _fwd_headers(
+    request: Request, master_key: str | None = None
+) -> tuple[dict[str, str], str]:
     out = {}
     for k, v in request.headers.items():
         if k.lower() in HOP:
@@ -64,7 +67,13 @@ def _fwd_headers(request: Request) -> dict[str, str]:
             if not v:
                 continue
         out[k] = v
-    return out
+    # LiteLLM accepts one credential: the master key in the config it was
+    # started with. A client that carries a stale one gets "No connected
+    # db." 400, and a client that carries none gets a 500 out of LiteLLM's
+    # own error handler. Both are the client's mistake, and neither may stop
+    # a call: the bridge forwards the key LiteLLM actually accepts.
+    out, note = normalize_auth(out, master_key)
+    return out, note
 
 
 async def _drain_upstream(aiter, resp: httpx.Response) -> None:
@@ -172,7 +181,8 @@ async def proxy(request: Request) -> Response:
             print(f"[WATCHDOG] Dropped {media_dropped} media block(s) for text-only model={_b.get('model')}", flush=True)
         if clamped is not None:
             print(f"[WATCHDOG] Clamped max_tokens -> {clamped} for model={_b.get('model')}", flush=True)
-        print(f"[WATCHDOG] Request: path={request.url.path} model={_b.get('model')} thinking={_b.get('thinking')} max_tokens={_b.get('max_tokens')} body_bytes={len(forward_body)}", flush=True)
+        auth_bit = f" auth={auth_note}" if auth_note else ""
+        print(f"[WATCHDOG] Request: path={request.url.path} model={_b.get('model')} thinking={_b.get('thinking')} max_tokens={_b.get('max_tokens')} body_bytes={len(forward_body)}{auth_bit}", flush=True)
     except Exception:
         pass
     timeout = httpx.Timeout(connect=10.0, read=None, write=30.0, pool=10.0)
@@ -180,10 +190,13 @@ async def proxy(request: Request) -> Response:
     # The channel's three conversation headers are a deployment-level
     # `extra_headers` in the registry, which LiteLLM adds — not the watchdog's
     # job. See registry/models.yaml and render_config.py.
+    fwd_headers, auth_note = _fwd_headers(
+        request, getattr(request.app.state, "master_key", None)
+    )
     req = client.build_request(
         request.method,
         url,
-        headers=_fwd_headers(request),
+        headers=fwd_headers,
         content=forward_body or None,
         timeout=timeout,
     )
@@ -327,6 +340,7 @@ def build_app(
     clamp_map: dict[str, int] | None = None,
     clamp_fallback: int | None = None,
     request_rules: dict[str, set[str]] | None = None,
+    master_key: str | None = None,
 ) -> Starlette:
     methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
     app = Starlette(
@@ -341,6 +355,8 @@ def build_app(
     app.state.clamp_map = clamp_map or {}
     app.state.clamp_fallback = clamp_fallback
     app.state.request_rules = request_rules or {}
+    # The credential the bridge forwards: LiteLLM accepts only this one.
+    app.state.master_key = master_key
     # The ledger is optional: --no-usage keeps the proxy byte-identical to what
     # it was, for anyone who would rather not write a file per request.
     app.state.ledger = UsageLedger(usage_path) if usage_path else None
@@ -365,6 +381,11 @@ def main() -> None:
     p.add_argument("--request-rules", default=None, help="Path to request_rules.json (default: bridge/request_rules.json)")
     p.add_argument("--no-clamp", action="store_true", help="Disable max_tokens clamping")
     p.add_argument(
+        "--litellm-config",
+        default=None,
+        help="the LiteLLM config the bridge credential is read from (default: ~/.config/litellm/config.yaml)",
+    )
+    p.add_argument(
         "--usage-path",
         default=str(Path.home() / ".local/state/ccp/usage.jsonl"),
         help="Per-request token ledger (default: ~/.local/state/ccp/usage.jsonl)",
@@ -378,6 +399,8 @@ def main() -> None:
     else:
         cmap, cfallback = load_clamp_map(args.clamp_map)
     rules = load_request_rules(args.request_rules)
+    master_key, key_source = load_master_key(args.litellm_config)
+    print(f"[WATCHDOG] bridge credential: read from {key_source}", flush=True)
     print(f"[WATCHDOG] max_tokens clamp: {len(cmap)} models, fallback={cfallback}", flush=True)
     print(
         "[WATCHDOG] request rules: "
@@ -400,6 +423,7 @@ def main() -> None:
             clamp_map=cmap,
             clamp_fallback=cfallback,
             request_rules=rules,
+            master_key=master_key,
         ),
         host=args.host,
         port=args.port,

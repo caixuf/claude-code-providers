@@ -24,6 +24,10 @@ from pathlib import Path
 
 BRIDGE_DIR = Path(__file__).resolve().parent
 REPO_DIR = BRIDGE_DIR.parent
+if str(BRIDGE_DIR) not in sys.path:
+    sys.path.insert(0, str(BRIDGE_DIR))
+
+from bridge_auth import MASTER_KEY  # noqa: E402
 REGISTRY = REPO_DIR / "registry"
 MODELS_YAML = REGISTRY / "models.yaml"
 PROFILES_YAML = REGISTRY / "profiles.yaml"
@@ -303,7 +307,7 @@ def render_config(
         "  drop_params: true",
         "",
         "general_settings:",
-        "  master_key: sk-ccp-litellm-local",
+        f"  master_key: {MASTER_KEY}",
     ]
     return "\n".join(lines) + "\n"
 
@@ -639,7 +643,7 @@ def render_profile(
             return resolved.get("default", {}).get("display", "")
         return r["display"] + ("[1m]" if r["bracketed"] else "")
 
-    auth = "sk-ccp-litellm-local" if not native else "YOUR_" + spec["provider"].split("-")[0].upper() + "_API_KEY"
+    auth = MASTER_KEY if not native else "YOUR_" + spec["provider"].split("-")[0].upper() + "_API_KEY"
     env = {
         "ANTHROPIC_AUTH_TOKEN": auth,
         "ANTHROPIC_BASE_URL": _base_url(pname, providers, native),
