@@ -124,6 +124,30 @@ profiles:
       sonnet:  {model: deepseek-v4.1-flash}
       haiku:   {model: glm-5.3-flash}
 
+  # ── 壹佳API (yjapi.shop) — a credit re-seller ──────────────────────────
+  # Standard OpenAI-compatible Chat Completions on /v1, so this is a normal
+  # *bridged* provider: no adapter, no native endpoint, no `ccp auth` step —
+  # the key lives in proxy.env.
+  #
+  # Curated down to ONE model on purpose. The account's group allow-lists
+  # deepseek-v4.1-flash, deepseek-v4.1-flash-1017 and deepseek-v4-pro, but
+  # only the first answers from this key: the other two come back 404
+  # "Model ... is not available for this group". Every tier is pinned to the
+  # model that serves, so no Claude Code slot can drift onto a 404.
+  #
+  # The relay is also the one provider that must not be reached through the
+  # machine's HTTP proxy — see bridge/loopback.py DIRECT_HOSTS. A request that
+  # went through the proxy came back answering a different question.
+  yjapi:
+    provider: yjapi
+    primary_tier: default
+    tiers:
+      default: {model: deepseek-v4.1-flash}
+      opus:    {model: deepseek-v4.1-flash}
+      fable:   {model: deepseek-v4.1-flash}
+      sonnet:  {model: deepseek-v4.1-flash}
+      haiku:   {model: deepseek-v4.1-flash}
+
   # ── Trae CLI (ByteDance enterprise coding agent) ──────────────────────
   # Also `native: true`: bridge/trae_bridge.py speaks the Anthropic Messages
   # API directly, so Claude Code talks to :4100 with no LiteLLM hop. The
@@ -200,6 +224,9 @@ aliases:
   qianfan-glm-5.3-flash:                {provider: qianfan, model: glm-5.3-flash, ctx: 1179648}
   qianfan-glm-5.2:                      {provider: qianfan, model: glm-5.2, ctx: 1179648}
   qianfan-glm-5.1:                      {provider: qianfan, model: glm-5.1, ctx: 333824}
+  # 壹佳API: the relay resells a 1M-window seat of the same model Qianfan
+  # serves at 1.44M, so the two aliases must not be given the same ctx.
+  yjapi-deepseek-v4.1-flash:            {provider: yjapi, model: deepseek-v4.1-flash, ctx: 1048576}
   # OpenDesign: hot-swap between the aggregator's rungs with `ccp -m`
   opendesign-deepseek-v4.1-flash:       {provider: opendesign, model: deepseek-v4.1-flash, ctx: 1048000}
   opendesign-deepseek-v4-pro:           {provider: opendesign, model: deepseek-v4-pro, ctx: 1048000}

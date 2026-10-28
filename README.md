@@ -4,7 +4,7 @@
 [![Platform: Linux / macOS / WSL](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20WSL-green.svg)]()
 [![Tested on: Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-purple.svg)]()
 
-> **Switch the model behind Claude Code in one command, across seven providers** —
+> **Switch the model behind Claude Code in one command, across eight providers** —
 > native Anthropic endpoints, one OpenAI-compatible gateway, and a local adapter
 > for a subscription that publishes no API at all.
 
@@ -31,6 +31,7 @@ claude ──> ccp profile ──┬─> vendor's /anthropic endpoint         (n
 | `opendesign/` | DeepSeek-V4.1-Flash (1.05M) | native, Anthropic-native aggregator | 11 |
 | `cline/` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 6 |
 | `qianfan/` | DeepSeek-V4.1-Flash (1.44M) | bridged → LiteLLM | 9 |
+| `yjapi/` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 1 |
 | `trae/` | DeepSeek-V4.1-Flash (1M) | local adapter `:4100` | 20 |
 | `codex/` | gpt-6.1-sol (272k) | native Anthropic, local gateway `:56895` | 8 |
 
@@ -224,7 +225,7 @@ token instantly and still never act, which is the failure that wastes the turn.
 
 ## 🌉 The bridge
 
-Two providers, `cline/` and `qianfan/`, speak plain OpenAI
+Three providers, `cline/`, `qianfan/` and `yjapi/`, speak plain OpenAI
 `chat/completions` and are **bridged**: Claude Code talks to a local gateway that
 translates on the way out. Every other folder takes one of the other two paths —
 an Anthropic-native endpoint or the Trae local adapter — both covered below.
@@ -520,6 +521,56 @@ completes and the reader knows the pixels never arrived. Which models need it
 comes from the registry's *discovered* `vision` flag — `ccp render` derives the
 list, so a model that gains or loses image input changes it with nobody editing
 a second place.
+
+### 壹佳API (yjapi.shop)
+
+[壹佳API](https://yjapi.shop) is a credit re-seller: OpenAI-compatible
+`chat/completions` on `https://yjapi.shop/v1`, no Anthropic surface, so it is
+bridged like ClinePass and Qianfan. The key lives in `proxy.env`; there is no
+`ccp auth` step.
+
+The account sits in a **group** (`1.5折deepseek4.1flash,glm5.3flash`, rate
+0.15) and the group's allow-list is the entitlement. The relay also serves
+`glm-5.3-flash`, and the allow-list names `deepseek-v4.1-flash-1017` and
+`deepseek-v4-pro` as well — but from this key only `deepseek-v4.1-flash`
+answers. The other two come back `404 model_not_found "Model … is not
+available for this group"`, so `only_models` keeps the registry to the one that
+serves and every tier is pinned to it.
+
+Three things about it are worth writing down, because each one costs a turn to
+rediscover:
+
+- **It must not be reached through the machine's HTTP proxy.** The proxy
+  answers the CONNECT and then the TLS handshake dies after ~30s with
+  `UNEXPECTED_EOF_WHILE_READING`; the one response that did arrive answered a
+  *different* question (`1+1 等于几` → `Red`) and carried the upstream id
+  `qianfan-deepseek-v4.1-flash` instead of the one asked for. Direct, the same
+  request answers in ~1.8s. `bridge/loopback.py` keeps such hosts off the
+  bypass list, and `bin/ccp` writes that list into `proxy.env` — one list, so
+  the shell and the systemd services cannot disagree about it.
+- **Its catalogue publishes ids and nothing else.** No window, no output cap,
+  no modality flag, so the facts the registry needs cannot be read out of it.
+  They were measured on 2026-10-28 and live in `hints`:
+  `ctx 1048576` (the upstream rejects a 1.2M-token prompt with
+  `prompt is too long: 1200185 tokens > 1048576 maximum`), `vision true` (a
+  red/green PNG comes back `红色，绿色`), `max_output 393216` (the upstream
+  does not validate `max_tokens` at all — 1,000,000 is accepted — so the cap
+  is the same upstream model's, applied as a clamp).
+- **Its window is 1M, not the 1.44M the same model gets from Qianfan
+  direct.** The relay resells a 1M seat. The two aliases therefore carry
+  different `ctx` values, and a profile must not borrow the other one's.
+
+The thinking model is slow to *start* and fast to *stream*: the first
+`reasoning_content` token arrives after ~1.6s, the first visible text token
+after 12–20s, and the text then runs at 125–210 tok/s. Long context is what
+the money goes on: 36k input tokens cost about $0.007 of a $2 balance, so the
+window is worth capping per task.
+
+```bash
+ccp yjapi                    # switch to the folder
+ccp models yjapi             # the one id this group serves
+curl -s https://yjapi.shop/v1/usage -H "Authorization: Bearer $YJAPI_API_KEY"
+```
 
 ### Trae CLI
 

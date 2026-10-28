@@ -17,6 +17,7 @@ REPO = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "bridge"))
 
 from loopback import (  # noqa: E402
+    DIRECT_HOSTS,
     LOOPBACK_HOSTS,
     ensure_loopback_bypass,
     is_loopback_url,
@@ -40,7 +41,28 @@ def test_normalize_adds_the_loopback_as_exact_entries():
 def test_normalize_keeps_what_is_already_there():
     out = normalize_no_proxy("127.0.0.1,localhost,::1")
     assert out.split(",").count("127.0.0.1") == 1
-    assert out == "127.0.0.1,localhost,::1"
+    # Nothing already present is repeated, and nothing present is dropped.
+    for host in ("127.0.0.1", "localhost", "::1"):
+        assert out.split(",").count(host) == 1
+    # The hosts that a proxy cannot serve are added on top of the loopback.
+    for host in DIRECT_HOSTS:
+        assert host in out.split(",")
+
+
+def test_normalize_puts_a_proxy_blind_host_on_the_bypass_list():
+    # A relay the proxy cannot reach has to bypass it, whatever the list
+    # already said — otherwise the request leaves the machine, dies on the
+    # TLS handshake, and a client that retries through the proxy gets
+    # somebody else's answer back.
+    out = normalize_no_proxy(".immotors.com")
+    for host in DIRECT_HOSTS:
+        assert host in out.split(",")
+    assert ".immotors.com" in out.split(",")
+
+
+def test_normalize_does_not_duplicate_a_host_that_is_already_listed():
+    out = normalize_no_proxy("yjapi.shop,127.0.0.1")
+    assert out.split(",").count("yjapi.shop") == 1
 
 
 def test_normalize_of_nothing_still_names_the_loopback():

@@ -201,6 +201,49 @@ PROVIDERS = {
         ],
         "max_output_default": 32000,
     },
+    # ── 壹佳API (yjapi.shop) — a credit re-seller ────────────────────────
+    # Plain OpenAI-compatible Chat Completions at /v1, no Anthropic surface,
+    # so it is a *bridged* provider like Cline and Qianfan.
+    #
+    # The catalogue publishes ids and nothing else — no window, no output cap,
+    # no modality list — so every fact below was measured against the relay
+    # on 2026-10-28 rather than read out of somebody else's table:
+    #
+    #   * ctx 1048576 — the upstream rejects an oversized prompt with
+    #     "prompt is too long: 1200185 tokens > 1048576 maximum". A 800k-token
+    #     prompt is accepted, a 1.2M-token one is not. Note this is *below*
+    #     the 1441792 the same model gets from Qianfan direct: the relay
+    #     resells a 1M-window seat, and the two must not be conflated.
+    #   * vision true — a 64x64 PNG with a red half and a green half is
+    #     answered "红色，绿色", so the image is really read.
+    #   * max_tokens is NOT validated upstream: 262144, 393216 and even
+    #     1000000 are all accepted with a 200. So the cap below is not
+    #     measured from this endpoint — it is the same upstream model's
+    #     published cap (qianfan/deepseek-v4.1-flash), applied as a clamp
+    #     because an unclamped request is the one that can hang.
+    #
+    # The relay serves a second model, glm-5.3-flash, and the account's
+    # group allow-lists deepseek-v4.1-flash-1017 and deepseek-v4-pro as well
+    # — those answer 404 "not available for this group" from this key, so
+    # `only_models` keeps the registry to what actually serves.
+    "yjapi": {
+        "models_url": "https://yjapi.shop/v1/models",
+        "api_base": "https://yjapi.shop/v1",
+        "endpoint_kind": "openai",
+        "litellm_prefix": "openai/",
+        "auth_env": "YJAPI_API_KEY",
+        "only_models": [
+            "deepseek-v4.1-flash",
+        ],
+        # Per-model facts the catalogue does not publish, measured on the live
+        # endpoint. `hints` is the mechanism for exactly this shape: a value
+        # here survives a refresh instead of being re-derived from an empty
+        # catalogue entry.
+        "hints": {
+            "deepseek-v4.1-flash": {"ctx": 1048576, "max_output": 393216, "vision": True},
+        },
+        "max_output_default": None,
+    },
     "trae": {
         "models_url": None,
         "api_base": "http://127.0.0.1:4100",
@@ -562,6 +605,9 @@ NORMALIZERS = {
     "minimax": norm_generic,
     "opendesign": norm_opendesign,
     "qianfan": norm_qianfan,
+    # 壹佳API publishes ids only, so the generic normalizer finds nothing and
+    # the measured facts come from the provider's `hints` instead.
+    "yjapi": norm_generic,
     "trae": norm_trae,
     "codex": norm_codex,
 }

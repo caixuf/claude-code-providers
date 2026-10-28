@@ -17,6 +17,13 @@ depend on the shell it was launched from: a non-interactive shell, a systemd
 service or a script never reads it, and a shell that was already running when
 the fix landed keeps the broken value. So the bypass lives here, next to the
 code that opens the sockets.
+
+The same list carries the hosts a *proxy* cannot reach at all. A relay that
+answers on the public internet can still be invisible to the local proxy: the
+CONNECT succeeds, the TLS handshake then dies after ~30s with
+``UNEXPECTED_EOF_WHILE_READING``, and one request that did come back carried
+another caller's answer. A host like that has to bypass the proxy too, and
+the place to say so is the same place that owns the bypass list.
 """
 
 from __future__ import annotations
@@ -28,6 +35,21 @@ import urllib.parse
 # that is the only spelling the HTTP stacks agree on.
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 
+# Public hosts the local proxy cannot serve. Kept apart from the loopback
+# because the reason is different: the loopback is *unroutable* through a
+# proxy, these are routable but broken there.
+#
+# yjapi.shop (the 壹佳API relay) measured 2026-10-28 through the machine's
+# proxy at 172.18.80.1:7898:
+#   * every request died after ~30s with
+#     ``SSL: UNEXPECTED_EOF_WHILE_READING`` (curl: SSL_ERROR_SYSCALL);
+#   * the one response that did arrive answered a different question — the
+#     request asked "1+1 等于几" and the body said "Red" — and carried the
+#     upstream id ``qianfan-deepseek-v4.1-flash`` instead of the one asked
+#     for. A relay behind a proxy that cannot reach it is not a relay.
+# Direct connections to the same host answer in ~1.8s, every time.
+DIRECT_HOSTS = ("yjapi.shop",)
+
 # httpx URL patterns that pin a host to a direct (proxy-less) transport.
 LOOPBACK_MOUNTS = {
     "all://127.0.0.1": None,
@@ -37,11 +59,12 @@ LOOPBACK_MOUNTS = {
 
 
 def normalize_no_proxy(value: str | None) -> str:
-    """Return ``value`` with the loopback hosts present as exact entries.
+    """Return ``value`` with the hosts that must not be proxied present.
 
     Existing entries are kept verbatim — the company domains and the private
     ranges that Windows maintains are none of this module's business. Only
-    the loopback is added, and only when it is missing.
+    the loopback and the known-unproxyable hosts are added, and only when
+    they are missing.
 
     A wildcard entry like ``127.*`` is deliberately left in place: it is inert
     for every stack that matters, and removing it would silently drop a
@@ -50,17 +73,17 @@ def normalize_no_proxy(value: str | None) -> str:
     entries = [e.strip() for e in (value or "").split(",")]
     entries = [e for e in entries if e]
     present = {e.lower() for e in entries}
-    for host in LOOPBACK_HOSTS:
+    for host in LOOPBACK_HOSTS + DIRECT_HOSTS:
         if host.lower() not in present:
             entries.append(host)
     return ",".join(entries)
 
 
 def ensure_loopback_bypass() -> str:
-    """Make this process (and anything it spawns) skip the proxy for loopback.
+    """Make this process (and anything it spawns) skip the proxy for these hosts.
 
-    Idempotent, and safe to call from a library: it only ever *adds* the
-    loopback to the bypass list. Returns the effective value.
+    Idempotent, and safe to call from a library: it only ever *adds* to the
+    bypass list. Returns the effective value.
     """
     for name in ("no_proxy", "NO_PROXY"):
         current = os.environ.get(name)
@@ -105,3 +128,12 @@ def loopback_mounts() -> dict:
         return {}
     direct = httpx.AsyncHTTPTransport()
     return {pattern: direct for pattern in LOOPBACK_MOUNTS}
+
+
+if __name__ == "__main__":
+    # One list, one source: `bin/ccp` writes the same no_proxy into the
+    # secrets file the bridge services read, so the shell and the services
+    # cannot disagree about which hosts are unreachable through the proxy.
+    import sys
+
+    print(normalize_no_proxy(sys.argv[1] if len(sys.argv) > 1 else None))

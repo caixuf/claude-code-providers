@@ -251,6 +251,19 @@ providers:
         endpoint_kind: openai
         aliases: []
         tiers: []
+  - name: yjapi
+    api_base: https://yjapi.shop/v1
+    endpoint_kind: openai
+    auth_env: YJAPI_API_KEY
+    models:
+      - name: deepseek-v4.1-flash
+        ctx: 1048576
+        max_output: 393216
+        vision: true
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+        hints: {ctx: 1048576, max_output: 393216, vision: true}
   - name: trae
     api_base: http://127.0.0.1:4100
     endpoint_kind: anthropic

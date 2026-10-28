@@ -592,6 +592,22 @@ sync_proxy_env() {
     keep=$(grep -viE '^[[:space:]]*(https?_proxy|no_proxy)[[:space:]]*=' "$env_file" || true)
   fi
 
+  # The bypass list belongs to bridge/loopback.py: it knows the hosts a proxy
+  # cannot serve — the loopback, and a relay that answers another caller's
+  # question when the request goes through the proxy at all. The list that is
+  # already in the file is merged in, so a host added by hand survives the
+  # next run instead of being replaced by the default.
+  local no_proxy_list old_no_proxy repo_dir py_bin
+  repo_dir=$(ccp_repo_dir)
+  py_bin=$(ccp_python)
+  old_no_proxy=""
+  if [ -f "$env_file" ]; then
+    old_no_proxy=$(grep -iE '^[[:space:]]*no_proxy[[:space:]]*=' "$env_file" | head -1 \
+      | cut -d= -f2- | tr -d '"'"'"' \r' || true)
+  fi
+  no_proxy_list="$("$py_bin" "$repo_dir/bridge/loopback.py" "$old_no_proxy" 2>/dev/null || true)"
+  [ -n "$no_proxy_list" ] || no_proxy_list="localhost,127.0.0.1,::1,.local"
+
   if [ -n "$proxy_url" ] || [ -n "$keep" ]; then
     mkdir -p "$cfg_dir"
     local tmp
@@ -602,8 +618,8 @@ http_proxy=$proxy_url
 https_proxy=$proxy_url
 HTTP_PROXY=$proxy_url
 HTTPS_PROXY=$proxy_url
-no_proxy=localhost,127.0.0.1,::1,.local
-NO_PROXY=localhost,127.0.0.1,::1,.local
+no_proxy=$no_proxy_list
+NO_PROXY=$no_proxy_list
 EOF
     fi
     [ -n "$keep" ] && printf '%s\n' "$keep" >> "$tmp"
