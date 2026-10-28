@@ -586,12 +586,35 @@ rediscover:
 - **Its window is 1M, not the 1.44M the same model gets from Qianfan
   direct.** The relay resells a 1M seat. The two aliases therefore carry
   different `ctx` values, and a profile must not borrow the other one's.
+- **The groups are mutually exclusive, and the price gap between them is
+  brutal.** The account can be switched to a `GptPro` group that serves
+  `gpt-6-astra`, `gpt-6-sol` and `gpt-5.6-sol` — and then
+  `deepseek-v4.1-flash` is gone from its allow-list, answering
+  `404 not available for this group`. It is an either/or. Measured on the
+  same day: `deepseek-v4.1-flash` cost **$0.204 for 1.33M tokens**, while
+  `gpt-6-astra` cost **$5.42 for 1.04M tokens** — 26x the rate for the same
+  volume of text — and the relay injects a ~4000-token system prompt into
+  every GPT request on top of that.
 
 The thinking model is slow to *start* and fast to *stream*: the first
 `reasoning_content` token arrives after ~1.6s, the first visible text token
-after 12–20s, and the text then runs at 125–210 tok/s. Long context is what
-the money goes on: 36k input tokens cost about $0.007 of a $2 balance, so the
-window is worth capping per task.
+after 12–20s, and the text then runs at 125–210 tok/s. The relay is also
+*noisier in its reasoning* than the same model direct — on one arithmetic
+chain it thought for 585 characters against Qianfan's 268 and took 10.1s
+against 1.0s, with the same answer. The latency is in the thinking, not in
+the wire.
+
+**What the money goes on is the context.** 36k input tokens cost about $0.007
+of the $2 balance; 1.33M tokens cost $0.204. The balance is small enough
+that a careless probe ends it: the account carried $2, and one 800k-token
+probe of the context ceiling — the request that *proves* "1.2M is too much"
+— cost more than the whole balance, and the key now answers
+`429 API_KEY_QUOTA_EXHAUSTED`.
+
+> **Never probe a context ceiling by sending an enormous prompt on a small
+> balance.** Read the ceiling out of the upstream's own rejection message
+> instead: this relay states `prompt is too long: 1200185 tokens > 1048576
+> maximum`, which costs nothing.
 
 ```bash
 ccp yjapi                    # switch to the folder

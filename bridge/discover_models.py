@@ -226,6 +226,24 @@ PROVIDERS = {
     # group allow-lists deepseek-v4.1-flash-1017 and deepseek-v4-pro as well
     # — those answer 404 "not available for this group" from this key, so
     # `only_models` keeps the registry to what actually serves.
+    #
+    # ⚠️ Do NOT probe the context ceiling on this provider by sending an
+    # enormous prompt. The account carries a $2 balance, and the ceiling is
+    # found by overshooting it — the request that proves "1.2M is too much"
+    # is a request that has already been billed. Measured 2026-10-28: one
+    # 800k-token probe on this endpoint cost more than the whole balance.
+    # The window below was read out of the upstream's own rejection message
+    # ("prompt is too long: 1200185 tokens > 1048576 maximum"), which is
+    # free.
+    #
+    # The account's groups are mutually exclusive, and the price gap between
+    # them is the reason the registry holds one model. Measured on the same
+    # day: deepseek-v4.1-flash costs $0.204 for 1.33M tokens, while
+    # gpt-6-astra in the GptPro group costs $5.42 for 1.04M tokens — 26x the
+    # rate for the same volume of text, on top of a ~4000-token system
+    # prompt the relay injects into every GPT request. Switching to that
+    # group also removes deepseek-v4.1-flash from the allow-list, so it is
+    # an either/or, not an extra.
     "yjapi": {
         "models_url": "https://yjapi.shop/v1/models",
         "api_base": "https://yjapi.shop/v1",
