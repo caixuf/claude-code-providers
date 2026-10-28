@@ -709,6 +709,10 @@ def _env_api_base(pname: str, providers: dict) -> str | None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="verify outputs are up to date")
+    ap.add_argument("--prune", action="store_true",
+                    help="delete the template of a profile that no longer exists "
+                         "(off by default: a test that renders a doctored registry "
+                         "must not delete the repository's real templates)")
     args = ap.parse_args()
 
     models_doc = load_yaml(MODELS_YAML)
@@ -751,6 +755,12 @@ def main() -> None:
             fp = PROFILES_OUT / f"{profile}.json.example"
             if not fp.is_file() or fp.read_text() != text:
                 stale.append(str(fp))
+        # A template whose profile is gone is stale: it keeps a dead profile
+        # alive, because the audit that decides which installed profiles are
+        # dead reads the templates as well as the running bridge.
+        for ex in sorted(PROFILES_OUT.glob("*.json.example")):
+            if ex.name.removesuffix(".json.example") not in profile_texts:
+                stale.append(str(ex))
         if stale:
             print("Stale outputs (run `ccp render`):")
             for s in stale:
@@ -766,11 +776,33 @@ def main() -> None:
     for profile, text in profile_texts.items():
         (PROFILES_OUT / f"{profile}.json.example").write_text(text)
 
+    # A template whose profile is gone is stale, and it keeps a dead profile
+    # alive: the audit that decides which installed profiles are dead reads
+    # the templates as well as the running bridge, so a leftover
+    # `minimax.json.example` still names MiniMax-M3.1-Flash and the installed
+    # minimax profile is never flagged — a retired provider that cannot be
+    # selected any more, yet is still listed as installed and still costs
+    # nothing to keep alive.
+    #
+    # Only the files this renderer owns are removed: `providers/archived/` is
+    # a separate directory and is never touched. And only when `--prune` says
+    # so: this renderer is also run by the test suite with a doctored
+    # registry, and a deletion there would take the repository's real
+    # templates with it.
+    removed = []
+    if args.prune:
+        for ex in sorted(PROFILES_OUT.glob("*.json.example")):
+            if ex.name.removesuffix(".json.example") not in profile_texts:
+                ex.unlink()
+                removed.append(ex.name)
+
     print(f"Rendered {len(clamp)} clamp entries -> {CLAMP_OUT.name}")
     print(f"Rendered config -> {CONFIG_OUT.name}")
     if rules:
         print("Rendered request rules -> " + RULES_OUT.name + " (" + ", ".join(f"{k}: {len(v)}" for k, v in sorted(rules.items())) + ")")
     print(f"Rendered {len(profile_texts)} profiles -> providers/*.json.example")
+    if removed:
+        print(f"Removed {len(removed)} stale template(s): {', '.join(removed)}")
 
 
 if __name__ == "__main__":

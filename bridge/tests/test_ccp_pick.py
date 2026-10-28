@@ -101,8 +101,14 @@ def test_native_folders_expose_upstream_ids(providers):
     t = providers["trae"]
     assert t.native
     names = [n for n, _ in t.models]
-    assert "qwen3.8-max" in names
     assert "DeepSeek-V4.1-Flash" in names  # vendor capitalisation is preserved
+    # The selectable name IS the upstream id: a native endpoint never sees an
+    # alias, so there is nothing to strip.
+    assert dict(t.models)["DeepSeek-V4.1-Flash"] == "DeepSeek-V4.1-Flash"
+
+    o = providers["opendesign"]
+    assert o.native
+    assert "deepseek-v4.1-flash" in [n for n, _ in o.models]
 
 
 # ── resolution ───────────────────────────────────────────────────────────
@@ -121,26 +127,62 @@ def test_model_names_match_case_insensitively_but_keep_vendor_spelling():
 
 
 def test_bridged_models_get_the_1m_marker_only_when_the_window_is_1m():
+    """The marker follows the *window*, not the provider.
+
+    It is a bridged-path convention: Claude Code sends `name[1m]` for a model
+    whose window is 1M or more, and the watchdog strips the suffix before the
+    request goes upstream. A model with a smaller window must not carry it —
+    the name would match no deployment at all.
+    """
     rc, out, _ = run("resolve", "cline", "deepseek-v4.1-flash")
-    assert kv(out)["MODEL"].endswith("[1m]")
-    # 1048576 context — the marker still applies
-    rc, out, _ = run("resolve", "cline", "glm-5.3")
-    assert kv(out)["MODEL"].endswith("[1m]")
+    assert kv(out)["MODEL"].endswith("[1m]")  # 1048576 context — the marker applies
+
+    # Under 1M the marker must not appear. Every shipped provider carries a
+    # 1M-class window now, so the negative branch is pinned on a synthetic
+    # registry row rather than on a model that has been retired.
+    small_models = {
+        "version": 1,
+        "providers": [{
+            "name": "demo",
+            "api_base": "https://demo.invalid",
+            "endpoint_kind": "openai",
+            "auth_env": "DEMO_API_KEY",
+            "models": [{"name": "demo-small", "ctx": 64000, "max_output": 8192,
+                        "vision": False, "endpoint_kind": "openai"}],
+        }],
+    }
+    small_profiles = {
+        "version": 1,
+        "profiles": {
+            "demo": {"provider": "demo", "primary_tier": "default",
+                     "tiers": {"default": {"model": "demo-small"}}},
+        },
+        "aliases": {
+            "demo-demo-small": {"provider": "demo", "model": "demo-small", "ctx": 64000},
+        },
+    }
+    p = ccp_pick.Provider("demo", small_profiles, small_models)
+    name, upstream = p.resolve("demo-small")
+    assert p.wire_name(name, upstream) == "demo-demo-small"  # no [1m] under 1M
 
 
 def test_native_models_never_get_the_1m_marker():
     """Native endpoints never see the watchdog, so `[1m]` would be a literal
-    model name there."""
-    rc, out, _ = run("resolve", "trae", "qwen3.8-max")
-    assert kv(out)["MODEL"] == "qwen3.8-max"
+    model name there.
+
+    Trae's window is 1M, so this is the case that matters: the marker looks
+    like it applies and still must not be there.
+    """
+    rc, out, _ = run("resolve", "trae", "DeepSeek-V4.1-Flash")
+    assert kv(out)["MODEL"] == "DeepSeek-V4.1-Flash"
     assert "[1m]" not in kv(out)["MODEL"]
 
 
 def test_resolve_reports_the_real_context_window():
     """CLAUDE_CODE_MAX_CONTEXT_TOKENS is per-profile, so switching to a smaller
     model must not leave the old window advertised."""
-    _, out, _ = run("resolve", "trae", "qwen3.8-max")
-    assert kv(out)["CTX"] == "1000000"  # verified window, not Trae's advertised 96k-184k
+    _, out, _ = run("resolve", "trae", "DeepSeek-V4.1-Flash")
+    assert kv(out)["CTX"] == "1000000"  # the verified window
     _, out, _ = run("resolve", "cline", "deepseek-v4.1-flash")
     assert kv(out)["CTX"] == "1048576"  # a different window from the row above
 
@@ -154,7 +196,7 @@ def test_unknown_model_is_rejected_and_shows_the_options(providers):
     rc, out, err = run("resolve", "trae", "no-such-model")
     assert rc == 1
     assert "is not a trae model" in err
-    assert "qwen3.8-max" in out  # the listing comes with the error
+    assert "DeepSeek-V4.1-Flash" in out  # the listing comes with the error
 
 
 def test_unknown_provider_is_rejected():
@@ -164,9 +206,18 @@ def test_unknown_provider_is_rejected():
 
 
 def test_a_model_is_not_resolvable_from_the_wrong_folder(providers):
-    """Guard against cross-provider slips: trae's ids do not belong to cline."""
+    """Guard against cross-provider slips: another provider's id does not
+    belong to cline.
+
+    Trae is no use as the example — its `DeepSeek-V4.1-Flash` and cline's
+    selectable `deepseek-v4.1-flash` are the same model and match
+    case-insensitively on purpose. The ids below belong to vendors whose
+    models cline does not serve.
+    """
     with pytest.raises(KeyError):
-        providers["cline"].resolve("qwen3.8-max")
+        providers["cline"].resolve("MiniMax-M3.1-Flash")
+    with pytest.raises(KeyError):
+        providers["cline"].resolve("deepseek-flash")
 
 
 def test_folders_command_lists_one_line_per_provider():
@@ -193,13 +244,13 @@ def test_folders_command_lists_one_line_per_provider():
 
 def test_same_model_tolerates_the_1m_marker_and_case():
     assert cp._same_model("cline-deepseek-v4.1-flash[1m]", "cline-deepseek-v4.1-flash")
-    assert cp._same_model("MiniMax-M3", "minimax-M3")
+    assert cp._same_model("DeepSeek-V4.1-Flash", "deepseek-v4.1-flash")
     assert cp._same_model("openai/deepseek-v4.1-flash", "deepseek-v4.1-flash")
 
 
 def test_same_model_rejects_a_different_model():
-    assert not cp._same_model("MiniMax-M3", "MiniMax-M3.1-Flash")
-    assert not cp._same_model("claude-haiku-5.5", "MiniMax-M3")
+    assert not cp._same_model("deepseek-v4.1-flash", "deepseek-v4.1-flash-preview")
+    assert not cp._same_model("claude-haiku-5.5", "deepseek-flash")
 
 
 def test_verify_cache_key_includes_the_credential(monkeypatch, tmp_path):
@@ -214,20 +265,20 @@ def test_verify_cache_key_includes_the_credential(monkeypatch, tmp_path):
     monkeypatch.setattr(cp, "_installed", lambda p: {
         "ANTHROPIC_BASE_URL": "http://127.0.0.1:1", "ANTHROPIC_AUTH_TOKEN": "key-one"})
     monkeypatch.setattr(cp, "VERIFY_CACHE", tmp_path / "v.json")
-    cp.verify("minimax", "M")           # fails to connect, but records a key
+    cp.verify("minimax", "MiniMax-M3.1-Flash")  # fails to connect, but records a key
     stored = json.loads((tmp_path / "v.json").read_text())
     assert len(stored) == 1
     assert "key-one" not in next(iter(stored))  # the digest stands in for it
 
     monkeypatch.setattr(cp, "_installed", lambda p: {
         "ANTHROPIC_BASE_URL": "http://127.0.0.1:1", "ANTHROPIC_AUTH_TOKEN": "key-two"})
-    cp.verify("minimax", "M")
+    cp.verify("minimax", "MiniMax-M3.1-Flash")
     assert len(json.loads((tmp_path / "v.json").read_text())) == 2
 
 
 def test_verify_reports_no_profile_rather_than_claiming_a_downgrade(monkeypatch):
     monkeypatch.setattr(cp, "_installed", lambda p: {})
-    served, note = cp.verify("minimax", "MiniMax-M3")
+    served, note = cp.verify("minimax", "MiniMax-M3.1-Flash")
     assert served is None
     assert "no profile" in note
 

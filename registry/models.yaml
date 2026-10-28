@@ -5,45 +5,10 @@ providers:
     endpoint_kind: openai
     auth_env: CLINE_API_KEY
     models:
-      - name: deepseek/deepseek-v4-pro
-        ctx: 1000000
-        max_output: 393216
-        vision: false
-        endpoint_kind: openai
-        aliases: []
-        tiers: []
       - name: deepseek/deepseek-v4.1-flash
         ctx: 1048576
         max_output: 1048576
         vision: true
-        endpoint_kind: openai
-        aliases: []
-        tiers: []
-      - name: minimax/minimax-m3
-        ctx: 1000000
-        max_output: 131072
-        vision: true
-        endpoint_kind: openai
-        aliases: []
-        tiers: []
-      - name: moonshotai/kimi-k3
-        ctx: 1048576
-        max_output: 1048576
-        vision: true
-        endpoint_kind: openai
-        aliases: []
-        tiers: []
-      - name: qwen/qwen3.7-max
-        ctx: 1000000
-        max_output: 65536
-        vision: false
-        endpoint_kind: openai
-        aliases: []
-        tiers: []
-      - name: z-ai/glm-5.3
-        ctx: 1048576
-        max_output: 1048576
-        vision: false
         endpoint_kind: openai
         aliases: []
         tiers: []
@@ -56,13 +21,6 @@ providers:
         ctx: 1048576
         max_output: 393216
         vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: deepseek-v4-pro
-        ctx: 1048576
-        max_output: 393216
-        vision: false
         endpoint_kind: anthropic
         aliases: []
         tiers: []
@@ -92,93 +50,9 @@ providers:
     endpoint_kind: anthropic
     auth_env: OPENDESIGN_API_KEY
     models:
-      - name: claude-haiku-5.5
-        ctx: 1000000
-        max_output: 228000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: deepseek-v4-flash
-        ctx: 1048000
-        max_output: 232000
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: deepseek-v4-flash-vision-exp
-        ctx: 1048000
-        max_output: 232000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: deepseek-v4-pro
-        ctx: 1048000
-        max_output: 328000
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
       - name: deepseek-v4.1-flash
         ctx: 1048000
         max_output: 328000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: glm-5.3-flash
-        ctx: 1048000
-        max_output: 232000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: glm-5.3-flashx
-        ctx: 1000000
-        max_output: 232000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: gpt-6-luna
-        ctx: 1050000
-        max_output: 400000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: hy4-preview
-        ctx: 1048000
-        max_output: 232000
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: kimi-k2.7-code
-        ctx: 262000
-        max_output: 262000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: mimo-v2.6-flash
-        ctx: 1048000
-        max_output: 232000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: mimo-v2.6-pro
-        ctx: 1048000
-        max_output: 232000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: minimax-m3.1-flash
-        ctx: 1000000
-        max_output: null
         vision: true
         endpoint_kind: anthropic
         aliases: []
@@ -188,27 +62,6 @@ providers:
     endpoint_kind: openai
     auth_env: QIANFAN_API_KEY
     models:
-      - name: deepseek-v4-flash-0731
-        ctx: 1441792
-        max_output: 393216
-        vision: false
-        endpoint_kind: openai
-        aliases: []
-        tiers: []
-      - name: deepseek-v4-pro
-        ctx: 1441792
-        max_output: 393216
-        vision: false
-        endpoint_kind: openai
-        aliases: []
-        tiers: []
-      - name: deepseek-v4-pro-0813
-        ctx: 1441792
-        max_output: 393216
-        vision: false
-        endpoint_kind: openai
-        aliases: []
-        tiers: []
       - name: deepseek-v4.1-flash
         ctx: 1441792
         max_output: 393216
@@ -216,263 +69,14 @@ providers:
         endpoint_kind: openai
         aliases: []
         tiers: []
-      - name: deepseek-v4.1-flash-1017
-        ctx: 1441792
-        max_output: 393216
-        vision: true
-        endpoint_kind: openai
-        aliases: []
-        tiers: []
-      - name: glm-5.1
-        ctx: 333824
-        max_output: 131072
-        vision: false
-        endpoint_kind: openai
-        aliases: []
-        tiers: []
-      - name: glm-5.2
-        ctx: 1179648
-        max_output: 131072
-        vision: false
-        endpoint_kind: openai
-        aliases: []
-        tiers: []
-      - name: glm-5.3
-        ctx: 1179648
-        max_output: 131072
-        vision: false
-        endpoint_kind: openai
-        aliases: []
-        tiers: []
-      - name: glm-5.3-flash
-        ctx: 1179648
-        max_output: 131072
-        vision: true
-        endpoint_kind: openai
-        aliases: []
-        tiers: []
-  - name: yjapi
-    api_base: https://yjapi.shop/v1
-    endpoint_kind: openai
-    auth_env: YJAPI_API_KEY
-    models:
-      - name: deepseek-v4.1-flash
-        ctx: 1048576
-        max_output: 393216
-        vision: true
-        endpoint_kind: openai
-        aliases: []
-        tiers: []
-        hints: {ctx: 1048576, max_output: 393216, vision: true}
   - name: trae
     api_base: http://127.0.0.1:4100
     endpoint_kind: anthropic
     auth_env: TRAECLI_PERSONAL_ACCESS_TOKEN
     models:
-      - name: DeepSeek-V4-Flash-Official
-        ctx: 1000000
-        max_output: 32000
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: DeepSeek-V4-Pro-Official
-        ctx: 1000000
-        max_output: 32000
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
       - name: DeepSeek-V4.1-Flash
         ctx: 1000000
         max_output: 32000
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: DeepSeek-V4.1-Flash-1017
-        ctx: 1000000
-        max_output: 32000
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: Doubao-Seed-2.0-Code
-        ctx: 1000000
-        max_output: 16000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: Doubao-Seed-2.1-pro
-        ctx: 1000000
-        max_output: 16000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: Doubao-Seed-2.1-turbo
-        ctx: 1000000
-        max_output: 16000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: Doubao-Seed-Evolving
-        ctx: 1000000
-        max_output: 16000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: Doubao_1_6
-        ctx: 1000000
-        max_output: 16000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: glm-5.2
-        ctx: 1000000
-        max_output: 16000
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: glm-5.3
-        ctx: 1000000
-        max_output: 32000
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: glm-5.3-flash
-        ctx: 1000000
-        max_output: 32000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: glm-5.3-flashx
-        ctx: 1000000
-        max_output: 16000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: kimi-k2.8-preview
-        ctx: 1000000
-        max_output: 32000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: kimi-k3
-        ctx: 1000000
-        max_output: 16000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: kimi-k3.1-pro
-        ctx: 1000000
-        max_output: 16000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: mimo-v2.6-flash
-        ctx: 1000000
-        max_output: 16000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: mimo-v2.6-pro
-        ctx: 1000000
-        max_output: 16000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: minimax-m2.7
-        ctx: 1000000
-        max_output: 16000
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: minimax-m3
-        ctx: 1000000
-        max_output: 16000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: qwen3.8-max
-        ctx: 1000000
-        max_output: 32000
-        vision: true
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-  - name: codex
-    api_base: http://localhost:56895/v1
-    endpoint_kind: anthropic
-    auth_env: CODEX_API_KEY
-    models:
-      - name: codex-auto-review
-        ctx: 272000
-        max_output: null
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: gpt-5.6-luna
-        ctx: 272000
-        max_output: null
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: gpt-5.6-sol
-        ctx: 272000
-        max_output: null
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: gpt-5.6-terra
-        ctx: 272000
-        max_output: null
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: gpt-6-astra
-        ctx: 272000
-        max_output: null
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: gpt-6-luna
-        ctx: 272000
-        max_output: null
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: gpt-6-sol
-        ctx: 272000
-        max_output: null
-        vision: false
-        endpoint_kind: anthropic
-        aliases: []
-        tiers: []
-      - name: gpt-6.1-sol
-        ctx: 272000
-        max_output: null
         vision: false
         endpoint_kind: anthropic
         aliases: []

@@ -66,9 +66,11 @@ def test_get_configured_models_target_provider():
 
 
 def test_get_configured_models_specific_target():
-    qwen = get_configured_models(target="qwen3.8-max")
-    assert len(qwen) >= 1
-    assert any("qwen" in c["wire_name"].lower() for c in qwen)
+    found = get_configured_models(target="deepseek-v4.1-flash")
+    assert len(found) >= 1
+    # every row is the model that was asked for, at the provider that serves it
+    assert all("deepseek" in c["wire_name"].lower() for c in found)
+    assert {c["provider"] for c in found} <= {"cline", "opendesign", "qianfan", "trae"}
 
 
 def test_get_configured_models_all():
@@ -293,21 +295,27 @@ def test_print_table(capsys):
 
 # ── candidates must cover what a provider actually offers ────────────────────
 # `ccp ping deepseek` used to report "No models found": candidates came only from
-# the alias table, and deepseek/minimax are native with no aliases at all. These
+# the alias table, and the native providers have no aliases of their own. These
 # pin the counts the folder listing shows, so the two cannot drift apart again.
 
 
 def test_every_provider_has_candidates():
     """A provider that cannot be probed is the bug this guards."""
-    for name in ("cline", "deepseek", "minimax", "opendesign", "trae"):
+    for name in ("cline", "deepseek", "minimax", "opendesign", "qianfan", "trae"):
         found = get_configured_models(target=name)
         assert found, f"{name} yielded no probe candidates"
 
 
 def test_native_providers_are_probed_not_skipped():
-    """deepseek and minimax have zero aliases; they are addressed by upstream id."""
+    """The native providers are addressed by upstream id.
+
+    MiniMax and DeepSeek have no alias at all, and the ones that do (Trae,
+    OpenDesign) are native — so for all of them the upstream id is what goes
+    on the wire. A candidate that went through LiteLLM instead would be
+    probing a name the vendor does not know.
+    """
     deepseek = get_configured_models(target="deepseek")
-    assert [c["wire_name"] for c in deepseek] == ["deepseek-flash", "deepseek-v4-pro"]
+    assert [c["wire_name"] for c in deepseek] == ["deepseek-flash"]
     assert all(c["native"] for c in deepseek)
 
     minimax = get_configured_models(target="minimax")
@@ -317,6 +325,14 @@ def test_native_providers_are_probed_not_skipped():
     # Two models, not the eight the catalogue lists: the registry is pinned to
     # the ids MiniMax's own Anthropic-compatibility docs support.
     assert names == ["MiniMax-M3", "MiniMax-M3.1-Flash"], names
+
+    opendesign = get_configured_models(target="opendesign")
+    assert [c["wire_name"] for c in opendesign] == ["deepseek-v4.1-flash"]
+    assert all(c["native"] for c in opendesign)
+
+    trae = get_configured_models(target="trae")
+    assert [c["wire_name"] for c in trae] == ["DeepSeek-V4.1-Flash"]
+    assert all(c["native"] for c in trae)
 
 
 def test_bridged_providers_use_the_alias_litellm_accepts():
@@ -332,6 +348,14 @@ def test_each_candidate_carries_its_own_endpoint_and_credential():
     spec = get_configured_models(target="deepseek")[0]
     assert spec["endpoint"].startswith("https://api.deepseek.com/")
     assert spec["token"] and spec["token"] != DEFAULT_MASTER_KEY
+
+    # MiniMax is native and remote, so its candidates must reach MiniMax —
+    # a request through the local bridge would answer for somebody else.
+    minimax = get_configured_models(target="minimax")
+    assert minimax
+    if _installed_endpoint("minimax")[0]:
+        assert minimax[0]["endpoint"].startswith("https://api.minimax"), minimax[0]
+        assert not minimax[0]["endpoint"].startswith("http://127.0.0.1"), minimax[0]
 
     # Trae is archived (its profile sits in ~/.claude/providers_disabled), so a
     # local install legitimately has no endpoint for it and the candidate falls
@@ -358,28 +382,47 @@ def test_candidate_counts_match_the_folder_listing():
         )
 
 
-def test_a_native_model_absent_from_litellm_is_still_probeable():
-    """`MiniMax-M3.1-Flash` has no LiteLLM entry, so probing it via :4000 would 400.
+def _litellm_model_names() -> set:
+    """Every model_name the rendered proxy actually serves."""
+    import re
 
-    Its candidate must still name it and point at the vendor endpoint.
+    import render_config
+
+    profiles_doc, models_doc = _load_registry()
+    models, providers = render_config.index_models(models_doc)
+    for pname, pdef in render_config._np_providers(profiles_doc).items():
+        providers.setdefault(pname, pdef)
+    text = render_config.render_config(models, providers, profiles_doc)
+    return {m.strip().strip("'\"") for m in re.findall(r"model_name:\s*(\S+)", text)}
+
+
+def test_a_native_model_absent_from_litellm_is_still_probeable():
+    """`DeepSeek-V4.1-Flash` is not a LiteLLM model_name — the proxy knows that
+    model as `trae-deepseek-v4.1-flash` — so probing the exact id through
+    :4000 would 400.
+
+    Its candidate must still name it and point at the provider's own endpoint.
     """
-    found = get_configured_models(target="MiniMax-M3.1-Flash")
+    found = get_configured_models(target="DeepSeek-V4.1-Flash")
     assert found, "the exact id must resolve"
-    # A name is a prefix of its siblings (`MiniMax-M3` vs `MiniMax-M3.1-Flash`)
-    # and matching tolerates how people type, so this returns the M3.1 line
-    # rather than one row — and Trae resells minimax under its own ids. The
-    # property that matters is that each row is probed at *its own* provider's
-    # endpoint, which is what makes the absent-from-LiteLLM case work at all.
-    assert "MiniMax-M3.1-Flash" in [c["wire_name"] for c in found]
+    trae = [c for c in found if c["provider"] == "trae"]
+    assert trae, "the native provider must be among the results"
+    assert "DeepSeek-V4.1-Flash" in [c["wire_name"] for c in trae]
+
+    # The premise, checked: LiteLLM knows the model under its alias and never
+    # under the native id, so the exact id would 400 through the bridge.
+    litellm_names = _litellm_model_names()
+    assert "DeepSeek-V4.1-Flash" not in litellm_names
+    assert "trae-deepseek-v4.1-flash" in litellm_names
+
+    # The property under test is "the provider's own endpoint, not the LiteLLM
+    # bridge", so assert the provider rather than one exact host. Each row is
+    # probed at *its own* provider's endpoint, which is what makes the
+    # absent-from-LiteLLM case work at all.
     for c in found:
-        if c["provider"] == "minimax":
-            # The property under test is "the vendor endpoint, not the LiteLLM
-            # bridge", so assert the vendor rather than one exact host. Pinning
-            # `api.minimaxi.com` made a legitimate move to the host MiniMax's
-            # own Anthropic-SDK docs specify (`api.minimax.cn`) register as a
-            # bug, which is the opposite of what this guard is for.
-            assert c["endpoint"].startswith("https://api.minimax"), c
-            assert not c["endpoint"].startswith("http://127.0.0.1"), c
+        want = _installed_endpoint(c["provider"])[0]
+        if want:
+            assert c["endpoint"] == want, c
         else:
             assert c["endpoint"], c
 

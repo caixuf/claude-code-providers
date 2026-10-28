@@ -4,7 +4,7 @@
 [![Platform: Linux / macOS / WSL](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20WSL-green.svg)]()
 [![Tested on: Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-purple.svg)]()
 
-> **Switch the model behind Claude Code in one command, across eight providers** —
+> **Switch the model behind Claude Code in one command, across six providers** —
 > native Anthropic endpoints, one OpenAI-compatible gateway, and a local adapter
 > for a subscription that publishes no API at all.
 
@@ -26,18 +26,23 @@ claude ──> ccp profile ──┬─> vendor's /anthropic endpoint         (n
 
 | Folder | Lands on (default) | How it is reached | Models |
 | :--- | :--- | :--- | ---: |
-| `deepseek/` | DeepSeek-V4-Flash (1M) | native Anthropic | 2 |
+| `deepseek/` | DeepSeek-Flash (1M) | native Anthropic | 1 |
 | `minimax/` | MiniMax-M3.1-Flash (1M) | native Anthropic | 2 |
-| `opendesign/` | DeepSeek-V4.1-Flash (1.05M) | native, Anthropic-native aggregator | 11 |
-| `cline/` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 6 |
-| `qianfan/` | DeepSeek-V4.1-Flash (1.44M) | bridged → LiteLLM | 9 |
-| `yjapi/` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 1 |
-| `trae/` | DeepSeek-V4.1-Flash (1M) | local adapter `:4100` | 20 |
-| `codex/` | gpt-6.1-sol (272k) | native Anthropic, local gateway `:56895` | 8 |
+| `opendesign/` | DeepSeek-V4.1-Flash (1.05M) | native, Anthropic-native aggregator | 1 |
+| `cline/` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 1 |
+| `qianfan/` | DeepSeek-V4.1-Flash (1.44M) | bridged → LiteLLM | 1 |
+| `trae/` | DeepSeek-V4.1-Flash (1M) | local adapter `:4100` | 1 |
 
 Several folders start on the *same* underlying model. That is the point: same
-model, different pipe, price and quota. Every folder also holds the other models
-its provider serves, so nothing is a dead end.
+model, different pipe, price and quota.
+
+**Every one of them lands on a DeepSeek Flash**, except `minimax/` — MiniMax's
+own M3 is a flat subscription, so it costs nothing to keep a second family
+around. That is the whole curation rule now: a model that bills by the token
+is only worth reaching when it is the cheap one, and every provider's
+catalogue is narrowed (`only_models`) to exactly the model it exposes. A
+GPT, a Kimi or a GLM rung that used to be one `ccp -m` away is gone — see
+[Why only DeepSeek](#why-only-deepseek).
 
 ---
 
@@ -225,7 +230,7 @@ token instantly and still never act, which is the failure that wastes the turn.
 
 ## 🌉 The bridge
 
-Three providers, `cline/`, `qianfan/` and `yjapi/`, speak plain OpenAI
+Two providers, `cline/` and `qianfan/`, speak plain OpenAI
 `chat/completions` and are **bridged**: Claude Code talks to a local gateway that
 translates on the way out. Every other folder takes one of the other two paths —
 an Anthropic-native endpoint or the Trae local adapter — both covered below.
@@ -360,10 +365,10 @@ thing for it: the model name it asks for.
 
 ```bash
 ccp hermes                 # what the bot is running right now
-ccp hermes codex           # point it at codex's default model
+ccp hermes qianfan         # point it at Qianfan's DeepSeek-V4.1-Flash
 ccp hermes trae            # ...or at Trae's DeepSeek-V4.1-Flash
 ccp hermes trae deepseek-v4.1-flash
-ccp hermes codex --dry-run # show the change, write nothing
+ccp hermes qianfan --dry-run # show the change, write nothing
 ```
 
 **Both Hermes layouts work.** A multi-profile install keeps one config per
@@ -549,78 +554,60 @@ comes from the registry's *discovered* `vision` flag — `ccp render` derives th
 list, so a model that gains or loses image input changes it with nobody editing
 a second place.
 
-### 壹佳API (yjapi.shop)
+### Why only DeepSeek
 
-[壹佳API](https://yjapi.shop) is a credit re-seller: OpenAI-compatible
-`chat/completions` on `https://yjapi.shop/v1`, no Anthropic surface, so it is
-bridged like ClinePass and Qianfan. The key lives in `proxy.env`; there is no
-`ccp auth` step.
+Every provider here exposes exactly one model, and on five of the six that
+model is a DeepSeek Flash. MiniMax keeps its two, because its M3 plan is a
+flat subscription and costs nothing to keep in the list.
 
-The account sits in a **group** (`1.5折deepseek4.1flash,glm5.3flash`, rate
-0.15) and the group's allow-list is the entitlement. The relay also serves
-`glm-5.3-flash`, and the allow-list names `deepseek-v4.1-flash-1017` and
-`deepseek-v4-pro` as well — but from this key only `deepseek-v4.1-flash`
-answers. The other two come back `404 model_not_found "Model … is not
-available for this group"`, so `only_models` keeps the registry to the one that
-serves and every tier is pinned to it.
+The rule is a money rule. A relay that bills by the token sells several
+families at very different rates, and the expensive one is one `ccp -m` away
+from the cheap one — so a provider that can serve `gpt-6-astra` *and*
+`deepseek-v4.1-flash` on the same key is a provider with a loaded gun in the
+picker. Measured on yjapi.shop on 2026-10-28: `deepseek-v4.1-flash` cost
+**$0.204 for 1.33M tokens**, `gpt-6-astra` cost **$5.42 for 1.04M tokens** —
+26x the rate for the same volume of text, plus a ~4000-token system prompt the
+relay injects into every GPT request. The account carried $2.
 
-Three things about it are worth writing down, because each one costs a turn to
-rediscover:
+So the narrowing happens in three places, and none of them is a list somebody
+maintains by hand:
 
-- **It must not be reached through the machine's HTTP proxy.** The proxy
-  answers the CONNECT and then the TLS handshake dies after ~30s with
-  `UNEXPECTED_EOF_WHILE_READING`; the one response that did arrive answered a
-  *different* question (`1+1 等于几` → `Red`) and carried the upstream id
-  `qianfan-deepseek-v4.1-flash` instead of the one asked for. Direct, the same
-  request answers in ~1.8s. `bridge/loopback.py` keeps such hosts off the
-  bypass list, and `bin/ccp` writes that list into `proxy.env` — one list, so
-  the shell and the systemd services cannot disagree about it.
-- **Its catalogue publishes ids and nothing else.** No window, no output cap,
-  no modality flag, so the facts the registry needs cannot be read out of it.
-  They were measured on 2026-10-28 and live in `hints`:
-  `ctx 1048576` (the upstream rejects a 1.2M-token prompt with
-  `prompt is too long: 1200185 tokens > 1048576 maximum`), `vision true` (a
-  red/green PNG comes back `红色，绿色`), `max_output 393216` (the upstream
-  does not validate `max_tokens` at all — 1,000,000 is accepted — so the cap
-  is the same upstream model's, applied as a clamp).
-- **Its window is 1M, not the 1.44M the same model gets from Qianfan
-  direct.** The relay resells a 1M seat. The two aliases therefore carry
-  different `ctx` values, and a profile must not borrow the other one's.
-- **The groups are mutually exclusive, and the price gap between them is
-  brutal.** The account can be switched to a `GptPro` group that serves
-  `gpt-6-astra`, `gpt-6-sol` and `gpt-5.6-sol` — and then
-  `deepseek-v4.1-flash` is gone from its allow-list, answering
-  `404 not available for this group`. It is an either/or. Measured on the
-  same day: `deepseek-v4.1-flash` cost **$0.204 for 1.33M tokens**, while
-  `gpt-6-astra` cost **$5.42 for 1.04M tokens** — 26x the rate for the same
-  volume of text — and the relay injects a ~4000-token system prompt into
-  every GPT request on top of that.
+- **the discovery layer** — each provider's `only_models` in
+  `bridge/discover_models.py` names the one id the registry keeps, so the
+  catalogue the bridge serves holds nothing else;
+- **the curation layer** — `registry/profiles.yaml` pins all five Claude Code
+  tiers of a provider to that same model, so no tier can drift onto an
+  expensive one;
+- **the probe** — `ccp ping` costs a ceiling before it starts (see below).
 
-The thinking model is slow to *start* and fast to *stream*: the first
-`reasoning_content` token arrives after ~1.6s, the first visible text token
-after 12–20s, and the text then runs at 125–210 tok/s. The relay is also
-*noisier in its reasoning* than the same model direct — on one arithmetic
-chain it thought for 585 characters against Qianfan's 268 and took 10.1s
-against 1.0s, with the same answer. The latency is in the thinking, not in
-the wire.
+Restoring a rung is one edit in the first of those three, followed by
+`ccp discover && ccp render && ccp sync`.
 
-**What the money goes on is the context.** 36k input tokens cost about $0.007
-of the $2 balance; 1.33M tokens cost $0.204. The balance is small enough
-that a careless probe ends it: the account carried $2, and one 800k-token
-probe of the context ceiling — the request that *proves* "1.2M is too much"
-— cost more than the whole balance, and the key now answers
-`429 API_KEY_QUOTA_EXHAUSTED`.
+### The probe has a spend guard
 
-> **Never probe a context ceiling by sending an enormous prompt on a small
-> balance.** Read the ceiling out of the upstream's own rejection message
-> instead: this relay states `prompt is too long: 1200185 tokens > 1048576
-> maximum`, which costs nothing.
+A probe is a real request against a real account, and on a per-token relay
+the bill is real. `ccp ping` therefore costs the run before it starts:
 
 ```bash
-ccp yjapi                    # switch to the folder
-ccp models yjapi             # the one id this group serves
-curl -s https://yjapi.shop/v1/usage -H "Authorization: Bearer $YJAPI_API_KEY"
+ccp ping                          # primary tiers, ~20k tokens, inside the default budget
+ccp ping --all                    # REFUSED: --all is a bill, say how much you mean
+ccp ping --all --budget-tokens 200000
+ccp ping --tokens 100000 --rounds 3   # REFUSED: the plan does not fit the budget
 ```
+
+The plan is `models x rounds x tokens`, refused outright when it does not fit
+the budget — half-running it is worse than refusing, because the half that
+ran is already spent. Each round claims its share as it goes, so a run that
+turns out more expensive than planned stops instead of finishing, and the
+table ends with what it spent:
+
+```
+probe spend: ~1,536 of 150,000 tokens
+```
+
+The default budget is 150k tokens, which covers a full sweep of the primary
+tiers with room to spare. It is a *ceiling on the probe*, not on your
+sessions.
 
 ### Trae CLI
 
@@ -674,44 +661,6 @@ travels through the adapter and the model names the colours correctly.
 > 200 with empty content and zero usage — a silent failure, not an error.
 > `ctx_default` overrides it, verified across four families. A request that
 > returns 200 is not proof; only retrieving something from the far end is.
-
-### Codex (local gateway on `:56895`)
-
-A local gateway that fronts a Codex account and speaks **Anthropic Messages** at
-`http://localhost:56895/v1/messages`, so this profile is `native: true`: Claude
-Code talks to it directly, with no bridge in the way.
-
-```bash
-ccp codex            # default tier: gpt-6.1-sol
-ccp codex gpt-6-astra
-```
-
-**Every model here is 272k-context and text-only.** The window is the
-catalogue's own `context_length` and it is advertised as 272000, so Claude Code
-compacts at the point the gateway would truncate; a pasted screenshot has
-nowhere to go on any tier. `max_output` is left null on purpose — the gateway
-accepts `max_tokens=300000` on a 272k model, so any cap read from it (or from
-LiteLLM's cost map, which answers 128000 for some of these ids) would be fiction.
-
-**Two catalogue ids are excluded.** `gpt-image-2.5` and `gpt-reserve` answer
-`503 no_available_account`; they are held to the same rule as ClinePass and
-MiniMax's legacy family — the registry lists what has been verified to answer.
-
-**The bridged copy needs a different LiteLLM prefix.** A `anthropic/` deployment
-reached through LiteLLM's own `/v1/messages` is forwarded to the gateway as an
-OpenAI **Responses** request, and that path answers
-`unsupported_endpoint … not supported by the native Responses service` — even
-though `/v1/responses` looks alive when probed by hand. `render_config.py`
-therefore emits `hosted_vllm/` for this provider (the same opt-out CodeBuddy
-needed), which keeps the chat/completions builder per deployment.
-
-**The probe had a related bug, now fixed.** `ccp_probe` appended `/v1/messages`
-to whatever base the profile carried, so this endpoint — whose base is already
-`…/v1` — was asked for `/v1/v1/messages`, and the gateway answered that with the
-same `unsupported_endpoint` 404. `ccp ping codex` reported 0/8 responsive for
-models that answer in two seconds; the base is now used as written.
-
----
 
 ## 🔑 Credentials
 
@@ -906,8 +855,6 @@ row (2 rounds, ~200 output tokens per round):
 | trae | `DeepSeek-V4.1-Flash` | 3.4 s | 63.8² | 3.5 s | 1M |
 | trae | `DeepSeek-V4-Flash-Official` | 3.9 s | 166.5 | 5.0 s | 1M |
 | trae | `DeepSeek-V4-Pro-Official` | 6.4 s | 45.5² | 6.6 s | 1M |
-| codex | `gpt-6-sol` | 2.2 s | 39.7² | 2.6 s | 272k |
-| codex | `gpt-6.1-sol` | 3.1 s | 5.0² | 3.6 s | 272k |
 
 ² **No decode window to measure**: the model thinks for seconds and then
 releases the whole answer at once, so the speed is scored against the whole
@@ -1002,6 +949,13 @@ gateway error on a loopback endpoint is the proxy answering for it.
 CommandCode (out of credits), GitHub Copilot (no healthy deployments), OpenCode
 and Antigravity (`agy`) are archived, along with what it takes to bring one back:
 [`docs/archived-providers.md`](docs/archived-providers.md).
+
+Two more were removed on 2026-10-28, with their reasons recorded there:
+**Codex** (a GPT-only catalogue — every rung on it is a paid-per-token model,
+and it is the one family the DeepSeek-only rule exists to keep out of reach)
+and **壹佳API (yjapi.shop)**, whose $2 balance was spent by a context probe
+against a 26x-priced model and which has not been recharged. MiniMax stayed:
+its M3 plan is a flat subscription, so it costs nothing to keep.
 
 ---
 

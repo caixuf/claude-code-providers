@@ -71,13 +71,8 @@ PROVIDERS = {
         # Re-probe when the plan changes, and extend this list rather than
         # trusting the catalogue again.
         "only_models": [
-            "deepseek/deepseek-v4.1-flash",
-            "deepseek/deepseek-v4-pro",
-            "z-ai/glm-5.3",
-            "moonshotai/kimi-k3",
-            "minimax/minimax-m3",
-            "qwen/qwen3.7-max",
-        ],
+                "deepseek/deepseek-v4.1-flash",
+            ],
         "max_output_default": None,
     },
     # Native Anthropic-compatible endpoints (no bridge). Rich metadata where
@@ -87,6 +82,13 @@ PROVIDERS = {
         "api_base": "https://api.deepseek.com/anthropic",
         "endpoint_kind": "anthropic",
         "auth_env": "DEEPSEEK_API_KEY",
+
+        # One model on purpose: the DeepSeek Flash. The catalogue
+        # still lists the other families this provider sells, and a
+        # per-token account should not be able to reach them by accident.
+        "only_models": [
+            "deepseek-flash",
+        ],
         "profile_file": "~/.claude/providers/deepseek.json",
         "max_output_default": 393216,
     },
@@ -159,6 +161,13 @@ PROVIDERS = {
         "api_base": "https://amr-link.open-design.ai",
         "endpoint_kind": "anthropic",
         "auth_env": "OPENDESIGN_API_KEY",
+
+        # One model on purpose: the DeepSeek Flash. The catalogue
+        # still lists the other families this provider sells, and a
+        # per-token account should not be able to reach them by accident.
+        "only_models": [
+            "deepseek-v4.1-flash",
+        ],
         "profile_file": "~/.claude/providers/opendesign.json",
         "max_output_default": None,
     },
@@ -189,128 +198,28 @@ PROVIDERS = {
         "auth_grep": "qianfan.baidubce.com",
         # Verified to answer on the Token Plan Person endpoint.
         "only_models": [
-            "deepseek-v4.1-flash",
-            "deepseek-v4.1-flash-1017",
-            "deepseek-v4-pro",
-            "deepseek-v4-pro-0813",
-            "deepseek-v4-flash-0731",
-            "glm-5.3",
-            "glm-5.3-flash",
-            "glm-5.2",
-            "glm-5.1",
-        ],
+                "deepseek-v4.1-flash",
+            ],
         "max_output_default": 32000,
-    },
-    # ── 壹佳API (yjapi.shop) — a credit re-seller ────────────────────────
-    # Plain OpenAI-compatible Chat Completions at /v1, no Anthropic surface,
-    # so it is a *bridged* provider like Cline and Qianfan.
-    #
-    # The catalogue publishes ids and nothing else — no window, no output cap,
-    # no modality list — so every fact below was measured against the relay
-    # on 2026-10-28 rather than read out of somebody else's table:
-    #
-    #   * ctx 1048576 — the upstream rejects an oversized prompt with
-    #     "prompt is too long: 1200185 tokens > 1048576 maximum". A 800k-token
-    #     prompt is accepted, a 1.2M-token one is not. Note this is *below*
-    #     the 1441792 the same model gets from Qianfan direct: the relay
-    #     resells a 1M-window seat, and the two must not be conflated.
-    #   * vision true — a 64x64 PNG with a red half and a green half is
-    #     answered "红色，绿色", so the image is really read.
-    #   * max_tokens is NOT validated upstream: 262144, 393216 and even
-    #     1000000 are all accepted with a 200. So the cap below is not
-    #     measured from this endpoint — it is the same upstream model's
-    #     published cap (qianfan/deepseek-v4.1-flash), applied as a clamp
-    #     because an unclamped request is the one that can hang.
-    #
-    # The relay serves a second model, glm-5.3-flash, and the account's
-    # group allow-lists deepseek-v4.1-flash-1017 and deepseek-v4-pro as well
-    # — those answer 404 "not available for this group" from this key, so
-    # `only_models` keeps the registry to what actually serves.
-    #
-    # ⚠️ Do NOT probe the context ceiling on this provider by sending an
-    # enormous prompt. The account carries a $2 balance, and the ceiling is
-    # found by overshooting it — the request that proves "1.2M is too much"
-    # is a request that has already been billed. Measured 2026-10-28: one
-    # 800k-token probe on this endpoint cost more than the whole balance.
-    # The window below was read out of the upstream's own rejection message
-    # ("prompt is too long: 1200185 tokens > 1048576 maximum"), which is
-    # free.
-    #
-    # The account's groups are mutually exclusive, and the price gap between
-    # them is the reason the registry holds one model. Measured on the same
-    # day: deepseek-v4.1-flash costs $0.204 for 1.33M tokens, while
-    # gpt-6-astra in the GptPro group costs $5.42 for 1.04M tokens — 26x the
-    # rate for the same volume of text, on top of a ~4000-token system
-    # prompt the relay injects into every GPT request. Switching to that
-    # group also removes deepseek-v4.1-flash from the allow-list, so it is
-    # an either/or, not an extra.
-    "yjapi": {
-        "models_url": "https://yjapi.shop/v1/models",
-        "api_base": "https://yjapi.shop/v1",
-        "endpoint_kind": "openai",
-        "litellm_prefix": "openai/",
-        "auth_env": "YJAPI_API_KEY",
-        "only_models": [
-            "deepseek-v4.1-flash",
-        ],
-        # Per-model facts the catalogue does not publish, measured on the live
-        # endpoint. `hints` is the mechanism for exactly this shape: a value
-        # here survives a refresh instead of being re-derived from an empty
-        # catalogue entry.
-        "hints": {
-            "deepseek-v4.1-flash": {"ctx": 1048576, "max_output": 393216, "vision": True},
-        },
-        "max_output_default": None,
     },
     "trae": {
         "models_url": None,
         "api_base": "http://127.0.0.1:4100",
         "endpoint_kind": "anthropic",
         "auth_env": "TRAECLI_PERSONAL_ACCESS_TOKEN",
+
+        # One model on purpose: the DeepSeek Flash. The catalogue
+        # still lists the other families this provider sells, and a
+        # per-token account should not be able to reach them by accident.
+        "only_models": [
+            "DeepSeek-V4.1-Flash",
+        ],
         "catalogue_command": ["trae_bridge.py", "--list-models-json"],
         # Verified by needle-in-a-haystack probe through :4100 (2026-10-15):
         # 333k / 555k / 888k all retrieve a code placed at the very end of the
         # context; 1.25M returns 200 with empty content. Real window is 1M —
         # the same as every other provider here — not the 96k–184k Trae reports.
         "ctx_default": 1000000,
-        "max_output_default": None,
-    },
-    # Codex (a local gateway on :56895). It speaks the Anthropic Messages API
-    # itself, so this is `native: true` in the strictest sense: no bridge, no
-    # clamps, the profile points straight at :56895.
-    #
-    # The loopback means discovery fails whenever the gateway is not running,
-    # and `build()` then keeps the previous entries rather than emptying the
-    # registry — that is the intended behaviour, not an accident.
-    #
-    # Measured 2026-10-23 against http://localhost:56895/v1:
-    #   * ctx 272000 — the catalogue's own context_length, and the same for
-    #     every model here.
-    #   * every model is TEXT-ONLY (`input_modalities: ["text"]`); a pasted
-    #     screenshot has nowhere to go.
-    #   * `max_output` is left null: the gateway accepts max_tokens=300000 on a
-    #     272k model and answers normally, so it does not enforce a cap and a
-    #     number taken from it would be fiction.
-    #   * two catalogue ids answer 503 `no_available_account`
-    #     (gpt-image-2.5, gpt-reserve). They are excluded by `only_models`, the
-    #     same rule ClinePass and MiniMax's legacy family are held to: the
-    #     registry lists what has been verified to answer.
-    "codex": {
-        "models_url": "http://localhost:56895/v1/models",
-        "api_base": "http://localhost:56895/v1",
-        "endpoint_kind": "anthropic",
-        "auth_env": "CODEX_API_KEY",
-        "profile_file": "~/.claude/providers/codex.json",
-        "only_models": [
-            "gpt-6.1-sol",
-            "gpt-6-astra",
-            "gpt-6-sol",
-            "gpt-6-luna",
-            "gpt-5.6-sol",
-            "gpt-5.6-terra",
-            "gpt-5.6-luna",
-            "codex-auto-review",
-        ],
         "max_output_default": None,
     },
 }
@@ -490,29 +399,6 @@ def norm_generic(entry: dict, provider: dict, cmap: dict, idx: dict | None = Non
     }
 
 
-def norm_codex(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
-    """The local Codex gateway publishes the catalogue's own facts.
-
-    ``context_length`` is the window and ``model_info.input_modalities`` the
-    modality list, so neither has to come from LiteLLM's cost map — which
-    knows none of these ids and would leave all three null. Vision stays
-    False when nothing is declared, because the field is always present here.
-    """
-    mid = entry.get("id", "")
-    mods = (entry.get("model_info") or {}).get("input_modalities") or []
-    return {
-        "name": mid,
-        "ctx": entry.get("context_length"),
-        # Deliberately not from the cost map: it recognises some of these ids
-        # as OpenAI models and answers 128000, while the gateway happily took a
-        # max_tokens=300000 request. Publishing either number would be a
-        # guess dressed as a fact.
-        "max_output": provider["max_output_default"],
-        "vision": "image" in mods,
-        "endpoint_kind": provider["endpoint_kind"],
-    }
-
-
 def norm_qianfan(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
     """Qianfan's /v2/models carries real capability metadata per model.
 
@@ -625,9 +511,7 @@ NORMALIZERS = {
     "qianfan": norm_qianfan,
     # 壹佳API publishes ids only, so the generic normalizer finds nothing and
     # the measured facts come from the provider's `hints` instead.
-    "yjapi": norm_generic,
     "trae": norm_trae,
-    "codex": norm_codex,
 }
 
 # Speed-tier variants that share every fact with their base model. Neither the

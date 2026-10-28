@@ -427,3 +427,83 @@ under the user profile and is not interchangeable: it re-runs the Google OAuth
 flow on every new process and floods the desktop with login prompts. The adapter
 took an absolute path and never resolved through `PATH`, where the Windows copy
 comes first.
+
+---
+
+## Codex (local gateway on `:56895`)
+
+Removed 2026-10-28, with the provider entry, the profile and the aliases. The
+gateway itself is a local adapter (`bridge/archived/codex_bridge.py` era) that
+fronted a Codex account and spoke Anthropic Messages at
+`http://localhost:56895/v1/messages`.
+
+**Why it went.** The catalogue was GPT-only — `gpt-6.1-sol`, `gpt-6-astra`,
+`gpt-6-luna`, `gpt-5.6-sol/terra/luna`, `codex-auto-review` — and every one of
+those is a model that bills by the token. Keeping them one `ccp -m` away from
+the DeepSeek Flash channels is exactly what the DeepSeek-only rule exists to
+prevent (see the README's "Why only DeepSeek"). The subscription was not the
+problem; the catalogue was.
+
+**What was measured, in case it comes back.** Every model was 272k-context and
+text-only. `max_output` was left null on purpose: the gateway accepts
+`max_tokens=300000` on a 272k model, so any cap read from it — or from
+LiteLLM's cost map, which answers 128000 for some of these ids — would be
+fiction. Two catalogue ids (`gpt-image-2.5`, `gpt-reserve`) answered
+`503 no_available_account` and were excluded the way ClinePass's unreachable
+ids are. The bridged copy needed a different LiteLLM prefix: an
+`anthropic/` deployment reached through LiteLLM's own `/v1/messages` is
+forwarded as an OpenAI **Responses** request, and that path answers
+`unsupported_endpoint … not supported by the native Responses service`, so
+`render_config.py` emitted `hosted_vllm/` for this provider.
+
+**Reversal:** re-add the `codex` block to `discover_models.py`'s `PROVIDERS`
+(with `norm_codex` and its `only_models`), re-add the profile and its aliases
+to `registry/profiles.yaml`, then `ccp discover && ccp render && ccp sync`.
+
+---
+
+## 壹佳API (yjapi.shop)
+
+Removed 2026-10-28. A credit re-seller at `https://yjapi.shop/v1`,
+OpenAI-compatible, no Anthropic surface — a bridged provider like ClinePass
+and Qianfan.
+
+**It worked, and it was cheap — for the DeepSeek.** Measured on the same day:
+`deepseek-v4.1-flash` cost **$0.204 for 1.33M tokens** (95 requests). The
+model was not degraded: on three verifiable tasks it answered exactly like
+Qianfan's direct `deepseek-v4.1-flash`, and it streamed at 125–210 tok/s with
+the same 1M window (`ctx 1048576`, from the upstream's own rejection message
+`prompt is too long: 1200185 tokens > 1048576 maximum`).
+
+**What it cost was a probe.** The account's groups are mutually exclusive, and
+the `GptPro` group sells `gpt-6-astra` / `gpt-6-sol` / `gpt-5.6-sol` at **26x
+the per-token rate** — measured **$5.42 for 1.04M tokens**, plus a
+~4000-token system prompt the relay injects into every GPT request. Two
+context-ceiling probes (a 200k-token and an 800k-token prompt against
+`gpt-6-astra`) cost $5.40 of a **$2** balance, and the key has answered
+`429 API_KEY_QUOTA_EXHAUSTED` ever since. The ceiling was free to read out of
+the upstream's error message; the probe was not.
+
+**Three operational facts, each expensive to rediscover.**
+
+- *It must bypass the machine's HTTP proxy.* Through the proxy on
+  172.18.80.1:7898 every request died after ~30s with
+  `UNEXPECTED_EOF_WHILE_READING`, and the one response that did arrive
+  answered a **different** question (`1+1 等于几` → `Red`) carrying the
+  upstream id `qianfan-deepseek-v4.1-flash`. `bridge/loopback.py` keeps it on
+  the bypass list (`DIRECT_HOSTS`).
+- *Its catalogue publishes ids and nothing else* — no window, no output cap,
+  no modality flag — so the facts lived in `hints`, measured by hand.
+- *Its groups are either/or.* Switching to the GPT group removes
+  `deepseek-v4.1-flash` from the allow-list: it answers `404 "Model … is not
+  available for this group"`.
+
+**Why it is gone.** Not because it is bad — because a $2 balance cannot
+survive one careless probe, and the DeepSeek-only rule (README, "Why only
+DeepSeek") is the answer to that.
+
+**Reversal:** re-add the `yjapi` block to `discover_models.py`'s `PROVIDERS`
+(including its `hints`), re-add the profile and the `yjapi-deepseek-v4.1-flash`
+alias to `registry/profiles.yaml`, put the key in `proxy.env` as
+`YJAPI_API_KEY`, then `ccp discover && ccp render && ccp sync`. The key must
+be recharged first: it is overdrawn, not merely empty.

@@ -113,6 +113,59 @@ BENCH_ROUNDS = 3
 BENCH_TOKENS = 1000
 MAX_TOKENS = DEFAULT_TOKENS
 
+# ── The spend guard ────────────────────────────────────────────────────
+# A probe is a real request against a real account, and on a relay that
+# bills per token the bill is real too. Measured 2026-10-28 on yjapi.shop:
+# one probe of a 800k-token prompt against gpt-6-astra cost $4.80, two
+# probes cost $5.42, and the account carried $2 — so the account ended up
+# overdrawn and answered 429 for everything afterwards.
+#
+# The tokens here are the only currency every provider shares, so the budget
+# is counted in tokens and the plan is refused *before* the first request.
+# The default is deliberately small: a full sweep of the primary tiers at
+# the default settings is about 20k tokens, so 150k leaves room for the
+# sweep plus a benchmark without ever approaching a real balance.
+DEFAULT_BUDGET_TOKENS = 150_000
+
+# What one round costs. The probe sends a prompt that scales with the token
+# budget (`_bulk_prompt`: a list of integers sized to the budget) and asks
+# for `max_tokens` of output, so a round spends roughly twice its budget in
+# tokens. The factor is 3 rather than 2 because a reasoning model bills the
+# thinking as well, and because being wrong in this direction is cheap
+# while being wrong the other way is what drains an account.
+ROUND_TOKEN_FACTOR = 3
+
+
+class Budget:
+    """A token ceiling for one probe run, spent round by round.
+
+    The plan is checked before the run starts (so a sweep that cannot fit is
+    refused rather than half-executed), and each round claims its share as
+    it goes (so a run that turns out more expensive than planned stops
+    instead of finishing).
+    """
+
+    def __init__(self, total: int):
+        self.total = max(0, int(total))
+        self.spent = 0
+        self.exhausted = False
+
+    def plan_cost(self, models: int, rounds: int, max_tokens: int) -> int:
+        """What the whole run would cost, if every round used its budget."""
+        return models * rounds * max_tokens * ROUND_TOKEN_FACTOR
+
+    def claim(self, tokens: int) -> bool:
+        """Reserve `tokens`; False when the budget cannot cover them."""
+        if self.spent + tokens > self.total:
+            self.exhausted = True
+            return False
+        self.spent += tokens
+        return True
+
+    def remaining(self) -> int:
+        return max(0, self.total - self.spent)
+
+
 
 def default_timeout(tokens: int) -> float:
     """Per-round timeout that fits the work the probe asked for.
@@ -771,6 +824,7 @@ async def probe_single_model(
     prompt: str = DEFAULT_PROMPT,
     semaphore: Optional[asyncio.Semaphore] = None,
     tools: Optional[List[Dict[str, Any]]] = None,
+    budget: Optional[Budget] = None,
 ) -> Dict[str, Any]:
     """Multi-round streaming probe; statistical TTFT, TPS and stability.
 
@@ -787,6 +841,21 @@ async def probe_single_model(
     async def _do():
         round_results: List[Dict[str, Any]] = []
         for r_idx in range(rounds):
+            # The budget is claimed before the request, not after it: a round
+            # that cannot be afforded must not be sent, because the point of
+            # the guard is that the money is never spent.
+            if budget is not None and not budget.claim(max_tokens * ROUND_TOKEN_FACTOR):
+                round_results.append({
+                    "ok": False,
+                    "status": "Budget",
+                    "error_msg": f"probe budget of {budget.total} tokens is spent",
+                    "ttft_ms": 0.0,
+                    "tps": 0.0,
+                    "total_ms": 0.0,
+                    "tokens": 0,
+                    "cached_tokens": 0,
+                })
+                break
             res = await _probe_single_round(
                 client=client,
                 wire_name=wire_name,
@@ -894,6 +963,7 @@ async def probe_all(
     max_tokens: int = DEFAULT_TOKENS,
     prompt: str = DEFAULT_PROMPT,
     tools: Optional[List[Dict[str, Any]]] = None,
+    budget: Optional[Budget] = None,
 ) -> List[Dict[str, Any]]:
     """Probe every candidate concurrently, each against its own endpoint."""
     # The bridge and the Trae adapter live on this machine, and a request to
@@ -918,6 +988,7 @@ async def probe_all(
                 prompt=prompt,
                 semaphore=sem,
                 tools=tools,
+                budget=budget,
             )
             for m in models
         ]
@@ -1224,6 +1295,9 @@ def main() -> int:
     ap.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     ap.add_argument("--agent", action="store_true",
                     help="Agent readiness: time to first tool call, and whether one comes at all")
+    ap.add_argument("--budget-tokens", type=int, default=None,
+                    help=f"Token ceiling for the whole probe run (default: {DEFAULT_BUDGET_TOKENS}). "
+                         "A run whose plan exceeds it is refused before the first request.")
 
     args = ap.parse_args()
 
@@ -1258,6 +1332,27 @@ def main() -> int:
         print(f"No models found matching target '{args.target}'. Run 'ccp models' to see options.", file=sys.stderr)
         return 1
 
+    # ── The spend guard ────────────────────────────────────────────────
+    # A probe is a bill. The plan is costed before anything is sent, and a
+    # plan that does not fit the budget is refused outright — half-running it
+    # is worse than refusing, because the half that ran is already spent.
+    budget = Budget(args.budget_tokens if args.budget_tokens is not None else DEFAULT_BUDGET_TOKENS)
+    plan = budget.plan_cost(len(candidates), rounds, tokens)
+    if plan > budget.total:
+        print(red(f"Refused: this probe would cost about {plan:,} tokens "
+                  f"({len(candidates)} models x {rounds} rounds x {tokens} tokens) "
+                  f"and the budget is {budget.total:,}."), file=sys.stderr)
+        print("  Probe fewer models (name one instead of sweeping), lower --tokens, "
+              f"or pass --budget-tokens {plan} to say you mean it.", file=sys.stderr)
+        return 1
+    # `--all` is the expensive door: it probes every model the bridge knows,
+    # which on a per-token relay is the difference between a health check and
+    # an invoice. It has to be asked for by name, not swept into by accident.
+    if args.all and args.budget_tokens is None:
+        print(red("Refused: --all probes every model the bridge serves, and a probe is a bill."), file=sys.stderr)
+        print(f"  Say how much you are willing to spend: --all --budget-tokens {budget.total}", file=sys.stderr)
+        return 1
+
     # The deadline follows the work: a probe that asks for more tokens needs
     # a longer first byte, and cutting it short reports a slow model as a
     # dead one.
@@ -1278,8 +1373,17 @@ def main() -> int:
             max_tokens=tokens,
             prompt=prompt,
             tools=tools,
+            budget=budget,
         )
     )
+
+    # The bill, in the currency the account is billed in.
+    if not args.json:
+        spend = dim(f"probe spend: ~{budget.spent:,} of {budget.total:,} tokens")
+        if budget.exhausted:
+            spend = yellow(f"probe spend: ~{budget.spent:,} of {budget.total:,} tokens — "
+                           "budget spent, the rest was not sent")
+        print(spend)
 
     if args.json:
         print(json.dumps(results, indent=2))

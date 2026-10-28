@@ -73,7 +73,7 @@ def _emitted_names() -> set[str]:
 
 
 def test_it_changes_only_the_two_lines_that_carry_the_model():
-    updated, seen = hermes_config.rewrite(PROFILE, "codex-gpt-6.1-sol")
+    updated, seen = hermes_config.rewrite(PROFILE, "cline-deepseek-v4.1-flash")
 
     assert seen["model"] == "main"
     assert seen["provider"] == "custom:ccp"
@@ -83,8 +83,8 @@ def test_it_changes_only_the_two_lines_that_carry_the_model():
     assert len(before) == len(after)
     differing = [i for i, (b, a) in enumerate(zip(before, after)) if b != a]
     assert differing == [3, 16], "only `model.default` and `providers.ccp.default_model` may move"
-    assert after[3] == "  default: codex-gpt-6.1-sol"
-    assert after[16] == "    default_model: codex-gpt-6.1-sol"
+    assert after[3] == "  default: cline-deepseek-v4.1-flash"
+    assert after[16] == "    default_model: cline-deepseek-v4.1-flash"
     # Everything else is byte-identical, comments included.
     assert [l for i, l in enumerate(after) if i not in differing] == \
            [l for i, l in enumerate(before) if i not in differing]
@@ -124,11 +124,13 @@ def test_a_last_line_without_a_newline_does_not_gain_one():
 
 def test_a_folded_or_quoted_value_keeps_its_quoting():
     text = PROFILE.replace("  default: main", '  default: "main"')
-    updated, _ = hermes_config.rewrite(text, "codex-gpt-6.1-sol")
-    assert '  default: "codex-gpt-6.1-sol"' in updated
+    updated, _ = hermes_config.rewrite(text, "cline-deepseek-v4.1-flash")
+    assert '  default: "cline-deepseek-v4.1-flash"' in updated
 
 
-@pytest.mark.parametrize("provider", ["cline", "codex", "deepseek", "minimax", "opendesign", "qianfan", "trae"])
+@pytest.mark.parametrize(
+    "provider", ["cline", "deepseek", "minimax", "opendesign", "qianfan", "trae"]
+)
 def test_every_provider_resolves_to_a_name_the_proxy_actually_emits(provider):
     """The whole point of the command: a name that a deployment answers.
 
@@ -148,13 +150,13 @@ def test_a_provider_without_an_alias_uses_the_registry_id():
     assert hermes_config.resolve("minimax", None)["name"] == "MiniMax-M3.1-Flash"
     assert hermes_config.resolve("deepseek", None)["name"] == "deepseek-flash"
     # ...while an aliased one prefers the short name, never the upstream id.
-    assert hermes_config.resolve("codex", None)["name"] == "codex-gpt-6.1-sol"
+    assert hermes_config.resolve("cline", None)["name"] == "cline-deepseek-v4.1-flash"
 
 
 def test_an_explicit_model_in_the_catalogue_resolves_case_insensitively():
-    info = hermes_config.resolve("codex", "GPT-6-LUNA")
-    assert info["name"] == "codex-gpt-6-luna"
-    assert info["registry_model"] == "gpt-6-luna", "the registry's spelling is what is written"
+    info = hermes_config.resolve("minimax", "MINIMAX-M3.1-FLASH")
+    assert info["name"] == "MiniMax-M3.1-Flash"
+    assert info["registry_model"] == "MiniMax-M3.1-Flash", "the registry's spelling is what is written"
 
 
 def test_a_profile_on_another_provider_without_a_ccp_block_gets_one(tmp_path):
@@ -169,10 +171,10 @@ def test_a_profile_on_another_provider_without_a_ccp_block_gets_one(tmp_path):
         .replace("    default_model: main\n", "")
     )
     bad.write_text(text)
-    hermes_config.main(["render", "codex", "--config", str(bad), "--no-backup"])
+    hermes_config.main(["render", "cline", "--config", str(bad), "--no-backup"])
     doc = yaml.safe_load(bad.read_text())
     assert doc["model"]["provider"] == "custom:ccp", "the entry point must move too"
-    assert doc["providers"]["ccp"]["default_model"] == "codex-gpt-6.1-sol"
+    assert doc["providers"]["ccp"]["default_model"] == "cline-deepseek-v4.1-flash"
     assert doc["providers"]["ccp"]["base_url"] == hermes_config.BRIDGE_BASE_URL
     assert doc["providers"]["ccp"]["api_key"] == hermes_config.BRIDGE_KEY
     # the comment block the file was carrying has to survive
@@ -188,10 +190,10 @@ def test_the_block_lands_at_the_top_level(tmp_path):
     """
     cfg = tmp_path / "config.yaml"
     cfg.write_text(PROFILE.replace("    default_model: main\n", ""))
-    hermes_config.main(["render", "codex", "--config", str(cfg), "--no-backup"])
+    hermes_config.main(["render", "cline", "--config", str(cfg), "--no-backup"])
     doc = yaml.safe_load(cfg.read_text())
     assert "ccp" in doc["providers"], doc.keys()
-    assert doc["providers"]["ccp"]["default_model"] == "codex-gpt-6.1-sol"
+    assert doc["providers"]["ccp"]["default_model"] == "cline-deepseek-v4.1-flash"
     # and the top-level key is really at column 0 in the text
     assert "\nproviders:\n" in cfg.read_text()
 
@@ -231,11 +233,11 @@ def test_a_bot_still_on_an_old_provider_moves_all_the_way(tmp_path):
     """
     cfg = tmp_path / "config.yaml"
     cfg.write_text(PROFILE.replace("provider: custom:ccp", "provider: commandcode"))
-    hermes_config.main(["render", "codex", "--config", str(cfg), "--no-backup"])
+    hermes_config.main(["render", "cline", "--config", str(cfg), "--no-backup"])
     doc = yaml.safe_load(cfg.read_text())
     assert doc["model"]["provider"] == "custom:ccp", "the entry point must move, not just the name"
-    assert doc["model"]["default"] == "codex-gpt-6.1-sol"
-    assert doc["providers"]["ccp"]["default_model"] == "codex-gpt-6.1-sol"
+    assert doc["model"]["default"] == "cline-deepseek-v4.1-flash"
+    assert doc["providers"]["ccp"]["default_model"] == "cline-deepseek-v4.1-flash"
     assert doc["providers"]["imfl"]["default_model"] == "MiniMax-M3.1-Flash"
 
 
@@ -243,14 +245,14 @@ def test_an_unknown_model_lists_the_catalogue(tmp_path):
     cfg = tmp_path / "config.yaml"
     cfg.write_text(PROFILE)
     with pytest.raises(SystemExit) as e:
-        hermes_config.main(["render", "codex", "gpt-9", "--config", str(cfg)])
-    assert "gpt-6.1-sol" in str(e.value)
+        hermes_config.main(["render", "cline", "no-such-model", "--config", str(cfg)])
+    assert "deepseek/deepseek-v4.1-flash" in str(e.value)
 
 
 def test_a_dry_run_writes_nothing(tmp_path, capsys):
     cfg = tmp_path / "config.yaml"
     cfg.write_text(PROFILE)
-    assert hermes_config.main(["render", "codex", "--config", str(cfg), "--dry-run"]) == 0
+    assert hermes_config.main(["render", "cline", "--config", str(cfg), "--dry-run"]) == 0
     assert cfg.read_text() == PROFILE
     assert "CHANGED=0" in capsys.readouterr().out
 
@@ -258,10 +260,10 @@ def test_a_dry_run_writes_nothing(tmp_path, capsys):
 def test_rerunning_is_a_no_op(tmp_path, capsys):
     cfg = tmp_path / "config.yaml"
     cfg.write_text(PROFILE)
-    hermes_config.main(["render", "codex", "--config", str(cfg), "--no-backup"])
+    hermes_config.main(["render", "cline", "--config", str(cfg), "--no-backup"])
     written = cfg.read_text()
     assert "CHANGED=1" in capsys.readouterr().out
-    hermes_config.main(["render", "codex", "--config", str(cfg), "--no-backup"])
+    hermes_config.main(["render", "cline", "--config", str(cfg), "--no-backup"])
     out = capsys.readouterr().out
     assert "CHANGED=0" in out and "already up to date" in out
     assert cfg.read_text() == written
@@ -270,7 +272,7 @@ def test_rerunning_is_a_no_op(tmp_path, capsys):
 def test_a_rewrite_backs_the_profile_up(tmp_path):
     cfg = tmp_path / "config.yaml"
     cfg.write_text(PROFILE)
-    hermes_config.main(["render", "codex", "--config", str(cfg)])
+    hermes_config.main(["render", "cline", "--config", str(cfg)])
     backups = list(tmp_path.glob("config.yaml.bak.*"))
     assert len(backups) == 1
     assert backups[0].read_text() == PROFILE, "the backup must be the file as it was"
@@ -279,7 +281,7 @@ def test_a_rewrite_backs_the_profile_up(tmp_path):
 def test_the_profile_name_is_reported_so_the_unit_can_be_restarted(tmp_path, capsys):
     cfg = tmp_path / "config.yaml"
     cfg.write_text(PROFILE)
-    hermes_config.main(["render", "codex", "--config", str(cfg), "--no-backup", "--profile", "imfl"])
+    hermes_config.main(["render", "cline", "--config", str(cfg), "--no-backup", "--profile", "imfl"])
     assert re.search(r"^PROFILE=imfl$", capsys.readouterr().out, re.M)
 
 def _install_gateway(home: Path, name: str) -> None:

@@ -288,9 +288,9 @@ def test_group_is_one_model_name_with_several_deployments():
     profiles["groups"] = {
         "daily": {
             "members": ["cline-deepseek-v4.1-flash", "opendesign-deepseek-v4.1-flash",
-                        "trae-glm-5.3"],
+                        "qianfan-deepseek-v4.1-flash"],
             "routing_strategy": "usage-based-routing-v2",
-            "fallback": ["opendesign-deepseek-v4-pro"],
+            "fallback": ["qianfan-deepseek-v4.1-flash"],
         }
     }
     deps = _deployments(_render_with(profiles))
@@ -299,7 +299,7 @@ def test_group_is_one_model_name_with_several_deployments():
     # three *different* upstreams, each keeping its provider's key
     assert len({m for _, m, _ in group}) == 3
     assert {k for _, _, k in group} == {
-        "CLINE_API_KEY", "OPENDESIGN_API_KEY", "TRAECLI_PERSONAL_ACCESS_TOKEN"}
+        "CLINE_API_KEY", "OPENDESIGN_API_KEY", "QIANFAN_API_KEY"}
 
 
 def test_group_members_join_their_account_pools():
@@ -327,12 +327,12 @@ def test_group_emits_router_settings_that_litellm_accepts():
         "daily": {
             "members": ["cline-deepseek-v4.1-flash", "opendesign-deepseek-v4.1-flash"],
             "routing_strategy": "usage-based-routing-v2",
-            "fallback": ["opendesign-deepseek-v4-pro"],
+            "fallback": ["qianfan-deepseek-v4.1-flash"],
         }
     }
     parsed = yaml.safe_load(_render_with(profiles))
     rs = parsed["router_settings"]
-    assert rs["fallbacks"] == [{"daily": ["opendesign-deepseek-v4-pro"]}]
+    assert rs["fallbacks"] == [{"daily": ["qianfan-deepseek-v4.1-flash"]}]
     rg = rs["routing_groups"][0]
     assert rg["group_name"] == "daily"
     # the group claims exactly the one model_name its deployments share
@@ -356,13 +356,13 @@ def test_group_fallback_chain_is_one_ordered_list():
     profiles["groups"] = {
         "daily": {
             "members": ["opendesign-deepseek-v4.1-flash"],
-            "fallback": ["cline-deepseek-v4.1-flash", "opendesign-deepseek-v4-pro"],
+            "fallback": ["cline-deepseek-v4.1-flash", "qianfan-deepseek-v4.1-flash"],
         }
     }
     parsed = yaml.safe_load(_render_with(profiles))
     fb = parsed["router_settings"]["fallbacks"]
     assert fb == [
-        {"daily": ["cline-deepseek-v4.1-flash", "opendesign-deepseek-v4-pro"]}
+        {"daily": ["cline-deepseek-v4.1-flash", "qianfan-deepseek-v4.1-flash"]}
     ], f"the chain must stay one entry in order, got {fb}"
 
 
@@ -462,32 +462,32 @@ def test_bridged_profiles_still_use_alias_and_1m_marker():
     assert env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:4000"
 
 
-def test_codex_is_native_and_answers_on_the_loopback():
-    """Codex is a local gateway that speaks Anthropic, so nothing may be bridged.
+def test_trae_is_native_and_answers_on_the_loopback():
+    """Trae is a local adapter that speaks Anthropic, so nothing may be bridged.
 
     Two things are easy to get wrong here and neither fails loudly at runtime:
-    a native profile must advertise the REAL window (272k — under 1M, so a
-    `[1m]` marker or a 1048000 context would let Claude Code overrun it), and
-    its tiers must not drift onto an id the gateway answers 503 for.
+    a native profile must advertise the REAL window (1M — the discovered value,
+    not a hand-typed number), and its tiers must not drift onto an id the
+    adapter does not answer.
     """
     doc, profiles = _load()
     models, providers = render_config.index_models(doc)
-    spec = profiles["profiles"]["codex"]
+    spec = profiles["profiles"]["trae"]
     assert spec["native"] is True
-    assert providers["codex"]["api_base"].startswith("http://localhost:")
+    assert providers["trae"]["api_base"].startswith("http://127.0.0.1:")
 
-    known = {m for (p, m) in models if p == "codex"}
-    assert known, "codex models missing from registry/models.yaml"
+    known = {m for (p, m) in models if p == "trae"}
+    assert known, "trae models missing from registry/models.yaml"
     for tier, tspec in spec["tiers"].items():
         assert tspec["model"] in known, f"tier {tier} -> {tspec['model']} not in the catalogue"
 
     env = json.loads(
         render_config.render_profile(
-            "codex", spec, models, providers, render_config._alias_index(profiles), profiles
+            "trae", spec, models, providers, render_config._alias_index(profiles), profiles
         )
     )["env"]
-    assert env["ANTHROPIC_BASE_URL"] == providers["codex"]["api_base"]
-    assert env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] == "272000"
+    assert env["ANTHROPIC_BASE_URL"] == providers["trae"]["api_base"]
+    assert env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] == "1000000"
     for key, val in env.items():
         assert "[1m]" not in str(val), f"{key} carries the bridged marker: {val}"
 
@@ -569,13 +569,36 @@ def _media_rules():
 
 
 def test_media_rules_name_the_model_that_actually_failed():
-    """The Qianfan flash id is text-only upstream and must be in the list.
+    """The Trae Flash id is text-only upstream and must be in the list.
 
     This is the id that answered 400 "image_url is only supported by certain
-    models" and killed a session whose history carried a screenshot.
+    models" and killed a session whose history carried a screenshot — Trae's
+    adapter substitutes "[image/png content is not supported by current model]"
+    instead. The Qianfan id that failed the same way
+    (`qianfan-deepseek-v4-flash`) is no longer exposed: the Token Plan only
+    serves deepseek-v4.1-flash, which reads images, so the rule follows the
+    registry to the one model that is still text-only.
     """
-    _models, _profiles, text_only = _media_rules()
-    assert "qianfan-deepseek-v4-flash" in text_only
+    doc, profiles = _load()
+    models, providers = render_config.index_models(doc)
+    emitted: dict[str, set[str]] = {}
+    render_config.render_config(models, providers, profiles, emitted)
+    text_only = render_config.render_media_rules(models, profiles, emitted)
+
+    assert "trae-deepseek-v4.1-flash" in text_only
+
+    # The list is exactly the registry's text-only models: every model the
+    # registry records as vision=false, under the name the client sends, and
+    # nothing else. (The `[1m]` spelling is the same model — the watchdog
+    # strips the marker before the request goes upstream. The other direction,
+    # no name that is not text-only, is pinned by its own test below.)
+    expected = {
+        render_config.litellm_key_for(profiles, pname, mname)
+        for (pname, mname), meta in models.items()
+        if meta.get("vision") is False
+    }
+    assert expected, "the registry must still record a text-only model"
+    assert {n.split("[", 1)[0] for n in text_only} == expected
 
 
 def test_media_rules_spare_the_models_that_can_read_images():
@@ -583,8 +606,9 @@ def test_media_rules_spare_the_models_that_can_read_images():
     loss of what the user attached."""
     _models, _profiles, text_only = _media_rules()
     assert "qianfan-deepseek-v4.1-flash" not in text_only
-    assert "qianfan-glm-5.3-flash" not in text_only
     assert "opendesign-deepseek-v4.1-flash" not in text_only
+    assert "deepseek-flash" not in text_only
+    assert "cline-deepseek-v4.1-flash" not in text_only
 
 
 def test_media_rules_follow_the_registry_not_a_second_list():
@@ -648,7 +672,7 @@ def test_rendered_request_rules_carry_the_media_rule():
     rules_path = REPO / "bridge" / "request_rules.json"
     rules = json.loads(rules_path.read_text())
     assert "media_downgrade" in rules
-    assert "qianfan-deepseek-v4-flash" in rules["media_downgrade"]
+    assert "trae-deepseek-v4.1-flash" in rules["media_downgrade"]
 
 
 

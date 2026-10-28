@@ -924,7 +924,12 @@ render_registry() {
   fi
   local py
   py=$(ccp_python)
-  "$py" "$repo_dir/bridge/render_config.py" "$@"
+  # --prune: delete the template of a profile that no longer exists. A stale
+  # template keeps a dead profile alive — the audit that decides which
+  # installed profiles are dead reads the templates as well as the running
+  # bridge, so a leftover `minimax.json.example` still names MiniMax-M3.1-Flash
+  # and the installed minimax profile is never flagged.
+  "$py" "$repo_dir/bridge/render_config.py" --prune "$@"
 }
 
 discover_models() {
@@ -993,6 +998,42 @@ for p in doc.get("providers", []):
 PY
 }
 
+# A profile installed from a template carries the template's placeholder
+# credential (`YOUR_OPENDESIGN_API_KEY`): the repository must not carry a
+# secret. The real one lives in proxy.env, so it is filled in here — a
+# profile whose placeholder survived installation answers 401 and reads as a
+# broken provider rather than as an unfinished install.
+#
+# proxy.env is the only source. A key the user revoked is gone from there,
+# and it must not come back from an archived profile.
+fill_placeholder_credential() {
+  local base="$1" name="$2"
+  local live="$PROVIDERS_DIR/$base"
+  [ -f "$live" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local tok
+  tok=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$live" 2>/dev/null)
+  case "$tok" in
+    ""|YOUR_*) : ;;
+    *) return 0 ;;  # a real credential is already there
+  esac
+  local repo_dir py_bin real
+  repo_dir=$(ccp_repo_dir)
+  py_bin=$(ccp_python)
+  real=$("$py_bin" "$repo_dir/bridge/profile_credential.py" "$name" 2>/dev/null || true)
+  if [ -z "$real" ]; then
+    echo -e "  \033[33m! $name has no credential: put it in ~/.config/litellm/proxy.env as <PROVIDER>_API_KEY\033[0m" >&2
+    return 0
+  fi
+  local tmp
+  tmp=$(mktemp)
+  if jq --arg t "$real" '.env.ANTHROPIC_AUTH_TOKEN = $t' "$live" > "$tmp" 2>/dev/null && mv "$tmp" "$live"; then
+    echo -e "  \033[33m~ Filled $name's credential from proxy.env\033[0m"
+  else
+    rm -f "$tmp"
+  fi
+}
+
 sync_providers() {
   local repo_dir
   repo_dir=$(ccp_repo_dir)
@@ -1031,6 +1072,7 @@ sync_providers() {
     if [ ! -f "$PROVIDERS_DIR/$base" ]; then
       cp "$ex" "$PROVIDERS_DIR/$base"
       echo -e "  \033[32m✔ Added new provider template: $base\033[0m"
+      fill_placeholder_credential "$base" "$name"
       added=$((added + 1))
     else
       # Reconcile: refresh only the registry-derived context fields, keep
@@ -1415,7 +1457,7 @@ main() {
         case "$a" in
           -*) opts+=("$a")
               case "$a" in
-                --timeout|--tokens|--rounds|--sort|--concurrency|--base-url|-n)
+                --timeout|--tokens|--rounds|--sort|--concurrency|--base-url|--budget-tokens|-n)
                   expect_value=1 ;;
               esac ;;
           *) target+=("$a") ;;
