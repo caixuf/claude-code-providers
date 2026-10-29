@@ -943,13 +943,11 @@ Readings are cached for two minutes because these endpoints are rate limited.
 
 > No provider in the current set uses accounts yet — that part was built for a
 > second CodeBuddy or CommandCode login, both archived. The three groups in
-> `registry/profiles.yaml` (`main`/`pro`/`flash`) are curation, not usage: each
-> pairs one subscription with another vendor's, so no single subscription is a
-> hard stop. All three resolve to `deepseek-v4.1-flash`; the names stay separate
-> because the client picks a tier by name, and a `pro` that quietly answered with
-> a different model would be answering a question nobody asked. `main` leads with
-> `opendesign` and falls back to `cline`; `pro` and `flash` do the same. They are
-> illustrative in the same sense — swap the members for whatever you actually run.
+> `registry/profiles.yaml` (`main`/`pro`/`flash`) are curation, not usage.
+> `main` and `pro` keep their existing DeepSeek routes. `flash` is
+> pinned to the text-only `beam-free` route, including during the scheduled
+> Qianfan window; it has no automatic fallback to a different model. A caller
+> needing image understanding must use a vision-capable route instead.
 >
 > **Qianfan is the one member whose price depends on the clock** — full rate by
 > day, 20% after 21:00 — so it is deliberately absent from the committed

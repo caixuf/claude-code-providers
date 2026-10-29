@@ -2,19 +2,19 @@
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "sk-ccp-litellm-local",
     "ANTHROPIC_BASE_URL": "http://127.0.0.1:4000",
-    "ANTHROPIC_MODEL": "qianfan-deepseek-v4.1-flash[1m]",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "qianfan-deepseek-v4.1-flash[1m]",
-    "ANTHROPIC_DEFAULT_FABLE_MODEL": "qianfan-deepseek-v4.1-flash[1m]",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "qianfan-deepseek-v4.1-flash[1m]",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "qianfan-deepseek-v4.1-flash[1m]",
-    "ANTHROPIC_SMALL_FAST_MODEL": "qianfan-deepseek-v4.1-flash[1m]",
+    "ANTHROPIC_MODEL": "qianfan-deepseek-v4.1-flash-1017[1m]",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "qianfan-deepseek-v4.1-flash-1017[1m]",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "qianfan-deepseek-v4.1-flash-1017[1m]",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "qianfan-deepseek-v4.1-flash-1017[1m]",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "qianfan-deepseek-v4.1-flash-1017[1m]",
+    "ANTHROPIC_SMALL_FAST_MODEL": "qianfan-deepseek-v4.1-flash-1017[1m]",
     "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1441792",
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1441792"
   },
   "permissions": {
     "defaultMode": "bypassPermissions"
   },
-  "model": "qianfan-deepseek-v4.1-flash[1m]",
+  "model": "qianfan-deepseek-v4.1-flash-1017[1m]",
   "autoUpdatesChannel": "stable",
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark"

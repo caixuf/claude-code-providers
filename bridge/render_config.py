@@ -430,6 +430,13 @@ def render_clamp(models: dict, providers: dict, profiles_doc: dict) -> dict:
         cv = clamp_value(meta)
         if cv:
             out.setdefault(name, cv)
+    # Text-only groups such as Beam need their own output cap. Keep existing
+    # behavior for other groups; use the lowest cap only when all are known.
+    for group, metas in _group_metadata(models, profiles_doc).items():
+        caps = [clamp_value(meta) for meta in metas]
+        if (caps and all(meta.get("vision") is False for meta in metas)
+                and all(cap is not None for cap in caps)):
+            out[group] = min(caps)
     # explicit fallback for models not in the map: use the most common cap
     # (the bridged gateways all share one), NOT the global minimum, which can
     # be a tiny obscure model and would over-truncate.
@@ -443,6 +450,18 @@ def render_clamp(models: dict, providers: dict, profiles_doc: dict) -> dict:
 def _np_providers(profiles_doc: dict) -> dict:
     """Non-discovered provider definitions (copilot, *-native) from profiles.yaml."""
     return profiles_doc.get("providers") or {}
+
+
+def _group_metadata(models: dict, profiles_doc: dict) -> dict[str, list[dict]]:
+    groups = {}
+    for name, spec in (profiles_doc.get("groups") or {}).items():
+        metas = []
+        for member in spec.get("members") or []:
+            provider, model = _split_member(profiles_doc, models, member)
+            metas.append(models.get((provider, model), {}) if provider else {})
+        if metas:
+            groups[name] = metas
+    return groups
 
 
 def synth_meta(profiles_doc: dict, pname: str, mname: str) -> dict:
@@ -512,6 +531,9 @@ def render_media_rules(
         for name in names:
             if vision_of(pname, name) is False:
                 text_only.add(name)
+    for name, metas in _group_metadata(models, profiles_doc).items():
+        if all(meta.get("vision") is False for meta in metas):
+            text_only.add(name)
     return sorted(text_only)
 
 
@@ -577,6 +599,13 @@ def render_field_rules(
             fields = fields_of(pname, name)
             if fields:
                 out[name] = sorted(set(fields))
+    for name, metas in _group_metadata(models, profiles_doc or {}).items():
+        group_fields = set()
+        for meta in metas:
+            for field in meta.get("unsupported_fields") or []:
+                group_fields.add(field)
+        if group_fields:
+            out[name] = sorted(group_fields)
     return out
 def render_strip_reasoning_rules(
     models: dict, profiles_doc: dict, emitted_by_provider: dict[str, set[str]]

@@ -67,13 +67,14 @@ providers:
     endpoint_kind: openai
     auth_env: QIANFAN_API_KEY
     models:
-      - name: deepseek-v4.1-flash
+      - name: deepseek-v4.1-flash-1017
         ctx: 1441792
         max_output: 393216
         vision: true
         system_array: null
         endpoint_kind: openai
-        aliases: []
+        aliases:
+          - deepseek-v4.1-flash
         tiers: []
   - name: opencode
     api_base: https://opencode.ai/inference/go/anthropic

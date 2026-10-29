@@ -16,8 +16,8 @@ hides real edits. The committed file now always describes the daytime
 arrangement; this script writes registry/profiles.local.yaml, which is
 git-ignored and which render merges over the top-level keys it names.
 
-    qianfan_window.py --on         # 21:00 - Qianfan first, OpenDesign then Cline
-    qianfan_window.py --off        # 08:00 - OpenDesign first, Cline stands by
+    qianfan_window.py --on         # 21:00 - Qianfan first for main/pro
+    qianfan_window.py --off        # 08:00 - OpenDesign first for main/pro
     qianfan_window.py --status     # what is in effect right now, no writes
     qianfan_window.py --show       # the override file as it stands
 
@@ -46,22 +46,19 @@ ON = """# Written by bridge/qianfan_window.py -- inside the 21:00-08:00 window, 
 groups:
   main:
     members:
-    - qianfan-deepseek-v4.1-flash
+    - qianfan-deepseek-v4.1-flash-1017
     fallback:
     - opendesign-deepseek-v4.1-flash
     - cline-deepseek-v4.1-flash
   pro:
     members:
-    - qianfan-deepseek-v4.1-flash
+    - qianfan-deepseek-v4.1-flash-1017
     fallback:
     - opendesign-deepseek-v4.1-flash
     - cline-deepseek-v4.1-flash
   flash:
     members:
-    - qianfan-deepseek-v4.1-flash
-    fallback:
-    - opendesign-deepseek-v4.1-flash
-    - cline-deepseek-v4.1-flash
+    - beam-free
 """
 
 

@@ -129,11 +129,11 @@ profiles:
     # One model on every tier: deepseek-v4.1-flash is the 1.44M-context one
     # and it reads images, so it backs image pasting as well as the text.
     tiers:
-      default: {model: deepseek-v4.1-flash}
-      opus:    {model: deepseek-v4.1-flash}
-      fable:   {model: deepseek-v4.1-flash}
-      sonnet:  {model: deepseek-v4.1-flash}
-      haiku:   {model: deepseek-v4.1-flash}
+      default: {model: deepseek-v4.1-flash-1017}
+      opus:    {model: deepseek-v4.1-flash-1017}
+      fable:   {model: deepseek-v4.1-flash-1017}
+      sonnet:  {model: deepseek-v4.1-flash-1017}
+      haiku:   {model: deepseek-v4.1-flash-1017}
 
 
   # ── OpenCode Go (opencode.ai) ──────────────────────────────────────────
@@ -216,7 +216,8 @@ aliases:
   # nothing read the alias copy at all.
   cline-deepseek-v4.1-flash:            {provider: cline, model: deepseek/deepseek-v4.1-flash}
   # Qianfan: bridged, so these resolve through LiteLLM like the cline alias.
-  qianfan-deepseek-v4.1-flash:          {provider: qianfan, model: deepseek-v4.1-flash}
+  qianfan-deepseek-v4.1-flash:          {provider: qianfan, model: deepseek-v4.1-flash-1017}
+  qianfan-deepseek-v4.1-flash-1017:     {provider: qianfan, model: deepseek-v4.1-flash-1017}
   # OpenDesign: hot-swap between the aggregator's rungs with `ccp -m`
   opendesign-deepseek-v4.1-flash:       {provider: opendesign, model: deepseek-v4.1-flash}
   opencode-deepseek-v4.1-flash:        {provider: opencode, model: deepseek-v4.1-flash}
@@ -267,11 +268,8 @@ accounts: {}
 # NOTE: LiteLLM allows a model in at most one group, so keep membership
 # disjoint. A member that is also an alias keeps its own entry.
 #
-# One model, three names. Every group is deepseek-v4.1-flash — `main`, `pro`
-# and `flash` are kept as three entry points because the client picks tiers by
-# name, not because they mean different rungs any more. A `pro` that quietly
-# answered with deepseek-v4-pro would be a different model than the one asked
-# for, so all three resolve to the same upstream id.
+# `main` and `pro` retain their current DeepSeek route. `flash` is the
+# text-only Beam fast route; keep it stable in the Qianfan window override too.
 #
 # The members are OpenDesign, with Cline as the stand-in. Qianfan is NOT in this
 # block: its Token Plan is metered by wall-clock time — full price by day, 20%
@@ -294,18 +292,16 @@ groups:
     members:
     - opendesign-deepseek-v4.1-flash
     fallback:
-    - qianfan-deepseek-v4.1-flash
+    - qianfan-deepseek-v4.1-flash-1017
     # <<< qianfan-window
   pro:
     members:
     - opendesign-deepseek-v4.1-flash
     fallback:
-    - qianfan-deepseek-v4.1-flash
+    - qianfan-deepseek-v4.1-flash-1017
   flash:
     members:
-    - opendesign-deepseek-v4.1-flash
-    fallback:
-    - qianfan-deepseek-v4.1-flash
+    - beam-free
 # Example — cheap-first, escalating to a different vendor when both are out:
 #   groups:
 #     daily:

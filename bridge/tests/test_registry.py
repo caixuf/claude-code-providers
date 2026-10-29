@@ -599,7 +599,9 @@ def test_media_rules_name_the_model_that_actually_failed():
         if meta.get("vision") is False
     }
     assert expected, "the registry must still record a text-only model"
-    assert {n.split("[", 1)[0] for n in text_only} == expected
+    group_names = {name for name, metas in render_config._group_metadata(models, profiles).items()
+                   if all(meta.get("vision") is False for meta in metas)}
+    assert {n.split("[", 1)[0] for n in text_only} == expected | group_names
 
 
 def test_media_rules_spare_the_models_that_can_read_images():
@@ -634,7 +636,7 @@ def test_media_rules_follow_the_registry_not_a_second_list():
         if provider["name"] != "qianfan":
             continue
         for model in provider["models"]:
-            if model["name"] == "deepseek-v4.1-flash":
+            if model["name"] in {"deepseek-v4.1-flash", "deepseek-v4.1-flash-1017"}:
                 model["vision"] = False
     after = rules_for(flipped)
     assert "qianfan-deepseek-v4.1-flash" in after
@@ -647,7 +649,8 @@ def test_media_rules_never_name_a_model_the_registry_does_not_call_text_only():
     models, profiles, text_only = _media_rules()
     aliases = profiles.get("aliases") or {}
     for name in text_only:
-        found = False
+        group_metas = render_config._group_metadata(models, profiles).get(name, [])
+        found = bool(group_metas) and all(meta.get("vision") is False for meta in group_metas)
         for (pname, mname), meta in models.items():
             if meta.get("vision") is not False:
                 continue
@@ -717,3 +720,34 @@ def test_local_overlay_replaces_a_whole_top_level_key():
     assert set(merged["groups"]) == {"main"}
     # Keys it does not name at all are untouched.
     assert merged["aliases"] is profiles["aliases"]
+
+
+# ── unsupported_fields rules ─────────────────────────────────────────────
+# Beam Free answers `400 [invalid_value] Invalid value for
+# 'messages[N].content'` to a text block carrying `cache_control`, while the
+# same block bare answers 200 — and the other two models on the same gateway
+# accept the marker. Claude Code attaches a breakpoint only once a history is
+# long, so the rule is a fact about the model, not about the request.
+
+
+def test_field_rules_name_beam_and_nothing_else():
+    """The rule set is exactly the registry's `unsupported_fields` models."""
+    doc, profiles = _load()
+    models, providers = render_config.index_models(doc)
+    emitted: dict[str, set[str]] = {}
+    render_config.render_config(models, providers, profiles, emitted)
+    stripped = render_config.render_field_rules(models, profiles, emitted)
+
+    assert stripped.get("beam-free") == ["cache_control"]
+    assert "opencode-deepseek-v4.1-flash" not in stripped
+    assert "muse-spark-1.3-contributor" not in stripped
+
+    expected = {
+        render_config.litellm_key_for(profiles, pname, mname)
+        for (pname, mname), meta in models.items()
+        if meta.get("unsupported_fields")
+    }
+    assert expected, "the registry must still record a model that refuses the marker"
+    groups = {name for name, metas in render_config._group_metadata(models, profiles).items()
+              if any(meta.get("unsupported_fields") for meta in metas)}
+    assert {n.split("[", 1)[0] for n in stripped} == expected | groups

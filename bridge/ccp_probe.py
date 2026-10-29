@@ -448,6 +448,9 @@ def get_configured_models(target: Optional[str] = None, all_models: bool = False
     p_doc, m_doc = load_registry()
     providers = {p.name: p for p in _providers(p_doc, m_doc)}
     groups = p_doc.get("groups") or {}
+    from render_config import index_models, _group_metadata
+    model_index, _ = index_models(m_doc)
+    group_metadata = _group_metadata(model_index, p_doc)
 
     candidates: List[Dict[str, Any]] = []
 
@@ -464,7 +467,8 @@ def get_configured_models(target: Optional[str] = None, all_models: bool = False
                 "display_name": f"group/{gname}",
                 "provider": "group",
                 "ctx": "1M",
-                "vision": True,
+                "vision": bool(group_metadata.get(gname)) and all(
+                    meta.get("vision") is True for meta in group_metadata[gname]),
                 "is_default": True,
                 "description": f"pool ({', '.join(members[:2])}...)",
                 "endpoint": DEFAULT_BRIDGE_URL,
