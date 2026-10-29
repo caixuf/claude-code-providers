@@ -738,6 +738,7 @@ against the DeepSeek Flash on the same path, with the same prompts:
 | Follow three formatting constraints at once | ✓ | ✓ |
 | Find a needle in a long log | ✓ | ✓ |
 | **Reach the fix in a multi-step agent loop** | **7 turns, re-reading the same file four times** | **4 turns, straight to the write** |
+| A real task end to end (read, edit, run, verify) | **7.3s**, first token in 0.6s | 10.6s, first token in 1.7s |
 
 That last row is the one that matters for a coding agent. The two models
 produce the same answer; the difference is how many round trips it takes to
@@ -746,15 +747,21 @@ takes `haiku` — the tier that wants speed and cannot run out — and the payin
 Flash keeps `default`, `fable` and `sonnet`, where the work that needs to
 converge happens.
 
-The free one needed a rewrite to get here. Claude Code sends the system prompt
-as a list of text blocks; Beam Free's upstream accepts only the string form and
-answers the block list with a 400 about `messages[0].content` that points
-nowhere near the cause (the same request, the same model: 400 with the array,
-200 with the string). The bridge flattens it, per model, from a fact in the
-registry — `system_array: false`, measured — the same way the media rule
-already strips images from a text-only model. That is why this provider is
-`bridged` rather than `native`: a native profile talks to the vendor directly,
-and nothing can rewrite the request on the way.
+The free one needed rewrites to get here, and they are the kind this project
+exists for — a client that speaks the Anthropic protocol sends fields that a
+gateway built for another one does not accept, and the answer is a 400 that
+points nowhere near the cause.
+
+| What Claude Code sends | What Beam Free's upstream says | The bridge |
+|---|---|---|
+| `system` as a list of text blocks | `400 … Invalid value for 'messages[0].content'` — the same prompt as a string is 200 | flattens it (`system_array: false`) |
+| `cache_control` on a message | `400 … Unrecognized request argument supplied: messages[4].cache_control` | strips it (`unsupported_fields`) |
+
+Both are facts in the registry, measured, and both are applied to that model
+alone — the same way the media rule already strips images from a text-only
+model. That is also why this provider is `bridged` rather than `native`: a
+native profile talks to the vendor directly, and nothing can rewrite the
+request on the way.
 
 Two more things the bridge had to absorb for this provider: the gateway wants
 a conversation id on every request, and LiteLLM drops client headers it does

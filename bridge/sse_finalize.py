@@ -501,6 +501,41 @@ def _downgrade_parts(parts: list, model: str) -> tuple[list, int]:
     return out, replaced
 
 
+def strip_reasoning(body: bytes) -> tuple[bytes, bool]:
+    """Drop the ``thinking`` field from an Anthropic request; returns (body, changed).
+
+    LiteLLM's anthropic ``/v1/messages`` handler rewrites the model to
+    ``<provider>/responses/<model>`` whenever a non-Anthropic deployment sees
+    ``thinking.type == "enabled"`` — it wants the Responses API so it can hand
+    back reasoning text. It does that without consulting
+    ``use_chat_completions_url_for_anthropic_messages`` (BerriAI/litellm#23841,
+    bug 4; still unfixed on 1.103). An upstream that only serves
+    ``/chat/completions`` therefore answers a bare 404, which LiteLLM reports as
+    "No fallback model group found" — a message that names the wrong layer.
+
+    Removing the field is the only lever the proxy has: without it the handler
+    returns at its first check and the request keeps its chat/completions
+    builder. The cost is real and is why this is opt-in per model
+    (``bridge/request_rules.json``): that deployment loses its reasoning blocks.
+
+    A no-op when nothing changes, so the caller forwards the original bytes
+    rather than a re-serialized copy. Unparseable bodies are returned untouched:
+    a rewrite must never be the reason a request fails.
+    """
+    if not body:
+        return body, False
+    try:
+        import json as _j
+
+        doc = _j.loads(body)
+    except Exception:
+        return body, False
+    if not isinstance(doc, dict) or "thinking" not in doc:
+        return body, False
+    del doc["thinking"]
+    return _j.dumps(doc).encode(), True
+
+
 def downgrade_media(body: bytes, model: str) -> tuple[bytes, int]:
     """Strip media a text-only upstream would reject; returns (body, count).
 

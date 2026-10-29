@@ -35,6 +35,7 @@ from sse_finalize import (  # noqa: E402
     norm_model_key,
     sanitize_channel_markers,
     strip_1m_beta,
+    strip_reasoning,
     strip_1m_model,
 )
 from bridge_auth import load_master_key, normalize_auth  # noqa: E402
@@ -236,6 +237,7 @@ async def proxy(request: Request) -> Response:
     string_system_models = rules.get("system_as_string") or frozenset()
     # Fields the upstream refuses, per model: {"beam-free": ("cache_control",)}
     strip_fields = rules.get("strip_fields") or {}
+    strip_reasoning_models = rules.get("strip_reasoning") or frozenset()
     try:
         import json as _j
         _sent_model = (_j.loads(forward_body) or {}).get("model", "") if forward_body else ""
@@ -263,6 +265,13 @@ async def proxy(request: Request) -> Response:
         forward_body, _fields_stripped = strip_request_fields(
             forward_body, _sent_model, _unsupported
         )
+    # LiteLLM ignores use_chat_completions_url_for_anthropic_messages when the
+    # request carries `thinking`, and rewrites the model to <p>/responses/<m>
+    # (litellm#23841 bug 4). An upstream with no /responses front door answers
+    # 404. Which models need this comes from bridge/request_rules.json.
+    reasoning_stripped = False
+    if strip_reasoning_models and norm_model_key(_sent_model) in strip_reasoning_models:
+        forward_body, reasoning_stripped = strip_reasoning(forward_body)
     forward_body, clamped = clamp_max_tokens(forward_body, clamp_map, fallback=clamp_fallback)
     fwd_headers, auth_note = _fwd_headers(
         request, getattr(request.app.state, "master_key", None)
@@ -278,6 +287,8 @@ async def proxy(request: Request) -> Response:
             print(f"[WATCHDOG] Channel rewrites ({', '.join(channel_rewrites)}) for model={_b.get('model')}", flush=True)
         if media_dropped:
             print(f"[WATCHDOG] Dropped {media_dropped} media block(s) for text-only model={_b.get('model')}", flush=True)
+        if reasoning_stripped:
+            print(f"[WATCHDOG] Stripped thinking for model={_b.get('model')} (no /responses upstream)", flush=True)
         if clamped is not None:
             print(f"[WATCHDOG] Clamped max_tokens -> {clamped} for model={_b.get('model')}", flush=True)
         auth_bit = f" auth={auth_note}" if auth_note else ""
