@@ -386,9 +386,10 @@ def test_group_member_may_be_an_alias_a_registry_id_or_provider_slash_model():
     assert "anthropic/MiniMax-M3" in group                 # minimax (native)
     assert "anthropic/deepseek-v4.1-flash" in group        # opendesign (native)
     # cline keeps its subscription namespace: dropping the `cline-pass/` segment
-    # silently bills pay-as-you-go instead of the flat plan (see
-    # render_config.litellm_model_string_override).
-    assert "openai/cline-pass/deepseek-v4.1-flash" in group
+    # silently bills pay-as-you-go instead of the flat plan, and the prefix must
+    # be `hosted_vllm/` — `openai/` routes to the Responses API, which Cline does
+    # not serve (404). See render_config.litellm_model_string_override.
+    assert "hosted_vllm/cline-pass/deepseek-v4.1-flash" in group
 
 
 def test_group_dedupes_only_identical_deployments():

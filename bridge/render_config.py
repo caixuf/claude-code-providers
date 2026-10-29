@@ -547,6 +547,32 @@ def render_system_rules(
     return sorted(out)
 
 
+def render_strip_reasoning_rules(
+    models: dict, profiles_doc: dict, emitted_by_provider: dict[str, set[str]]
+) -> list[str]:
+    """Names of emitted models whose request must not carry ``thinking``.
+
+    Derived from the same fact that decides the wire protocol: a model rendered
+    as ``anthropic/<id>`` talks Anthropic natively and forwards ``thinking``
+    untouched, while everything else is translated by LiteLLM, whose anthropic
+    handler detours through the Responses API as soon as ``thinking`` is enabled
+    (litellm#23841 bug 4, unfixed on 1.103). Only the translated deployments
+    need the field removed, so only they are listed.
+
+    Keyed on ``litellm_model_string_override`` rather than on registry metadata
+    on purpose: the prefix *is* the routing decision, and a hand-written list
+    would drift the moment a provider is added or moved to a native endpoint.
+    """
+    out: set[str] = set()
+    for pname, names in (emitted_by_provider or {}).items():
+        for name in names:
+            if litellm_model_string_override(pname, name, profiles_doc) is None:
+                # No override means the native ``anthropic/`` builder.
+                continue
+            out.add(name)
+    return sorted(out)
+
+
 def litellm_model_string_override(pname: str, mname: str, profiles_doc: dict | None = None) -> str | None:
     """LiteLLM model string for non-registry providers (copilot uses its native
     ``github_copilot/`` prefix and must NOT get an ``openai/`` prefix)."""
@@ -555,7 +581,14 @@ def litellm_model_string_override(pname: str, mname: str, profiles_doc: dict | N
         # ``cline-pass/<model>`` (org segment dropped) or it silently bills
         # pay-as-you-go credits instead of the pass. Documented in
         # bridge/config.example.yaml; dropping it here re-broke that (402).
-        return f"openai/cline-pass/{mname.rsplit('/', 1)[-1]}"
+        #
+        # ``hosted_vllm/``, not ``openai/``: the ``openai/`` prefix routes to the
+        # Responses API, and Cline's gateway only serves ``/api/v1/chat/completions`
+        # — ``/api/v1/responses`` answers a bare 404, which surfaces as
+        # "No fallback model group found". Same opt-out CodeBuddy and Codex need
+        # (see the branches below); the prefix only picks the request builder and
+        # leaves the ``cline-pass/`` billing namespace untouched.
+        return f"hosted_vllm/cline-pass/{mname.rsplit('/', 1)[-1]}"
     if pname in ("codebuddy", "workbuddy"):
         # Retired with the provider (docs/archived-providers.md), kept so an
         # old registry still renders the prefix it expects rather than falling
@@ -769,6 +802,14 @@ def main() -> None:
     # follow it rather than be a second place to keep in sync.
     rules["media_downgrade"] = render_media_rules(models, profiles_doc, emitted_by_provider)
     rules["system_as_string"] = render_system_rules(models, profiles_doc, emitted_by_provider)
+    # `strip_reasoning` is derived too: it follows the model-string prefix, not
+    # a hand-kept list. LiteLLM sends an anthropic /v1/messages request through
+    # the Responses API whenever `thinking` is enabled (litellm#23841 bug 4,
+    # ignoring use_chat_completions_url_for_anthropic_messages), and an upstream
+    # that only serves /chat/completions 404s at /responses. Every non-Anthropic
+    # (i.e. translated) deployment on this bridge has that shape, so the rule
+    # names all of them; native `anthropic/` deployments keep their thinking.
+    rules["strip_reasoning"] = render_strip_reasoning_rules(models, profiles_doc, emitted_by_provider)
     rules_text = json.dumps(rules, indent=2, sort_keys=True) + "\n"
 
     profile_texts = {}
