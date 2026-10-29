@@ -265,6 +265,7 @@ place the request-rewriting layer exists.
 | `downgrade_media` | Replaces an image with a text marker for a model the registry records as text-only, fixing `400 Invalid content type. image_url is only supported by certain models` |
 | `sanitize_channel` *(no provider uses it today)* | Satisfies a gateway's *client-identity check*: it strips the `x-anthropic-billing-header` block and neutralises Claude Code's identity line wherever a gateway inspects it. Applies **only** to providers listed under `request_rules:` in `registry/profiles.yaml`, because stripping the billing header anywhere else is a silent prompt mutation. Built for WorkBuddy, which is retired — `docs/workbuddy-channel-check.md` keeps the measurement |
 | `normalize_auth` (`bridge/bridge_auth.py`) | Forwards the credential LiteLLM accepts, whatever the client sent. A stale key used to be answered `400 No connected db.`, and no key at all `500` — see below |
+| `remap_model` (`bridge/model_remap.py`) | Points a retired model id at the one model its provider now serves, fixing `400 Invalid model name passed in model=…` — see below |
 
 It also closes the stream after a complete `message_stop` and drops trailing
 keepalives.
@@ -312,6 +313,37 @@ The live config should still say what it means, so the tools keep it honest:
   vendor's own and is never touched.
 * `ccp doctor` reports a bridge-pointing config that carries a credential the
   bridge will replace.
+
+### A retired model name still answers
+
+A client's model list is a **copy** of the bridge's, taken when the client was
+configured. When the curation narrows — a provider cut down to one model, an id
+renamed — the copy keeps asking for a name LiteLLM no longer has:
+
+```
+400 /chat/completions: Invalid model name passed in model=qianfan-deepseek-v4-flash.
+    Call `/v1/models` to view available models for your key.
+```
+
+That error names the model and tells a *configured* client to go look it up,
+which is the one thing it cannot do. The provider is right, the credential is
+right, and the model is simply the previous spelling of the one that is served.
+
+So the watchdog resolves the name before anything else looks at it
+(`bridge/model_remap.py`): if the requested name is not served and exactly
+**one** model of that provider is, that is the one being asked for. It follows
+that a provider serving two models is never guessed at — answering a different
+model silently is worse than failing — and a bare alias (`main`, `pro`) has no
+provider prefix to match, so it is left alone. Every remap is logged with both
+names:
+
+```
+[WATCHDOG] Model not served, resolved: qianfan-deepseek-v4-flash -> qianfan-deepseek-v4.1-flash
+```
+
+The served set comes from the upstream's own `/v1/models`, refreshed every two
+minutes and on demand after a miss (at most once per ten seconds), so a `ccp
+render` takes effect without restarting the proxy.
 
 ### Local adapter (Trae)
 
