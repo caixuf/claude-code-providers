@@ -9,6 +9,7 @@ providers:
         ctx: 1048576
         max_output: 1048576
         vision: true
+        system_array: null
         endpoint_kind: openai
         aliases: []
         tiers: []
@@ -21,6 +22,7 @@ providers:
         ctx: 1048576
         max_output: 393216
         vision: true
+        system_array: null
         endpoint_kind: anthropic
         aliases: []
         tiers: []
@@ -33,6 +35,7 @@ providers:
         ctx: 1000000
         max_output: 524288
         vision: true
+        system_array: null
         endpoint_kind: anthropic
         aliases: []
         tiers: []
@@ -41,6 +44,7 @@ providers:
         ctx: 1000000
         max_output: 524288
         vision: true
+        system_array: null
         endpoint_kind: anthropic
         aliases: []
         tiers: []
@@ -54,6 +58,7 @@ providers:
         ctx: 1048000
         max_output: 328000
         vision: true
+        system_array: null
         endpoint_kind: anthropic
         aliases: []
         tiers: []
@@ -66,6 +71,7 @@ providers:
         ctx: 1441792
         max_output: 393216
         vision: true
+        system_array: null
         endpoint_kind: openai
         aliases: []
         tiers: []
@@ -75,11 +81,22 @@ providers:
     auth_env: OPENCODE_API_KEY
     extra_headers:
       User-Agent: claude-code-providers/1.0 (+https://github.com/caixuf/claude-code-providers)
+      x-opencode-session: ccp-opencode-go
     models:
+      - name: beam-free
+        ctx: 1048576
+        max_output: 131072
+        vision: false
+        system_array: false
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+        hints: {ctx: 1048576, max_output: 131072, system_array: false, vision: false}
       - name: deepseek-v4.1-flash
         ctx: 1000000
         max_output: 384000
         vision: true
+        system_array: null
         endpoint_kind: anthropic
         aliases: []
         tiers: []
@@ -88,6 +105,7 @@ providers:
         ctx: 1048576
         max_output: 131072
         vision: true
+        system_array: null
         endpoint_kind: anthropic
         aliases: []
         tiers: []
@@ -101,6 +119,7 @@ providers:
         ctx: 1000000
         max_output: 32000
         vision: false
+        system_array: null
         endpoint_kind: anthropic
         aliases: []
         tiers: []

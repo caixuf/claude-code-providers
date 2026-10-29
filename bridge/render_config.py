@@ -515,6 +515,38 @@ def render_media_rules(
     return sorted(text_only)
 
 
+def render_system_rules(
+    models: dict,
+    profiles_doc: dict | None = None,
+    emitted_by_provider: dict[str, set[str]] | None = None,
+) -> list[str]:
+    """The models whose upstream takes only a string system prompt.
+
+    Derived from the registry, never written by hand: a model carries
+    ``system_array: false`` when the endpoint was measured refusing the
+    block-list form of the system prompt. The same shape as the media rule
+    — a fact about the model, applied by the bridge per model.
+    """
+    aliases = (profiles_doc or {}).get("aliases") or {}
+
+    def array_ok(pname: str, name: str) -> bool | None:
+        spec = aliases.get(name)
+        if isinstance(spec, dict) and spec.get("provider") == pname:
+            return (models.get((pname, spec.get("model"))) or {}).get("system_array")
+        for candidate in (name, name.split("[", 1)[0]):
+            meta = models.get((pname, candidate))
+            if meta is not None:
+                return meta.get("system_array")
+        return None
+
+    out: set[str] = set()
+    for pname, names in (emitted_by_provider or {}).items():
+        for name in names:
+            if array_ok(pname, name) is False:
+                out.add(name)
+    return sorted(out)
+
+
 def litellm_model_string_override(pname: str, mname: str, profiles_doc: dict | None = None) -> str | None:
     """LiteLLM model string for non-registry providers (copilot uses its native
     ``github_copilot/`` prefix and must NOT get an ``openai/`` prefix)."""
@@ -736,6 +768,7 @@ def main() -> None:
     # profiles.yaml: the capability is a discovered fact, so the rule set has to
     # follow it rather than be a second place to keep in sync.
     rules["media_downgrade"] = render_media_rules(models, profiles_doc, emitted_by_provider)
+    rules["system_as_string"] = render_system_rules(models, profiles_doc, emitted_by_provider)
     rules_text = json.dumps(rules, indent=2, sort_keys=True) + "\n"
 
     profile_texts = {}

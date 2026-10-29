@@ -153,14 +153,14 @@ profiles:
   # fleet. The key lives in proxy.env; there is no `ccp auth` step.
   opencode:
     provider: opencode
-    native: true
+    native: false
     primary_tier: default
     tiers:
       default: {model: deepseek-v4.1-flash}
       opus:    {model: muse-spark-1.3-contributor}
       fable:   {model: deepseek-v4.1-flash}
       sonnet:  {model: deepseek-v4.1-flash}
-      haiku:   {model: deepseek-v4.1-flash}
+      haiku:   {model: beam-free}
 
   # ── Trae CLI (ByteDance enterprise coding agent) ──────────────────────
   # Also `native: true`: bridge/trae_bridge.py speaks the Anthropic Messages
@@ -220,6 +220,15 @@ aliases:
   # OpenDesign: hot-swap between the aggregator's rungs with `ccp -m`
   opendesign-deepseek-v4.1-flash:       {provider: opendesign, model: deepseek-v4.1-flash}
   opencode-deepseek-v4.1-flash:        {provider: opencode, model: deepseek-v4.1-flash}
+
+  # ── OpenCode Go's other two ───────────────────────────────────────────
+  # Both are inside the subscription, so neither can run a balance down.
+  # Muse Spark is the cheap-and-thorough one (it always thinks before it
+  # answers); Beam Free is the free-and-unlimited one, and the only model in
+  # the plan whose usage is "Unlimited" rather than a monthly dollar
+  # allowance.
+  muse-spark-1.3-contributor:           {provider: opencode, model: muse-spark-1.3-contributor}
+  beam-free:                            {provider: opencode, model: beam-free}
   # Trae: the model id on the right is the registry name (Trae's `config_name`),
   # which is also what the adapter matches against its live catalogue.
   trae-deepseek-v4.1-flash:             {provider: trae, model: DeepSeek-V4.1-Flash}

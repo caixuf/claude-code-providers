@@ -546,6 +546,56 @@ def downgrade_media(body: bytes, model: str) -> tuple[bytes, int]:
     return _j.dumps(doc).encode("utf-8"), total
 
 
+def flatten_system(body: bytes, model: str) -> tuple[bytes, int]:
+    """Collapse an Anthropic block-list ``system`` into a plain string.
+
+    Claude Code sends the system prompt as a list of text blocks — several of
+    them, one per source — and most gateways take that. Some do not: Beam Free
+    answers the same request with the system prompt as a string, and refuses
+    the block list with an error about ``messages[0].content`` that points at
+    the wrong place entirely (measured 2026-10-29: the same body, the same
+    model, 400 with an array-form system and 200 with a string).
+
+    The blocks are joined in order with a blank line between them, which is
+    what the upstream would have seen anyway after its own translation.
+
+    A no-op when there is nothing to flatten, so the caller can forward the
+    original bytes rather than a re-serialized copy. An unparseable body is
+    returned untouched: a rewrite must never be the reason a request fails.
+    """
+    if not body:
+        return body, 0
+    try:
+        import json as _j
+
+        doc = _j.loads(body)
+    except Exception:
+        return body, 0
+    if not isinstance(doc, dict):
+        return body, 0
+    system = doc.get("system")
+    if not isinstance(system, list) or not system:
+        return body, 0
+
+    pieces: list[str] = []
+    for block in system:
+        if isinstance(block, str):
+            pieces.append(block)
+            continue
+        if not isinstance(block, dict):
+            continue
+        text = block.get("text")
+        if isinstance(text, str) and text:
+            pieces.append(text)
+    if not pieces:
+        return body, 0
+    doc["system"] = "\n\n".join(pieces)
+    try:
+        return _j.dumps(doc).encode("utf-8"), len(pieces)
+    except Exception:
+        return body, 0
+
+
 def resolve_max_output(
     model: str, clamp_map: dict[str, int], *, fallback: int | None = None
 ) -> int | None:

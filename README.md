@@ -700,10 +700,10 @@ and Qwen on `messages` — and a model on the wrong one is refused outright.
 Muse Spark 1.3 Contributor is a third case: it is served by `/responses` only,
 and it answers `500` on the chat path.
 
-**Two models, and the tiers are not the same for both.** DeepSeek V4.1 Flash
-takes every tier but `opus`: TTFT 1.2s, 222 tok/s, and the highest monthly
-allowance in the plan ($80). Muse Spark 1.3 Contributor takes `opus`, where the
-wait buys something.
+**Three models, and the tiers are not the same for all of them.** DeepSeek
+V4.1 Flash takes `default`, `fable` and `sonnet`: TTFT 1.2s, 222 tok/s, and the
+highest monthly allowance in the plan ($80). Muse Spark 1.3 Contributor takes
+`opus`, where the wait buys something. Beam Free takes `haiku`.
 
 Muse Spark is the cheaper model by a wide margin — $0.10/$0.20 per million
 against DeepSeek's $0.15/$0.60, 226,600 requests a month against 173,330, and
@@ -716,6 +716,34 @@ first token against the Flash's 1.2s. The reasoning does not come back as a
 Tool calls and image input both work on it, and it answers the question before
 the tool call the way a careful assistant would ("正在为你查询北京天气。"
 followed by the `tool_use` block).
+
+**Beam Free** is the free one: Reflection AI's Beam 1.0, a 501B sparse mixture
+of experts with 23B active, open weights, and the only model in the plan whose
+usage is **Unlimited** rather than a monthly dollar allowance. It is the
+fastest thing here by a wide margin — **640ms to first token, 460 tok/s** —
+and it writes correct code: given a thread-safe TTL LRU cache to implement, it
+answered with an `OrderedDict` and an `RLock` in 5.7s. Its training term is
+*Not used* and it keeps requests for 30 days, so it is the only model in this
+plan that is both free and private. It is text-only, and Meta's-free tier
+aside it is excluded from China, so it needs the US exit.
+
+The free one needed a rewrite to get here. Claude Code sends the system prompt
+as a list of text blocks; Beam Free's upstream accepts only the string form and
+answers the block list with a 400 about `messages[0].content` that points
+nowhere near the cause (the same request, the same model: 400 with the array,
+200 with the string). The bridge flattens it, per model, from a fact in the
+registry — `system_array: false`, measured — the same way the media rule
+already strips images from a text-only model. That is why this provider is
+`bridged` rather than `native`: a native profile talks to the vendor directly,
+and nothing can rewrite the request on the way.
+
+Two more things the bridge had to absorb for this provider: the gateway wants
+a conversation id on every request, and LiteLLM drops client headers it does
+not know — so the deployment carries a fixed one of its own; and LiteLLM
+recognises `thinking: {type: adaptive}` only for models it knows, and drops it
+for the rest. Measured, the drop costs nothing: the same Claude Code request
+spent 39 reasoning tokens natively, 43 with the field removed and 90 through
+the bridge — the same order of magnitude, and the answers are the same.
 
 **Two models are out of reach from here, and it is not the key.** Muse Spark
 1.3 Contributor (the cheapest model in the plan at $0.10/$0.20 per million

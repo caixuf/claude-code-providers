@@ -29,6 +29,7 @@ from sse_finalize import (  # noqa: E402
     SseCutState,
     clamp_max_tokens,
     downgrade_media,
+    flatten_system,
     event_is_ping,
     norm_model_key,
     sanitize_channel_markers,
@@ -231,6 +232,7 @@ async def proxy(request: Request) -> Response:
     rules = getattr(request.app.state, "request_rules", None) or {}
     sanitize_models = rules.get("sanitize_channel") or frozenset()
     text_only_models = rules.get("media_downgrade") or frozenset()
+    string_system_models = rules.get("system_as_string") or frozenset()
     try:
         import json as _j
         _sent_model = (_j.loads(forward_body) or {}).get("model", "") if forward_body else ""
@@ -248,6 +250,11 @@ async def proxy(request: Request) -> Response:
     media_dropped = 0
     if text_only_models and norm_model_key(_sent_model) in text_only_models:
         forward_body, media_dropped = downgrade_media(forward_body, _sent_model)
+    # Some upstreams take only the string form of the system prompt. The
+    # rewrite is per-model because the gateway that refuses it accepts the
+    # block list from another model on the same connection.
+    if _sent_model in string_system_models:
+        forward_body, _sys_flattened = flatten_system(forward_body, _sent_model)
     forward_body, clamped = clamp_max_tokens(forward_body, clamp_map, fallback=clamp_fallback)
     fwd_headers, auth_note = _fwd_headers(
         request, getattr(request.app.state, "master_key", None)

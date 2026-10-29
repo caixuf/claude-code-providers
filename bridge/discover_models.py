@@ -249,6 +249,15 @@ PROVIDERS = {
         # which is exactly the shape the docs call out.
         "extra_headers": {
             "User-Agent": "claude-code-providers/1.0 (+https://github.com/caixuf/claude-code-providers)",
+            # The gateway refuses a request without a conversation id. Claude
+            # Code sends one of its own (`x-claude-code-session-id`) and the
+            # gateway accepts that name — but LiteLLM drops client headers it
+            # does not know, so a request that comes through the bridge
+            # arrives with nothing. A fixed id is enough: the gateway wants
+            # something stable to route on, and a request that carries no
+            # client traffic of its own is not a conversation worth routing
+            # apart.
+            "x-opencode-session": "ccp-opencode-go",
         },
         "endpoint_kind": "anthropic",
         "auth_env": "OPENCODE_API_KEY",
@@ -269,6 +278,7 @@ PROVIDERS = {
         "only_models": [
             "deepseek-v4.1-flash",
             "muse-spark-1.3-contributor",
+            "beam-free",
         ],
         "hints": {
             # ctx 1000000 / max_output 384000 and the image modalities come from
@@ -285,6 +295,22 @@ PROVIDERS = {
                 "ctx": 1048576,
                 "max_output": 131072,
                 "vision": True,
+            },
+            # Beam Free: Reflection AI's Beam 1.0, a 501B sparse mixture of
+            # experts with 23B active, open weights, 1M context. Free for a
+            # limited time, and Meta's-free tier aside it is the one model in
+            # the plan whose usage is "Unlimited" rather than a monthly
+            # dollar allowance — the only ceiling is the request rate.
+            # system_array: false — measured 2026-10-29. The same request,
+            # the same model: 400 with the system prompt as a list of text
+            # blocks (which is what Claude Code sends) and 200 with it as a
+            # string. The error names messages[0].content and points nowhere
+            # near the cause.
+            "beam-free": {
+                "ctx": 1048576,
+                "max_output": 131072,
+                "vision": False,
+                "system_array": False,
             },
         },
         "max_output_default": None,
@@ -636,7 +662,7 @@ def fill_variant_siblings(models: list[dict]) -> None:
                 continue
             base = by_name.get(m["name"][: -len(suffix)])
             if base and base.get("ctx"):
-                for field in ("ctx", "max_output", "vision"):
+                for field in ("ctx", "max_output", "vision", "system_array"):
                     if m.get(field) is None:
                         m[field] = base.get(field)
             break
@@ -773,7 +799,7 @@ def build(only: str | None) -> dict:
             # registry (data, hand-editable), and both win over discovery.
             hints = dict(prior.get("hints") or {})
             hints.update((pdef.get("hints") or {}).get(norm["name"]) or {})
-            for field in ("ctx", "max_output", "vision"):
+            for field in ("ctx", "max_output", "vision", "system_array"):
                 if hints.get(field) is not None:
                     norm[field] = hints[field]
             if hints:
@@ -824,6 +850,10 @@ def to_yaml(doc: dict) -> str:
             )
             v = m.get("vision")
             lines.append(f"        vision: {'true' if v is True else ('false' if v is False else 'null')}")
+            sa = m.get("system_array")
+            lines.append(
+                f"        system_array: {'true' if sa is True else ('false' if sa is False else 'null')}"
+            )
             lines.append(f"        endpoint_kind: {m.get('endpoint_kind', p['endpoint_kind'])}")
             al = m.get("aliases") or []
             lines.append("        aliases: [" + ", ".join(al) + "]")
