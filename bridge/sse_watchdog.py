@@ -18,7 +18,7 @@ from typing import AsyncIterator
 import httpx
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import Response, StreamingResponse
+from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
 _BRIDGE_DIR = Path(__file__).resolve().parent
@@ -30,7 +30,6 @@ from sse_finalize import (  # noqa: E402
     clamp_max_tokens,
     downgrade_media,
     flatten_system,
-    strip_request_fields,
     event_is_ping,
     norm_model_key,
     sanitize_channel_markers,
@@ -153,8 +152,42 @@ SERVED_REFRESH_S = 120.0
 SERVED_MISS_COOLDOWN_S = 10.0
 
 
+def _model_info_map(payload: dict) -> dict[str, dict[str, int]]:
+    """model_name -> window fields from LiteLLM's ``/v1/model/info``.
+
+    LiteLLM publishes ``max_input_tokens`` on its admin model-info endpoint,
+    not on the OpenAI-standard ``/v1/models``. A routing group can have more
+    than one deployment (and a fallback router), so advertise the *smallest*
+    window in the group: the largest would be a false-safe ceiling.
+    """
+    out: dict[str, dict[str, int]] = {}
+    data = payload.get("data") if isinstance(payload, dict) else None
+    for entry in data or []:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("model_name") or entry.get("model") or entry.get("id")
+        if not isinstance(name, str) or not name:
+            continue
+        params = entry.get("litellm_params")
+        info = params.get("model_info") if isinstance(params, dict) else None
+        if not isinstance(info, dict):
+            info = entry.get("model_info") if isinstance(entry.get("model_info"), dict) else {}
+        for key in ("max_input_tokens", "max_output_tokens"):
+            value = info.get(key)
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                continue
+            current = out.setdefault(name, {})
+            current[key] = min(value, current.get(key, value))
+    return out
+
+
 async def refresh_served(app) -> set[str]:
-    """Ask the upstream which model names it serves, and remember them."""
+    """Ask the upstream which model names it serves, and remember the catalog.
+
+    The names drive remapping. The same poll also reads LiteLLM's
+    ``/v1/model/info`` so ``/v1/models`` can advertise the context window;
+    without it clients that only know the standard endpoint fall back to 256K.
+    """
     upstream = app.state.upstream
     headers = {}
     if app.state.master_key:
@@ -171,12 +204,53 @@ async def refresh_served(app) -> set[str]:
             names.discard(None)
             if names:
                 app.state.served = names
+            if isinstance(data, dict) and isinstance(data.get("data"), list):
+                app.state.models_payload = data
     except Exception:
         # An upstream that cannot answer keeps the previous list: a stale set
         # remaps no worse than no set at all.
         pass
+    try:
+        r = await app.state.client.get(f"{upstream}/v1/model/info", headers=headers, timeout=5.0)
+        if r.status_code == 200:
+            info = _model_info_map(r.json())
+            if info:
+                app.state.model_info = info
+    except Exception:
+        # Keep the previous map: a stale window is better than none, and the
+        # next poll retries.
+        pass
     app.state.served_at = time.monotonic()
     return app.state.served
+
+
+async def models_catalog(request: Request) -> Response:
+    """Serve ``/v1/models`` with the context window the upstream already knows.
+
+    Standard clients (Hermes included) probe ``/v1/models`` and treat a missing
+    window as unknown. Merge the catalog LiteLLM publishes on
+    ``/v1/model/info`` so the standard endpoint tells the truth.
+    """
+    app = request.app
+    if not app.state.models_payload or time.monotonic() - app.state.served_at >= SERVED_REFRESH_S:
+        await refresh_served(app)
+    payload = app.state.models_payload
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        # No cached list yet: let the normal proxy answer unchanged.
+        return await proxy(request)
+    merged = dict(payload)
+    data = []
+    for entry in payload["data"]:
+        if isinstance(entry, dict):
+            entry = dict(entry)
+            name = entry.get("id")
+            info = app.state.model_info.get(name) if isinstance(name, str) else None
+            if info:
+                for key, value in info.items():
+                    entry.setdefault(key, value)
+        data.append(entry)
+    merged["data"] = data
+    return JSONResponse(merged)
 
 
 async def _remap_body(request: Request, forward_body: bytes) -> tuple[bytes, str | None]:
@@ -235,8 +309,6 @@ async def proxy(request: Request) -> Response:
     sanitize_models = rules.get("sanitize_channel") or frozenset()
     text_only_models = rules.get("media_downgrade") or frozenset()
     string_system_models = rules.get("system_as_string") or frozenset()
-    # Fields the upstream refuses, per model: {"beam-free": ("cache_control",)}
-    strip_fields = rules.get("strip_fields") or {}
     strip_reasoning_models = rules.get("strip_reasoning") or frozenset()
     try:
         import json as _j
@@ -260,11 +332,6 @@ async def proxy(request: Request) -> Response:
     # block list from another model on the same connection.
     if _sent_model in string_system_models:
         forward_body, _sys_flattened = flatten_system(forward_body, _sent_model)
-    _unsupported = strip_fields.get(_sent_model)
-    if _unsupported:
-        forward_body, _fields_stripped = strip_request_fields(
-            forward_body, _sent_model, _unsupported
-        )
     # LiteLLM ignores use_chat_completions_url_for_anthropic_messages when the
     # request carries `thinking`, and rewrites the model to <p>/responses/<m>
     # (litellm#23841 bug 4). An upstream with no /responses front door answers
@@ -400,19 +467,10 @@ def load_request_rules(path: str | None) -> dict[str, set[str]]:
             continue
         if not isinstance(raw, dict):
             continue
-        out: dict[str, object] = {}
+        out: dict[str, set[str]] = {}
         for rule, names in raw.items():
             if isinstance(names, list):
                 out[str(rule)] = {norm_model_key(n) for n in names if isinstance(n, str)}
-            elif isinstance(names, dict):
-                # A rule that carries per-model detail, e.g.
-                # {"strip_fields": {"beam-free": ["cache_control"]}} — the
-                # field names that upstream refuses, per model.
-                out[str(rule)] = {
-                    norm_model_key(m): tuple(f for f in fields if isinstance(f, str))
-                    for m, fields in names.items()
-                    if isinstance(fields, list)
-                }
         return out
     return {}
 
@@ -461,6 +519,11 @@ def build_app(
     methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
     app = Starlette(
         routes=[
+            # The model list is the one GET we answer ourselves: it carries the
+            # context window LiteLLM only publishes on /v1/model/info. Keep it
+            # ahead of the catch-all proxy so the standard endpoint is honest.
+            Route("/v1/models", models_catalog, methods=["GET"]),
+            Route("/models", models_catalog, methods=["GET"]),
             Route("/", proxy, methods=methods),
             Route("/{path:path}", proxy, methods=methods),
         ]
@@ -477,6 +540,11 @@ def build_app(
     # first successful read, and an empty set disables the remap entirely.
     app.state.served = set()
     app.state.served_at = 0.0
+    # The raw /v1/models payload plus the window fields from /v1/model/info.
+    # Both are refreshed by the same 120s poll; an empty map just means the
+    # catalog has no window to advertise yet.
+    app.state.models_payload = {}
+    app.state.model_info = {}
     # The ledger is optional: --no-usage keeps the proxy byte-identical to what
     # it was, for anyone who would rather not write a file per request.
     app.state.ledger = UsageLedger(usage_path) if usage_path else None
