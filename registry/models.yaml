@@ -84,6 +84,14 @@ providers:
         aliases: []
         tiers: []
         hints: {ctx: 1000000, max_output: 384000, vision: true}
+      - name: muse-spark-1.3-contributor
+        ctx: 1048576
+        max_output: 131072
+        vision: true
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+        hints: {ctx: 1048576, max_output: 131072, vision: true}
   - name: trae
     api_base: http://127.0.0.1:4100
     endpoint_kind: anthropic

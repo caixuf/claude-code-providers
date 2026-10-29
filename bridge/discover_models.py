@@ -252,13 +252,23 @@ PROVIDERS = {
         },
         "endpoint_kind": "anthropic",
         "auth_env": "OPENCODE_API_KEY",
-        # One model on purpose. The plan carries more (MiMo-V2.6-Flash is
-        # cheaper and reads audio and video), but this account is cleared to
-        # exercise the DeepSeek Flash and the free models only, so nothing
-        # else goes in the registry — a catalogue entry is not a licence to
-        # probe it.
+        # Two models, both inside the subscription, so neither can run a
+        # balance down.
+        #
+        # The DeepSeek Flash is the default tier: it is the faster of the two.
+        # Muse Spark 1.3 Contributor is the cheaper one ($0.10/$0.20 against
+        # $0.15/$0.60) and Meta's strongest coding model in the plan, and it
+        # reads images, audio and video — but it always thinks before it
+        # answers, so its first visible token comes later.
+        #
+        # Muse Spark is not reachable from everywhere: Meta's geographic use
+        # policy does not cover China, so the gateway answers 403 RegionError
+        # for a Chinese exit and 200 through a US one. It also needs the
+        # workspace's privacy setting "Allow paid endpoints that train on
+        # request data" turned on, and it trains on the prompts it sees.
         "only_models": [
             "deepseek-v4.1-flash",
+            "muse-spark-1.3-contributor",
         ],
         "hints": {
             # ctx 1000000 / max_output 384000 and the image modalities come from
@@ -267,6 +277,15 @@ PROVIDERS = {
             # id is lower-case here — the capitalised `DeepSeek-V4.1-Flash`
             # belongs to the Zen catalogue, a different endpoint.
             "deepseek-v4.1-flash": {"ctx": 1000000, "max_output": 384000, "vision": True},
+            # Muse Spark 1.3 Contributor: 1048576 context, 131072 output, and
+            # it reads images, audio and video as well as text. The limits and
+            # the modality list come from the catalogue, which publishes them
+            # without a key.
+            "muse-spark-1.3-contributor": {
+                "ctx": 1048576,
+                "max_output": 131072,
+                "vision": True,
+            },
         },
         "max_output_default": None,
     },

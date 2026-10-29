@@ -96,6 +96,20 @@ AGENT_PROMPT = ("Read the file /etc/hostname so I can see the machine name. "
                 "Call the tool now — do not explain first.")
 
 DEFAULT_ROUNDS = 2
+# A model that thinks before it answers can spend a whole round's tokens on
+# reasoning and never reach the answer: Muse Spark 1.3 Contributor used 256
+# tokens of reasoning for a two-word reply, and the round was reported as a
+# failure — which says the provider is down when it is merely slow to speak.
+# One retry with more room tells the two apart. The extra spend is claimed
+# from the guard before the retry is sent, so it cannot cost what the guard
+# does not allow.
+THINKING_RETRY_MULTIPLIER = 4
+# The retry has to clear the model's own preamble, not just double the
+# budget: Muse Spark 1.3 Contributor spent 511 output tokens before its first
+# visible word, so a 200-token round (and even a 800-token one) only ever
+# buys thinking. 3000 leaves room for the reasoning and the answer.
+THINKING_RETRY_MIN_TOKENS = 3000
+THINKING_RETRY_MAX_TOKENS = 6000
 # A short generation makes the tok/s column mostly noise: at ~20-60 output
 # tokens the fixed cost (TTFT plus session setup) dominates, and the same
 # provider then reads 501 tok/s on one run and 194 on the next — measured on
@@ -569,6 +583,7 @@ async def _probe_single_round(
     timeout_s: float,
     native: bool = False,
     tools: Optional[List[Dict[str, Any]]] = None,
+    derive_prompt: bool = True,
 ) -> Dict[str, Any]:
     """One streaming round over Anthropic Messages, measuring TTFT / TPS.
 
@@ -581,7 +596,7 @@ async def _probe_single_round(
     # When the caller did not hand us a prompt of their own, derive one that
     # scales with the budget — otherwise the model stops after two sentences
     # and we time a rounding error.
-    if prompt in (DEFAULT_PROMPT, QUICK_PROMPT) and prompt != QUICK_PROMPT:
+    if derive_prompt and prompt in (DEFAULT_PROMPT, QUICK_PROMPT) and prompt != QUICK_PROMPT:
         prompt = _bulk_prompt(max_tokens)
     payload = {
         "model": wire_name,
@@ -856,29 +871,52 @@ async def probe_single_model(
             # The budget is claimed before the request, not after it: a round
             # that cannot be afforded must not be sent, because the point of
             # the guard is that the money is never spent.
-            if budget is not None and not budget.claim(max_tokens * ROUND_TOKEN_FACTOR):
-                round_results.append({
-                    "ok": False,
-                    "status": "Budget",
-                    "error_msg": f"probe budget of {budget.total} tokens is spent",
-                    "ttft_ms": 0.0,
-                    "tps": 0.0,
-                    "total_ms": 0.0,
-                    "tokens": 0,
-                    "cached_tokens": 0,
-                })
+            attempt_tokens = max_tokens
+            while True:
+                if budget is not None and not budget.claim(attempt_tokens * ROUND_TOKEN_FACTOR):
+                    round_results.append({
+                        "ok": False,
+                        "status": "Budget",
+                        "error_msg": f"probe budget of {budget.total} tokens is spent",
+                        "ttft_ms": 0.0,
+                        "tps": 0.0,
+                        "total_ms": 0.0,
+                        "tokens": 0,
+                        "cached_tokens": 0,
+                    })
+                    break
+                res = await _probe_single_round(
+                    client=client,
+                    wire_name=wire_name,
+                    base_url=spec_base,
+                    master_key=spec_key,
+                    prompt=prompt,
+                    max_tokens=attempt_tokens,
+                    timeout_s=timeout_s,
+                    native=native,
+                    tools=tools,
+                    # The retry gives the model more room, not a bigger job.
+                    # Re-deriving the prompt would scale the task with the
+                    # budget — "count to 80" becomes "count to 1200" — and a
+                    # model that thinks before it answers spends the whole
+                    # ceiling planning a task that grew to match it. The task
+                    # stays the size it was; only the output ceiling moves.
+                    derive_prompt=(attempt_tokens == max_tokens),
+                )
+                if (
+                    not res["ok"]
+                    and res.get("status") == "No Answer"
+                    and attempt_tokens < THINKING_RETRY_MAX_TOKENS
+                ):
+                    attempt_tokens = min(
+                        max(
+                            attempt_tokens * THINKING_RETRY_MULTIPLIER,
+                            THINKING_RETRY_MIN_TOKENS,
+                        ),
+                        THINKING_RETRY_MAX_TOKENS,
+                    )
+                    continue
                 break
-            res = await _probe_single_round(
-                client=client,
-                wire_name=wire_name,
-                base_url=spec_base,
-                master_key=spec_key,
-                prompt=prompt,
-                max_tokens=max_tokens,
-                timeout_s=timeout_s,
-                native=native,
-                tools=tools,
-            )
             round_results.append(res)
             # Short-circuit on permanent fatal errors
             if not res["ok"] and res["status"] in ("Unreachable", "HTTP 400", "HTTP 401", "HTTP 404"):

@@ -1147,9 +1147,28 @@ reconcile_profile() {
   # endpoint, or a profile that was installed against a wrong one, would
   # otherwise keep calling the old address forever — the request 404s and
   # nothing in the diff says why.
-  if [ "$new_ctx" = "$cur_ctx" ] && [ "$new_model" = "$cur_model" ] && [ "$want_token" = "$cur_token" ] && [ "$new_base" = "$cur_base" ]; then
+  #
+  # So is every other derived field. Listing the ones that matter is a list
+  # that is always one item short: a tier model that moved, a context window
+  # that grew, a base URL that changed. The comparison is therefore the whole
+  # environment, minus the credential keys whose handling is decided above.
+  local merged="$live.merged.$$"
+  if ! jq -s --arg re "$keep_filter" \
+       '.[0] * {env: (.[0].env * (.[1].env | with_entries(select(.key|test($re)))))}' \
+       "$template" "$live" > "$merged" 2>/dev/null; then
+    rm -f "$merged"
     return 1
   fi
+  # `del(.env | with_entries(...))` is not a valid jq path — it errors, both
+  # sides of the diff come out empty, and every profile looks unchanged.
+  # Filtering the env object itself is the correct spelling.
+  if diff -q \
+       <(jq -S --arg re "$keep_filter" '(.env) |= with_entries(select(.key|test($re)|not))' "$merged" 2>/dev/null) \
+       <(jq -S --arg re "$keep_filter" '(.env) |= with_entries(select(.key|test($re)|not))' "$live" 2>/dev/null) >/dev/null 2>&1; then
+    rm -f "$merged"
+    return 1
+  fi
+  rm -f "$merged"
 
   cp "$live" "$live.bak.$(date +%Y%m%d-%H%M%S)"
   local tmp

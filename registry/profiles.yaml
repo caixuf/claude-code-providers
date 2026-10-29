@@ -99,6 +99,12 @@ profiles:
     native: true
     primary_tier: default
     tiers:
+      # The DeepSeek Flash answers first: it starts faster, and it is what
+      # the main loop and the subagent tiers want. Muse Spark is cheaper and
+      # stronger per token, but it always thinks before it speaks — 511
+      # reasoning tokens before its first visible word on a two-word reply,
+      # 10.3s to first token — so it takes the opus tier, where the wait buys
+      # something, and leaves the rest to the Flash.
       default: {model: deepseek-v4.1-flash}
       opus:    {model: deepseek-v4.1-flash}
       fable:   {model: deepseek-v4.1-flash}
@@ -151,7 +157,7 @@ profiles:
     primary_tier: default
     tiers:
       default: {model: deepseek-v4.1-flash}
-      opus:    {model: deepseek-v4.1-flash}
+      opus:    {model: muse-spark-1.3-contributor}
       fable:   {model: deepseek-v4.1-flash}
       sonnet:  {model: deepseek-v4.1-flash}
       haiku:   {model: deepseek-v4.1-flash}

@@ -625,6 +625,21 @@ maintains by hand:
 Restoring a rung is one edit in the first of those three, followed by
 `ccp discover && ccp render && ccp sync`.
 
+### The probe gives a thinking model more room
+
+A model that reasons before it answers can spend a whole round's tokens on the
+reasoning and never reach the answer: Muse Spark 1.3 Contributor used 511
+tokens of reasoning for a two-word reply, and the round was reported as a
+failure — which says the provider is down when it is merely slow to speak. The
+probe retries such a round once with a bigger output ceiling, and the extra
+spend is claimed from the guard *before* the retry is sent.
+
+The retry gives the model more room, **not a bigger job**. The probe's prompt
+scales with its budget — "count to 80" becomes "count to 1200" — and re-deriving
+it for the retry makes a model that thinks spend the whole ceiling planning a
+task that grew to match it. The task stays the size it was; only the ceiling
+moves.
+
 ### The probe has a spend guard
 
 A probe is a real request against a real account, and on a per-token relay
@@ -685,12 +700,22 @@ and Qwen on `messages` — and a model on the wrong one is refused outright.
 Muse Spark 1.3 Contributor is a third case: it is served by `/responses` only,
 and it answers `500` on the chat path.
 
-**One model on purpose.** DeepSeek V4.1 Flash, on every tier: TTFT 1.6s,
-242 tok/s, and the highest monthly allowance in the plan ($80). The plan
-carries more — MiMo-V2.6-Flash is cheaper and reads audio and video — but this
-account is cleared to exercise the DeepSeek Flash and the free models only, so
-nothing else goes in the registry. A catalogue entry is not a licence to probe
-it.
+**Two models, and the tiers are not the same for both.** DeepSeek V4.1 Flash
+takes every tier but `opus`: TTFT 1.2s, 222 tok/s, and the highest monthly
+allowance in the plan ($80). Muse Spark 1.3 Contributor takes `opus`, where the
+wait buys something.
+
+Muse Spark is the cheaper model by a wide margin — $0.10/$0.20 per million
+against DeepSeek's $0.15/$0.60, 226,600 requests a month against 173,330, and
+the highest request count in the plan — and it is Meta's strongest coding model
+there. It is also the one that always thinks before it speaks: **511 reasoning
+tokens before its first visible word**, on a two-word reply, which is 10.3s to
+first token against the Flash's 1.2s. The reasoning does not come back as a
+`thinking` block — it is internal, and the answer arrives with the text.
+
+Tool calls and image input both work on it, and it answers the question before
+the tool call the way a careful assistant would ("正在为你查询北京天气。"
+followed by the `tool_use` block).
 
 **Two models are out of reach from here, and it is not the key.** Muse Spark
 1.3 Contributor (the cheapest model in the plan at $0.10/$0.20 per million
@@ -723,8 +748,9 @@ moment you save anything there, China stops working unless *Global* is
 selected too, and DeepSeek V4.1 Flash answers `403` where it answered `200` a
 minute earlier.
 
-Measured 2026-10-28: DeepSeek V4.1 Flash TTFT 1.6s / 242 tok/s, tool calls
-and image input both work, and the response carries its own accounting — `"opencode": {"billing_source": "go",
+Measured 2026-10-28: DeepSeek V4.1 Flash TTFT 1.2s / 222 tok/s, Muse Spark
+1.3 Contributor TTFT 10.3s / 126 tok/s, tool calls and image input work on
+both, and the response carries its own accounting — `"opencode": {"billing_source": "go",
 "allowance": 0.0000117}` — so every call says what it cost against the monthly
 allowance.
 
