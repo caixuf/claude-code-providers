@@ -96,3 +96,69 @@ def test_the_other_headers_survive_the_swap(tmp_path):
         headers={"Authorization": "Bearer stale", "anthropic-version": "2023-06-01"},
     )
     assert seen["headers"]["anthropic-version"] == "2023-06-01"
+
+
+# ── the served set and the remap, end to end ─────────────────────────────
+# The unit tests prove the resolution. This proves the wiring: the request that
+# reaches the upstream carries the served name, and a name that is genuinely
+# unknown is forwarded untouched so the upstream can still say so.
+
+
+def _app_with_served(tmp_path, served, master_key=KEY):
+    app = sse_watchdog.build_app(
+        "http://127.0.0.1:4001",
+        0.0,
+        90.0,
+        usage_path=None,
+        master_key=master_key,
+    )
+    app.state.served = set(served)
+    app.state.served_at = 1e18  # never refresh during the test
+    seen: dict = {}
+
+    async def fake_send(req, stream=False):
+        seen["headers"] = dict(req.headers)
+        seen["body"] = req.content
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            stream=_FakeStream([b'{"ok":true}']),
+            request=req,
+        )
+
+    app.state.client.send = fake_send
+    return app, seen
+
+
+def test_an_old_model_name_is_rewritten_to_the_served_one(tmp_path):
+    app, seen = _app_with_served(
+        tmp_path,
+        {"qianfan-deepseek-v4.1-flash", "qianfan-deepseek-v4.1-flash[1m]"},
+    )
+    tc = TestClient(app)
+    r = tc.post(
+        "/v1/chat/completions",
+        json={"model": "qianfan-deepseek-v4-flash[1m]", "messages": []},
+    )
+    assert r.status_code == 200
+    assert b"qianfan-deepseek-v4.1-flash" in seen["body"]
+    assert b"v4-flash" not in seen["body"]
+
+
+def test_a_served_name_is_forwarded_unchanged(tmp_path):
+    app, seen = _app_with_served(tmp_path, {"qianfan-deepseek-v4.1-flash"})
+    tc = TestClient(app)
+    tc.post(
+        "/v1/chat/completions",
+        json={"model": "qianfan-deepseek-v4.1-flash[1m]", "messages": []},
+    )
+    # the [1m] marker is stripped as before, and nothing else moves
+    import json
+    assert json.loads(seen["body"])["model"] == "qianfan-deepseek-v4.1-flash"
+
+
+def test_an_unknown_name_is_forwarded_so_the_upstream_can_answer(tmp_path):
+    app, seen = _app_with_served(tmp_path, {"qianfan-deepseek-v4.1-flash"})
+    tc = TestClient(app)
+    tc.post("/v1/chat/completions", json={"model": "no-such-model", "messages": []})
+    assert b"no-such-model" in seen["body"]

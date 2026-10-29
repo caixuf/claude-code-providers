@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from contextlib import asynccontextmanager
+import time
 import sys
 from pathlib import Path
 from typing import AsyncIterator
@@ -34,6 +36,7 @@ from sse_finalize import (  # noqa: E402
     strip_1m_model,
 )
 from bridge_auth import load_master_key, normalize_auth  # noqa: E402
+from model_remap import remap_model, serves  # noqa: E402
 from loopback import ensure_loopback_bypass, loopback_mounts  # noqa: E402
 from usage_ledger import UsageLedger, UsageTally  # noqa: E402
 
@@ -140,6 +143,73 @@ async def _sse_body(
                 pass
 
 
+# How often the served set is re-read from the upstream, and the floor between
+# two on-demand refreshes. The list only changes when `ccp render` runs, so this
+# is a cheap poll, not a per-request lookup.
+SERVED_REFRESH_S = 120.0
+SERVED_MISS_COOLDOWN_S = 10.0
+
+
+async def refresh_served(app) -> set[str]:
+    """Ask the upstream which model names it serves, and remember them."""
+    upstream = app.state.upstream
+    headers = {}
+    if app.state.master_key:
+        headers["authorization"] = f"Bearer {app.state.master_key}"
+    try:
+        r = await app.state.client.get(f"{upstream}/v1/models", headers=headers, timeout=5.0)
+        if r.status_code == 200:
+            data = r.json()
+            names = {
+                m.get("id")
+                for m in (data.get("data") or [])
+                if isinstance(m, dict) and isinstance(m.get("id"), str)
+            }
+            names.discard(None)
+            if names:
+                app.state.served = names
+    except Exception:
+        # An upstream that cannot answer keeps the previous list: a stale set
+        # remaps no worse than no set at all.
+        pass
+    app.state.served_at = time.monotonic()
+    return app.state.served
+
+
+async def _remap_body(request: Request, forward_body: bytes) -> tuple[bytes, str | None]:
+    """Point a request at the served name when the client asked for an old one."""
+    app = request.app
+    try:
+        import json as _j
+        doc = _j.loads(forward_body)
+    except Exception:
+        return forward_body, None
+    if not isinstance(doc, dict) or not isinstance(doc.get("model"), str):
+        return forward_body, None
+    asked = doc["model"]
+    served = app.state.served or set()
+    if not serves(asked, served):
+        # The name may be new (rendered a moment ago) or genuinely wrong. One
+        # rate-limited refresh decides which, at the cost of a local call.
+        now = time.monotonic()
+        if now - app.state.served_at >= SERVED_MISS_COOLDOWN_S:
+            served = await refresh_served(app)
+    if not served or serves(asked, served):
+        return forward_body, None
+    model, note = remap_model(asked, served)
+    if note is None:
+        return forward_body, None
+    doc["model"] = model
+    import json as _j
+    return _j.dumps(doc).encode("utf-8"), note
+
+
+async def _served_loop(app) -> None:
+    while True:
+        await asyncio.sleep(SERVED_REFRESH_S)
+        await refresh_served(app)
+
+
 async def proxy(request: Request) -> Response:
     upstream = request.app.state.upstream
     url = f"{upstream}{request.url.path}"
@@ -148,6 +218,15 @@ async def proxy(request: Request) -> Response:
     body = await request.body()
     forward_body, stripped_model = strip_1m_model(body)
     clamp_map = getattr(request.app.state, "clamp_map", {}) or {}
+    # A client's model list is a copy of the bridge's, taken when it was
+    # configured. When the curation narrows, the copy keeps asking for a name
+    # LiteLLM no longer has and the answer is "Invalid model name passed in
+    # model=..." - naming the model, and telling a configured client to look
+    # elsewhere. The name is resolved before any rule looks at it, so the media
+    # and clamp rules keyed on the served spelling still apply.
+    remap_note: str | None = None
+    if body:
+        forward_body, remap_note = await _remap_body(request, forward_body)
     clamp_fallback = getattr(request.app.state, "clamp_fallback", None)
     rules = getattr(request.app.state, "request_rules", None) or {}
     sanitize_models = rules.get("sanitize_channel") or frozenset()
@@ -170,11 +249,16 @@ async def proxy(request: Request) -> Response:
     if text_only_models and norm_model_key(_sent_model) in text_only_models:
         forward_body, media_dropped = downgrade_media(forward_body, _sent_model)
     forward_body, clamped = clamp_max_tokens(forward_body, clamp_map, fallback=clamp_fallback)
+    fwd_headers, auth_note = _fwd_headers(
+        request, getattr(request.app.state, "master_key", None)
+    )
     try:
         import json as _j
         _b = _j.loads(forward_body) if forward_body else {}
         if stripped_model:
             print(f"[WATCHDOG] Stripped 1M suffix: {stripped_model} -> {_b.get('model')}", flush=True)
+        if remap_note:
+            print(f"[WATCHDOG] Model not served, resolved: {remap_note}", flush=True)
         if channel_rewrites:
             print(f"[WATCHDOG] Channel rewrites ({', '.join(channel_rewrites)}) for model={_b.get('model')}", flush=True)
         if media_dropped:
@@ -190,9 +274,6 @@ async def proxy(request: Request) -> Response:
     # The channel's three conversation headers are a deployment-level
     # `extra_headers` in the registry, which LiteLLM adds — not the watchdog's
     # job. See registry/models.yaml and render_config.py.
-    fwd_headers, auth_note = _fwd_headers(
-        request, getattr(request.app.state, "master_key", None)
-    )
     req = client.build_request(
         request.method,
         url,
@@ -357,6 +438,10 @@ def build_app(
     app.state.request_rules = request_rules or {}
     # The credential the bridge forwards: LiteLLM accepts only this one.
     app.state.master_key = master_key
+    # The names the upstream serves, refreshed on a timer; empty until the
+    # first successful read, and an empty set disables the remap entirely.
+    app.state.served = set()
+    app.state.served_at = 0.0
     # The ledger is optional: --no-usage keeps the proxy byte-identical to what
     # it was, for anyone who would rather not write a file per request.
     app.state.ledger = UsageLedger(usage_path) if usage_path else None
@@ -367,6 +452,23 @@ def build_app(
     # bypass is enforced here.
     ensure_loopback_bypass()
     app.state.client = httpx.AsyncClient(timeout=None, mounts=loopback_mounts())
+
+    @asynccontextmanager
+    async def _lifespan(_app):
+        # Starlette 1.x dropped `add_event_handler`, and the served set has to
+        # be read once the client exists - which is after build_app returns.
+        await refresh_served(app)
+        print(
+            f"[WATCHDOG] served models: {len(app.state.served)} names from {app.state.upstream}",
+            flush=True,
+        )
+        task = asyncio.create_task(_served_loop(app))
+        try:
+            yield
+        finally:
+            task.cancel()
+
+    app.router.lifespan_context = _lifespan
     return app
 
 
