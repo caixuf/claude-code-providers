@@ -705,9 +705,23 @@ Chinese exit the gateway answers `403 RegionError — This model is not availabl
 in your country` for the models Meta restricts by geography (Muse Spark, Beam
 Free); through a US exit the same key gets `200` on the same model. The models
 that train on request data are a different question again and never a
-geography one: `iceman-contributor-free` and `muse-spark-1.3-contributor` both
-answer *"Allow paid endpoints that train on request data in your workspace's
-Privacy settings"* until that switch is flipped in the console.
+geography one.
+
+**Both are workspace settings, in Settings › Privacy, and they are two
+switches.** The toggle fires the mutation on change — there is no Save button:
+
+| Control | Unlocks |
+|---|---|
+| Training → *Allow paid endpoints that train on request data* | `muse-spark-1.3-contributor`, `muse-spark-1.2-contributor` |
+| Training → *Allow free endpoints that train on request data* | `iceman-contributor-free` |
+| Regions → *Global* | requests that originate in China |
+
+**Check *Global* in the same breath.** Europe and the United States are always
+enabled, and *Global* is what lets a request from China through. A workspace
+that has never saved its privacy settings allows Global by default — so the
+moment you save anything there, China stops working unless *Global* is
+selected too, and DeepSeek V4.1 Flash answers `403` where it answered `200` a
+minute earlier.
 
 Measured 2026-10-28: DeepSeek V4.1 Flash TTFT 1.6s / 242 tok/s, tool calls
 and image input both work, and the response carries its own accounting — `"opencode": {"billing_source": "go",
