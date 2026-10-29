@@ -547,6 +547,39 @@ def render_system_rules(
     return sorted(out)
 
 
+def render_field_rules(
+    models: dict,
+    profiles_doc: dict | None = None,
+    emitted_by_provider: dict[str, set[str]] | None = None,
+) -> dict[str, list[str]]:
+    """The request fields each upstream refuses, per model.
+
+    Derived from the registry: a model carries ``unsupported_fields`` when the
+    endpoint was measured rejecting a request that carried them. The bridge
+    strips them for that model alone — a marker like ``cache_control`` is an
+    optimisation, and losing it costs caching rather than the request.
+    """
+    aliases = (profiles_doc or {}).get("aliases") or {}
+
+    def fields_of(pname: str, name: str):
+        spec = aliases.get(name)
+        if isinstance(spec, dict) and spec.get("provider") == pname:
+            return (models.get((pname, spec.get("model"))) or {}).get("unsupported_fields")
+        for candidate in (name, name.split("[", 1)[0]):
+            meta = models.get((pname, candidate))
+            if meta is not None:
+                return meta.get("unsupported_fields")
+        return None
+
+    out: dict[str, list[str]] = {}
+    for pname, names in (emitted_by_provider or {}).items():
+        for name in names:
+            fields = fields_of(pname, name)
+            if fields:
+                out[name] = sorted(set(fields))
+    return out
+
+
 def litellm_model_string_override(pname: str, mname: str, profiles_doc: dict | None = None) -> str | None:
     """LiteLLM model string for non-registry providers (copilot uses its native
     ``github_copilot/`` prefix and must NOT get an ``openai/`` prefix)."""
@@ -769,6 +802,7 @@ def main() -> None:
     # follow it rather than be a second place to keep in sync.
     rules["media_downgrade"] = render_media_rules(models, profiles_doc, emitted_by_provider)
     rules["system_as_string"] = render_system_rules(models, profiles_doc, emitted_by_provider)
+    rules["strip_fields"] = render_field_rules(models, profiles_doc, emitted_by_provider)
     rules_text = json.dumps(rules, indent=2, sort_keys=True) + "\n"
 
     profile_texts = {}

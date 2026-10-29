@@ -88,10 +88,11 @@ providers:
         max_output: 131072
         vision: false
         system_array: false
+        unsupported_fields: [cache_control]
         endpoint_kind: anthropic
         aliases: []
         tiers: []
-        hints: {ctx: 1048576, max_output: 131072, system_array: false, vision: false}
+        hints: {ctx: 1048576, max_output: 131072, system_array: false, unsupported_fields: ['cache_control'], vision: false}
       - name: deepseek-v4.1-flash
         ctx: 1000000
         max_output: 384000

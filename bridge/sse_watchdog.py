@@ -30,6 +30,7 @@ from sse_finalize import (  # noqa: E402
     clamp_max_tokens,
     downgrade_media,
     flatten_system,
+    strip_request_fields,
     event_is_ping,
     norm_model_key,
     sanitize_channel_markers,
@@ -233,6 +234,8 @@ async def proxy(request: Request) -> Response:
     sanitize_models = rules.get("sanitize_channel") or frozenset()
     text_only_models = rules.get("media_downgrade") or frozenset()
     string_system_models = rules.get("system_as_string") or frozenset()
+    # Fields the upstream refuses, per model: {"beam-free": ("cache_control",)}
+    strip_fields = rules.get("strip_fields") or {}
     try:
         import json as _j
         _sent_model = (_j.loads(forward_body) or {}).get("model", "") if forward_body else ""
@@ -255,6 +258,11 @@ async def proxy(request: Request) -> Response:
     # block list from another model on the same connection.
     if _sent_model in string_system_models:
         forward_body, _sys_flattened = flatten_system(forward_body, _sent_model)
+    _unsupported = strip_fields.get(_sent_model)
+    if _unsupported:
+        forward_body, _fields_stripped = strip_request_fields(
+            forward_body, _sent_model, _unsupported
+        )
     forward_body, clamped = clamp_max_tokens(forward_body, clamp_map, fallback=clamp_fallback)
     fwd_headers, auth_note = _fwd_headers(
         request, getattr(request.app.state, "master_key", None)
@@ -381,10 +389,19 @@ def load_request_rules(path: str | None) -> dict[str, set[str]]:
             continue
         if not isinstance(raw, dict):
             continue
-        out: dict[str, set[str]] = {}
+        out: dict[str, object] = {}
         for rule, names in raw.items():
             if isinstance(names, list):
                 out[str(rule)] = {norm_model_key(n) for n in names if isinstance(n, str)}
+            elif isinstance(names, dict):
+                # A rule that carries per-model detail, e.g.
+                # {"strip_fields": {"beam-free": ["cache_control"]}} — the
+                # field names that upstream refuses, per model.
+                out[str(rule)] = {
+                    norm_model_key(m): tuple(f for f in fields if isinstance(f, str))
+                    for m, fields in names.items()
+                    if isinstance(fields, list)
+                }
         return out
     return {}
 

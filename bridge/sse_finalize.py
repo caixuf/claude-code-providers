@@ -596,6 +596,56 @@ def flatten_system(body: bytes, model: str) -> tuple[bytes, int]:
         return body, 0
 
 
+def strip_request_fields(body: bytes, model: str, fields) -> tuple[bytes, int]:
+    """Remove request fields the upstream refuses, wherever they appear.
+
+    Claude Code marks blocks for prompt caching with ``cache_control``, and
+    an upstream that does not know the marker answers
+    ``Unrecognized request argument supplied: messages[4].cache_control``
+    (measured 2026-10-29 on Beam Free). The marker is an optimisation, so
+    dropping it costs caching and nothing else — while leaving it in costs
+    the whole request.
+
+    A no-op when there is nothing to strip, so the caller can forward the
+    original bytes. An unparseable body is returned untouched: a rewrite must
+    never be the reason a request fails.
+    """
+    if not body or not fields:
+        return body, 0
+    try:
+        import json as _j
+
+        doc = _j.loads(body)
+    except Exception:
+        return body, 0
+    if not isinstance(doc, dict):
+        return body, 0
+
+    names = tuple(str(f) for f in fields)
+    removed = _strip_keys(doc, names)
+    if not removed:
+        return body, 0
+    try:
+        return _j.dumps(doc).encode("utf-8"), removed
+    except Exception:
+        return body, 0
+
+
+def _strip_keys(node, fields) -> int:
+    removed = 0
+    if isinstance(node, dict):
+        for name in fields:
+            if name in node:
+                del node[name]
+                removed += 1
+        for value in list(node.values()):
+            removed += _strip_keys(value, fields)
+    elif isinstance(node, list):
+        for value in node:
+            removed += _strip_keys(value, fields)
+    return removed
+
+
 def resolve_max_output(
     model: str, clamp_map: dict[str, int], *, fallback: int | None = None
 ) -> int | None:

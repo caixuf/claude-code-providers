@@ -306,11 +306,17 @@ PROVIDERS = {
             # blocks (which is what Claude Code sends) and 200 with it as a
             # string. The error names messages[0].content and points nowhere
             # near the cause.
+            # unsupported_fields: measured 2026-10-29. The same request with
+            # the same model answers 400 "Unrecognized request argument
+            # supplied: messages[4].cache_control" once Claude Code has made
+            # a tool call and starts marking blocks for prompt caching.
+            # The marker is an optimisation, so the bridge drops it.
             "beam-free": {
                 "ctx": 1048576,
                 "max_output": 131072,
                 "vision": False,
                 "system_array": False,
+                "unsupported_fields": ["cache_control"],
             },
         },
         "max_output_default": None,
@@ -799,7 +805,7 @@ def build(only: str | None) -> dict:
             # registry (data, hand-editable), and both win over discovery.
             hints = dict(prior.get("hints") or {})
             hints.update((pdef.get("hints") or {}).get(norm["name"]) or {})
-            for field in ("ctx", "max_output", "vision", "system_array"):
+            for field in ("ctx", "max_output", "vision", "system_array", "unsupported_fields"):
                 if hints.get(field) is not None:
                     norm[field] = hints[field]
             if hints:
@@ -854,6 +860,9 @@ def to_yaml(doc: dict) -> str:
             lines.append(
                 f"        system_array: {'true' if sa is True else ('false' if sa is False else 'null')}"
             )
+            uf = m.get("unsupported_fields")
+            if uf:
+                lines.append("        unsupported_fields: [" + ", ".join(str(u) for u in uf) + "]")
             lines.append(f"        endpoint_kind: {m.get('endpoint_kind', p['endpoint_kind'])}")
             al = m.get("aliases") or []
             lines.append("        aliases: [" + ", ".join(al) + "]")
