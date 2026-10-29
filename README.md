@@ -727,6 +727,25 @@ answered with an `OrderedDict` and an `RLock` in 5.7s. Its training term is
 plan that is both free and private. It is text-only, and Meta's-free tier
 aside it is excluded from China, so it needs the US exit.
 
+**Where the free one is good, and where it is not.** Measured head to head
+against the DeepSeek Flash on the same path, with the same prompts:
+
+| | Beam Free | DeepSeek V4.1 Flash |
+|---|---|---|
+| First token | **640ms** | 1.2s |
+| Tool call, right tool and right arguments | ✓ | ✓ |
+| Fix a buggy function | ✓ | ✓ (and in half the tokens) |
+| Follow three formatting constraints at once | ✓ | ✓ |
+| Find a needle in a long log | ✓ | ✓ |
+| **Reach the fix in a multi-step agent loop** | **7 turns, re-reading the same file four times** | **4 turns, straight to the write** |
+
+That last row is the one that matters for a coding agent. The two models
+produce the same answer; the difference is how many round trips it takes to
+get there, and a round trip is where the latency compounds. So the free one
+takes `haiku` — the tier that wants speed and cannot run out — and the paying
+Flash keeps `default`, `fable` and `sonnet`, where the work that needs to
+converge happens.
+
 The free one needed a rewrite to get here. Claude Code sends the system prompt
 as a list of text blocks; Beam Free's upstream accepts only the string form and
 answers the block list with a 400 about `messages[0].content` that points
