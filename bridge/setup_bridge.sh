@@ -58,7 +58,25 @@ fi
 
 echo "=== 2. Installing LiteLLM Proxy and Dependencies ==="
 "$VENV_DIR/bin/pip" install --upgrade pip
-"$VENV_DIR/bin/pip" install 'litellm[proxy]' 'httpx[socks]' 'socksio'
+
+# Check for a precompiled standalone wheel (e.g. from repo wheels/, local archive, or /tmp)
+PREBUILT_WHEEL=""
+for candidate in \
+  "$SCRIPT_DIR/wheels"/litellm-*.whl \
+  "$HOME/.local/share/wheels"/litellm-*.whl \
+  "/tmp"/litellm-*.whl; do
+  if [ -f "$candidate" ]; then
+    PREBUILT_WHEEL="$candidate"
+    break
+  fi
+done
+
+if [ -n "$PREBUILT_WHEEL" ]; then
+  echo "✔ Found precompiled LiteLLM binary wheel: $PREBUILT_WHEEL"
+  "$VENV_DIR/bin/pip" install "$PREBUILT_WHEEL" 'httpx[socks]' 'socksio'
+else
+  "$VENV_DIR/bin/pip" install 'litellm[proxy]' 'httpx[socks]' 'socksio'
+fi
 
 echo "=== 3. Applying Compatibility Patches ==="
 # Patch A: Support wrapped data.choices (e.g. Cline Pass non-streaming returns)
@@ -126,6 +144,41 @@ if 'GITHUB_COPILOT_FORCE_LOGIN' not in content and target in content:
     print("✔ Copilot non-interactive daemon patch applied successfully.")
 else:
     print("✔ Copilot non-interactive daemon patch already in place or not needed.")
+PY
+fi
+
+# Patch D: Prevent empty message content placeholder injection on tool calls (LiteLLM issue #34822)
+FACTORY_FILE=$("$VENV_DIR/bin/python" -c "import litellm.llms.anthropic.experimental_pass_through.anthropic_messages_pt.factory as m; print(m.__file__)" 2>/dev/null || true)
+if [ -f "$FACTORY_FILE" ]; then
+  echo "Checking empty message sanitization patch in $FACTORY_FILE..."
+  "$VENV_DIR/bin/python" - <<PY
+with open("$FACTORY_FILE", "r") as f:
+    content = f.read()
+
+upstream_marker = 'if any(_tool_call_survives_conversion(tool_call) for tool_call in parts_of(message_field(message, "tool_calls"))):'
+if upstream_marker in content:
+    print("✔ LiteLLM upstream tool-calling fix (PR #34822) already present.")
+elif 'Tool-call assistant turns legitimately carry no text content' in content:
+    print("✔ Empty message tool-calling patch already present.")
+else:
+    old_code = '''def _sanitize_empty_text_content(
+    message: Mapping[str, object],
+) -> AllMessageValues:
+    message_content = message.get("content")'''
+    new_code = '''def _sanitize_empty_text_content(
+    message: Mapping[str, object],
+) -> AllMessageValues:
+    if message.get("role") == "assistant" and message.get("tool_calls"):
+        # Tool-call assistant turns legitimately carry no text content
+        return cast(AllMessageValues, message)
+    message_content = message.get("content")'''
+    if old_code in content:
+        content = content.replace(old_code, new_code, 1)
+        with open("$FACTORY_FILE", "w") as f:
+            f.write(content)
+        print("✔ Empty message tool-calling patch applied successfully.")
+    else:
+        print("Notice: target anchor in factory.py not matched, skipping.")
 PY
 fi
 
