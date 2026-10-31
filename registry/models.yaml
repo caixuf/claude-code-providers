@@ -139,3 +139,12 @@ providers:
         aliases: []
         tiers: []
         hints: {ctx: 1048576, max_output: 65536, vision: true}
+      - name: gpt-6.1-terra
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        system_array: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+        hints: {ctx: 1048576, max_output: 65536, vision: true}

@@ -831,6 +831,28 @@ def _env_api_base(pname: str, providers: dict) -> str | None:
     return None
 
 
+def apply_local_overlay(profiles_doc: dict, overlay: dict) -> dict:
+    """Merge a wall-clock overlay onto the committed profiles document.
+
+    Top-level keys are replaced wholesale: the overlay file is for group
+    membership, and merging member *lists* would make it impossible to remove a
+    member by naming a shorter list.
+
+    `groups` is the one exception, merged one level deeper. Without it an
+    overlay naming `groups` replaced the whole mapping, so every group the
+    overlay did not mention vanished for the duration of the window -- a
+    wall-clock timer silently deleting a group a human had curated. Naming a
+    group still replaces that group's member list outright, so the "remove a
+    member" case keeps working.
+    """
+    merged = {**profiles_doc, **overlay}
+    groups_committed = profiles_doc.get("groups") or {}
+    groups_overlay = overlay.get("groups") or {}
+    if groups_committed or groups_overlay:
+        merged["groups"] = {**groups_committed, **groups_overlay}
+    return merged
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="verify outputs are up to date")
@@ -843,10 +865,7 @@ def main() -> None:
     models_doc = load_yaml(MODELS_YAML)
     profiles_doc = load_yaml(PROFILES_YAML)
     if PROFILES_LOCAL.is_file():
-        # Shallow merge, top-level keys only: the overlay file is for group
-        # membership, and a deep merge would make it impossible to *remove* a
-        # member by naming a shorter list.
-        profiles_doc = {**profiles_doc, **load_yaml(PROFILES_LOCAL)}
+        profiles_doc = apply_local_overlay(profiles_doc, load_yaml(PROFILES_LOCAL))
     models, providers = index_models(models_doc)
     # register non-discovered providers (copilot, *-native) so emit() knows their shape
     for pname, pmeta in _np_providers(profiles_doc).items():

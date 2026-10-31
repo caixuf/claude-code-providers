@@ -213,11 +213,11 @@ profiles:
     provider: qpcmqam
     primary_tier: sonnet
     tiers:
-      default: {model: gemini-4-argon}
-      opus:    {model: gemini-4-argon}
-      fable:   {model: gemini-4-argon}
-      sonnet:  {model: gemini-4-argon}
-      haiku:   {model: gemini-4-argon}
+      default: {model: gpt-6.1-terra}
+      opus:    {model: gpt-6.1-terra}
+      fable:   {model: gpt-6.1-terra}
+      sonnet:  {model: gpt-6.1-terra}
+      haiku:   {model: gpt-6.1-terra}
 
 # ── Short aliases exposed to LiteLLM (config.yaml model_name) ──────────
 # These are the names Claude Code puts in ANTHROPIC_MODEL. The `[1m]` marker
@@ -263,6 +263,7 @@ aliases:
   trae-deepseek-v4.1-flash:             {provider: trae, model: DeepSeek-V4.1-Flash}
   # qpcmqam relay: one model, so the alias is the only way to reach it.
   qpcmqam-gemini-4-argon:               {provider: qpcmqam, model: gemini-4-argon}
+  qpcmqam-gpt-6.1-terra:                {provider: qpcmqam, model: gpt-6.1-terra}
 
 # ── Accounts: several logins for one provider ──────────────────────────
 # Each extra account becomes its own LiteLLM deployment named
@@ -307,26 +308,30 @@ accounts: {}
 # same turn costs after dark. A fallback has to be safe to hit at any hour, and
 # this one is not.
 #
-# Qianfan is instead swapped in by `scripts/qianfan_window.sh`, which runs from
-# systemd timers at 21:00 and 08:00: it rewrites the `# >>> qianfan-window`
-# block below and re-renders. Keeping that out of the committed defaults is the
-# point — the file on disk must be the cheap one, and the expensive one exists
-# only for the hours someone chose.
+# Qianfan is instead swapped in by `bridge/qianfan_window.py`, which runs from
+# systemd timers at 21:00 and 08:00. It does NOT edit this file: it writes
+# `registry/profiles.local.yaml` (git-ignored) naming only the `main` group, and
+# render merges that over these defaults. Keeping the night arrangement out of
+# the committed file is the point — the file on disk must be the cheap one, and
+# the expensive one exists only for the hours someone chose.
+#
+# `main` is the only group that schedule owns. Any group named in the overlay is
+# replaced outright for the window's duration, so `pro` (a human's pick) and
+# `flash` (fixed) are absent from it on purpose: a wall-clock timer must not
+# revert a choice someone made.
 #
 # A group is a curation choice, so it has to name models that still exist —
 # `ccp render` reports an unresolvable member instead of emitting a deployment
 # that 400s at request time.
 groups:
   main:
-    # >>> qianfan-window
     members:
     - opendesign-deepseek-v4.1-flash
     fallback:
     - qianfan-deepseek-v4.1-flash-1017
-    # <<< qianfan-window
   pro:
     members:
-    - qpcmqam-gemini-4-argon
+    - qpcmqam-gpt-6.1-terra
     fallback:
     - opendesign-deepseek-v4.1-flash
   flash:
