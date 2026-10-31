@@ -191,6 +191,34 @@ profiles:
       sonnet:  {model: DeepSeek-V4.1-Flash}
       haiku:   {model: DeepSeek-V4.1-Flash}
 
+  # ── qpcmqam relay (ai.qpcmqam.cn) ─────────────────────────────────────
+  # A personal OpenAI-compatible relay. Bridged, not native: it speaks Chat
+  # Completions, so it renders through LiteLLM like cline and qianfan.
+  #
+  # Deliberately one model — gemini-4-argon — because that is the only id this
+  # request asked for, and the relay also serves gemini-3.8-flash that was not
+  # wanted. Every tier points at the same model for that reason.
+  #
+  # Facts came from Google's own model page, not from the relay's claims:
+  # 1,048,576-token context shared across input/thinking/output, 65,536
+  # default max output (long decode can go to 1M but that is not the sync
+  # path), text+image+video+audio+PDF in, text out.
+  #
+  # Probed on 2026-10-31 before writing this: plain completion 200,
+  # 140,037-token prompt 200 (40.7s), streaming 200. Image input returned
+  # 400 "Unable to process input image" — so `vision: true` above is the
+  # model's documented capability, NOT something this relay was seen doing.
+  # The relay is the unverified half.
+  qpcmqam:
+    provider: qpcmqam
+    primary_tier: sonnet
+    tiers:
+      default: {model: gemini-4-argon}
+      opus:    {model: gemini-4-argon}
+      fable:   {model: gemini-4-argon}
+      sonnet:  {model: gemini-4-argon}
+      haiku:   {model: gemini-4-argon}
+
 # ── Short aliases exposed to LiteLLM (config.yaml model_name) ──────────
 # These are the names Claude Code puts in ANTHROPIC_MODEL. The `[1m]` marker
 # is appended automatically for models whose ctx >= 1000000 (the proxy strips
@@ -233,6 +261,8 @@ aliases:
   # Trae: the model id on the right is the registry name (Trae's `config_name`),
   # which is also what the adapter matches against its live catalogue.
   trae-deepseek-v4.1-flash:             {provider: trae, model: DeepSeek-V4.1-Flash}
+  # qpcmqam relay: one model, so the alias is the only way to reach it.
+  qpcmqam-gemini-4-argon:               {provider: qpcmqam, model: gemini-4-argon}
 
 # ── Accounts: several logins for one provider ──────────────────────────
 # Each extra account becomes its own LiteLLM deployment named
@@ -296,9 +326,9 @@ groups:
     # <<< qianfan-window
   pro:
     members:
-    - opendesign-deepseek-v4.1-flash
+    - qpcmqam-gemini-4-argon
     fallback:
-    - qianfan-deepseek-v4.1-flash-1017
+    - opendesign-deepseek-v4.1-flash
   flash:
     members:
     - beam-free

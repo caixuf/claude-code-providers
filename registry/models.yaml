@@ -125,3 +125,17 @@ providers:
         endpoint_kind: anthropic
         aliases: []
         tiers: []
+  - name: qpcmqam
+    api_base: https://ai.qpcmqam.cn/v1
+    endpoint_kind: openai
+    auth_env: QPCMQAM_API_KEY
+    models:
+      - name: gemini-4-argon
+        ctx: 1048576
+        max_output: 65536
+        vision: true
+        system_array: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+        hints: {ctx: 1048576, max_output: 65536, vision: true}
