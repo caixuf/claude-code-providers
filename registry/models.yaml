@@ -140,11 +140,28 @@ providers:
         tiers: []
         hints: {ctx: 1048576, max_output: 65536, vision: true}
       - name: gpt-6.1-terra
-        ctx: 1048576
+        # 272k, NOT the 1,048,576 the model card advertises: the relay's own
+        # price sheet bills long context separately — past 272k tokens input
+        # doubles (0.20 -> 0.40 积分/MTok) and output rises 1.5x (1.00 -> 1.50).
+        # Advertising the full window lets a client fill it and cross that line
+        # with nothing in the UI to show it; at 272k the client compacts first.
+        ctx: 272000
         max_output: 65536
         vision: true
         system_array: null
         endpoint_kind: openai
         aliases: []
         tiers: []
-        hints: {ctx: 1048576, max_output: 65536, vision: true}
+        hints: {ctx: 272000, max_output: 65536, vision: true}
+      - name: gpt-6.1-sol
+        # Same 272k ceiling and the same reason (same family, same price sheet).
+        # Verified 2026-10-31: /v1/models lists it and a plain completion
+        # answers 200 through the relay.
+        ctx: 272000
+        max_output: 65536
+        vision: true
+        system_array: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
+        hints: {ctx: 272000, max_output: 65536, vision: true}

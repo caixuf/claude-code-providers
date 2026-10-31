@@ -264,6 +264,10 @@ aliases:
   # qpcmqam relay: one model, so the alias is the only way to reach it.
   qpcmqam-gemini-4-argon:               {provider: qpcmqam, model: gemini-4-argon}
   qpcmqam-gpt-6.1-terra:                {provider: qpcmqam, model: gpt-6.1-terra}
+  # Added 2026-10-31 at the owner's request: the relay serves both 6.1 rungs and
+  # only these two are wanted. terra is the slow-and-deliberate one that `pro`
+  # uses; sol is the faster rung for the cheap slots.
+  qpcmqam-gpt-6.1-sol:                  {provider: qpcmqam, model: gpt-6.1-sol}
 
 # ── Accounts: several logins for one provider ──────────────────────────
 # Each extra account becomes its own LiteLLM deployment named
