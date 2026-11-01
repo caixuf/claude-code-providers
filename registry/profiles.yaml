@@ -334,9 +334,13 @@ groups:
     fallback:
     - qianfan-deepseek-v4.1-flash-1017
   pro:
+    # terra was the first pick, but it answered thinner than sol on the same
+    # prompt (1200 vs 7946 output tokens, 11.0 vs 10.0 on the bench's 6-axis
+    # score) and was 18s slower doing it, so the deliberate tier is sol.
     members:
-    - qpcmqam-gpt-6.1-terra
+    - qpcmqam-gpt-6.1-sol
     fallback:
+    - qpcmqam-gpt-6.1-terra
     - opendesign-deepseek-v4.1-flash
   flash:
     members:
