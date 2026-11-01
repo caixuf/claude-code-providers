@@ -57,6 +57,7 @@ groups:
     members:
     - qianfan-deepseek-v4.1-flash-1017
     fallback:
+    - opencode-deepseek-v4.1-flash
     - opendesign-deepseek-v4.1-flash
     - cline-deepseek-v4.1-flash
 """
