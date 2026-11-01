@@ -14,10 +14,15 @@ import re
 
 MESSAGE_STOP_MARK = b"event: message_stop"
 OPENAI_DONE_MARK = b"data: [DONE]"
+RESPONSES_COMPLETED_MARK = b"response.completed"
 
 
 def sse_should_close(buf: bytes) -> bool:
-    return MESSAGE_STOP_MARK in buf or OPENAI_DONE_MARK in buf
+    return (
+        MESSAGE_STOP_MARK in buf
+        or OPENAI_DONE_MARK in buf
+        or RESPONSES_COMPLETED_MARK in buf
+    )
 
 
 def split_complete_events(buf: bytes) -> tuple[list[bytes], bytes]:

@@ -42,6 +42,7 @@ from bridge_auth import load_master_key, normalize_auth  # noqa: E402
 from model_remap import remap_model, serves  # noqa: E402
 from loopback import ensure_loopback_bypass, loopback_mounts  # noqa: E402
 from usage_ledger import UsageLedger, UsageTally  # noqa: E402
+from native_responses import resolve_native_responses  # noqa: E402
 
 HOP = {
     "connection",
@@ -345,6 +346,21 @@ async def proxy(request: Request) -> Response:
     fwd_headers, auth_note = _fwd_headers(
         request, getattr(request.app.state, "master_key", None)
     )
+    native_route = resolve_native_responses(_sent_model, request.url.path)
+    if native_route:
+        target_url, native_token, real_model = native_route
+        url = target_url
+        if request.url.query:
+            url = f"{url}?{request.url.query}"
+        fwd_headers["authorization"] = f"Bearer {native_token}"
+        try:
+            import json as _j
+            _doc = _j.loads(forward_body)
+            _doc["model"] = real_model
+            forward_body = _j.dumps(_doc).encode("utf-8")
+        except Exception:
+            pass
+        auth_note = f"native-responses->{real_model}"
     try:
         import json as _j
         _b = _j.loads(forward_body) if forward_body else {}
@@ -382,9 +398,39 @@ async def proxy(request: Request) -> Response:
     for attempt in range(4):
         try:
             r = await client.send(req, stream=True)
+            if native_route and r.status_code >= 500:
+                print(f"[WATCHDOG] Native /responses returned {r.status_code}, falling back to LiteLLM", flush=True)
+                await r.aclose()
+                fallback_url = f"{upstream}{request.url.path}"
+                if request.url.query:
+                    fallback_url = f"{fallback_url}?{request.url.query}"
+                fallback_headers, _ = _fwd_headers(request, getattr(request.app.state, "master_key", None))
+                req = client.build_request(
+                    request.method,
+                    fallback_url,
+                    headers=fallback_headers,
+                    content=body or None,
+                    timeout=timeout,
+                )
+                r = await client.send(req, stream=True)
             break
         except httpx.ConnectError:
             if attempt == 3:
+                if native_route:
+                    print("[WATCHDOG] Native /responses connection failed, falling back to LiteLLM", flush=True)
+                    fallback_url = f"{upstream}{request.url.path}"
+                    if request.url.query:
+                        fallback_url = f"{fallback_url}?{request.url.query}"
+                    fallback_headers, _ = _fwd_headers(request, getattr(request.app.state, "master_key", None))
+                    req = client.build_request(
+                        request.method,
+                        fallback_url,
+                        headers=fallback_headers,
+                        content=body or None,
+                        timeout=timeout,
+                    )
+                    r = await client.send(req, stream=True)
+                    break
                 raise
             await asyncio.sleep(0.5)
     ctype = (r.headers.get("content-type") or "").lower()

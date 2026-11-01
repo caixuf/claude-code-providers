@@ -166,7 +166,11 @@ class UsageTally:
             # carries the output side. `message_start` nests its payload one
             # level down under "message", so the top-level lookup finds nothing
             # and the input side would silently read as zero.
-            inner = obj.get("message") if isinstance(obj.get("message"), dict) else None
+            inner = (
+                obj.get("message")
+                if isinstance(obj.get("message"), dict)
+                else (obj.get("response") if isinstance(obj.get("response"), dict) else None)
+            )
             for src in (obj, inner):
                 if not src:
                     continue
