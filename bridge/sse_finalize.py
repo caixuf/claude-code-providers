@@ -736,3 +736,47 @@ def clamp_max_tokens(
         return body, None
     return _j.dumps(_b).encode("utf-8"), changed
 
+
+def strip_unsupported_tools(body: bytes, model: str) -> tuple[bytes, int]:
+    """Strip tool types that non-OpenAI endpoints reject (specifically 'web_search').
+
+    Codex CLI injects `{"type": "web_search"}` into `/v1/responses` requests.
+    OpenAI-native models handle this natively, but non-OpenAI gateways
+    (e.g. DeepSeek on OpenDesign / Qianfan) reject streaming requests carrying
+    web_search with 400 invalid_request_error.
+
+    A no-op when nothing changes, so the caller forwards the original bytes.
+    Unparseable bodies are returned untouched: a rewrite must never be the
+    reason a request fails.
+    """
+    if not body or b"web_search" not in body:
+        return body, 0
+    try:
+        import json as _j
+
+        doc = _j.loads(body)
+    except Exception:
+        return body, 0
+    if not isinstance(doc, dict):
+        return body, 0
+    tools = doc.get("tools")
+    if not isinstance(tools, list) or not tools:
+        return body, 0
+
+    norm_m = norm_model_key(model)
+    is_openai = norm_m == "pro" or any(
+        norm_m.startswith(p) for p in ("gpt-", "o1-", "o3-", "chatgpt-", "qpcmqam-")
+    )
+    if is_openai:
+        return body, 0
+
+    new_tools = [
+        t for t in tools if not (isinstance(t, dict) and t.get("type") == "web_search")
+    ]
+    dropped = len(tools) - len(new_tools)
+    if not dropped:
+        return body, 0
+    doc["tools"] = new_tools
+    return _j.dumps(doc).encode("utf-8"), dropped
+
+

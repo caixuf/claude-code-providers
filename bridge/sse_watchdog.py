@@ -36,6 +36,7 @@ from sse_finalize import (  # noqa: E402
     strip_1m_beta,
     strip_reasoning,
     strip_1m_model,
+    strip_unsupported_tools,
 )
 from bridge_auth import load_master_key, normalize_auth  # noqa: E402
 from model_remap import remap_model, serves  # noqa: E402
@@ -339,6 +340,7 @@ async def proxy(request: Request) -> Response:
     reasoning_stripped = False
     if strip_reasoning_models and norm_model_key(_sent_model) in strip_reasoning_models:
         forward_body, reasoning_stripped = strip_reasoning(forward_body)
+    forward_body, tools_dropped = strip_unsupported_tools(forward_body, _sent_model)
     forward_body, clamped = clamp_max_tokens(forward_body, clamp_map, fallback=clamp_fallback)
     fwd_headers, auth_note = _fwd_headers(
         request, getattr(request.app.state, "master_key", None)
@@ -354,6 +356,8 @@ async def proxy(request: Request) -> Response:
             print(f"[WATCHDOG] Channel rewrites ({', '.join(channel_rewrites)}) for model={_b.get('model')}", flush=True)
         if media_dropped:
             print(f"[WATCHDOG] Dropped {media_dropped} media block(s) for text-only model={_b.get('model')}", flush=True)
+        if tools_dropped:
+            print(f"[WATCHDOG] Dropped {tools_dropped} unsupported tool(s) (web_search) for model={_b.get('model')}", flush=True)
         if reasoning_stripped:
             print(f"[WATCHDOG] Stripped thinking for model={_b.get('model')} (no /responses upstream)", flush=True)
         if clamped is not None:

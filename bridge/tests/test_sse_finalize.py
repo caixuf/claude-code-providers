@@ -544,3 +544,51 @@ def test_downgrade_media_never_turns_a_bad_body_into_a_worse_one():
 
     assert downgrade_media(b"not json at all", "m") == (b"not json at all", 0)
     assert downgrade_media(b"", "m") == (b"", 0)
+
+
+def test_strip_unsupported_tools_removes_web_search_for_non_openai():
+    from sse_finalize import strip_unsupported_tools
+
+    body = json.dumps({
+        "model": "main",
+        "tools": [
+            {"type": "function", "name": "exec_command"},
+            {"type": "web_search"},
+        ],
+    }).encode()
+    out, dropped = strip_unsupported_tools(body, "main")
+    assert dropped == 1
+    doc = json.loads(out)
+    assert len(doc["tools"]) == 1
+    assert doc["tools"][0]["name"] == "exec_command"
+
+
+def test_strip_unsupported_tools_keeps_web_search_for_openai_and_pro():
+    from sse_finalize import strip_unsupported_tools
+
+    body = json.dumps({
+        "model": "pro",
+        "tools": [
+            {"type": "function", "name": "exec_command"},
+            {"type": "web_search"},
+        ],
+    }).encode()
+    for m in ("pro", "gpt-6.1-terra", "qpcmqam-gpt-6.1-terra", "o3-mini"):
+        out, dropped = strip_unsupported_tools(body, m)
+        assert dropped == 0
+        assert out == body
+
+
+def test_strip_unsupported_tools_noop_without_web_search():
+    from sse_finalize import strip_unsupported_tools
+
+    body = json.dumps({
+        "model": "main",
+        "tools": [{"type": "function", "name": "exec_command"}],
+    }).encode()
+    out, dropped = strip_unsupported_tools(body, "main")
+    assert dropped == 0
+    assert out == body
+    assert strip_unsupported_tools(b"not json", "main") == (b"not json", 0)
+    assert strip_unsupported_tools(b"", "main") == (b"", 0)
+
