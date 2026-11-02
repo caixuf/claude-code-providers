@@ -165,3 +165,17 @@ providers:
         aliases: []
         tiers: []
         hints: {ctx: 272000, max_output: 65536, vision: true}
+  - name: local
+    api_base: http://127.0.0.1:8080
+    endpoint_kind: anthropic
+    auth_env: LOCAL_LLM_KEY
+    models:
+      - name: imfl-local-qwen38
+        ctx: 262144
+        max_output: 16384
+        vision: false
+        system_array: null
+        endpoint_kind: anthropic
+        aliases: []
+        tiers: []
+        hints: {ctx: 262144, max_output: 16384, vision: false}

@@ -1,0 +1,21 @@
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "YOUR_LOCAL_API_KEY",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080",
+    "ANTHROPIC_MODEL": "imfl-local-qwen38",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "imfl-local-qwen38",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "imfl-local-qwen38",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "imfl-local-qwen38",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "imfl-local-qwen38",
+    "ANTHROPIC_SMALL_FAST_MODEL": "imfl-local-qwen38",
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "262144",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "262144"
+  },
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
+  "model": "imfl-local-qwen38",
+  "autoUpdatesChannel": "stable",
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "dark"
+}
