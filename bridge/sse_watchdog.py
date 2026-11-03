@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from contextlib import asynccontextmanager
+import json
 import time
 import sys
 from pathlib import Path
@@ -42,7 +43,7 @@ from bridge_auth import load_master_key, normalize_auth  # noqa: E402
 from model_remap import remap_model, serves  # noqa: E402
 from loopback import ensure_loopback_bypass, loopback_mounts  # noqa: E402
 from usage_ledger import UsageLedger, UsageTally  # noqa: E402
-from native_responses import resolve_native_responses  # noqa: E402
+from native_responses import litellm_alias_for, resolve_native_responses  # noqa: E402
 
 HOP = {
     "connection",
@@ -83,6 +84,116 @@ def _fwd_headers(
     return out, note
 
 
+RESPONSES_PATHS = ("/v1/responses", "/responses")
+
+# The Responses API has no terminator event: a stream ends after
+# `response.completed` / `response.failed` / `response.incomplete` / `error`.
+# `data: [DONE]` is the Chat Completions marker, and a client that parses the
+# Responses wire format rejects it as a JSON syntax error *before* it can look
+# at the real terminal event, so the user sees "stream disconnected" instead of
+# the failure reason.
+_DONE_MARKS = (
+    b"data: [DONE]\r\n\r\n",
+    b"data: [DONE]\n\n",
+    b"data: [DONE]\r\n",
+    b"data: [DONE]\n",
+    b"data: [DONE]",
+)
+# Hold back enough bytes that a marker split across two chunks is still whole
+# when the stream ends. Only the tail is delayed, so no event is buffered.
+_DONE_HOLD = max(len(m) for m in _DONE_MARKS)
+
+
+def strip_trailing_done(tail: bytes) -> bytes:
+    for mark in _DONE_MARKS:
+        if tail.endswith(mark):
+            return tail[: -len(mark)]
+    return tail
+
+
+class ResponsesDoneFilter:
+    """Drop the Chat Completions `[DONE]` marker from a Responses stream."""
+
+    def __init__(self) -> None:
+        self.carry = b""
+
+    def feed(self, chunk: bytes) -> bytes:
+        self.carry += chunk
+        if len(self.carry) <= _DONE_HOLD:
+            return b""
+        out, self.carry = self.carry[:-_DONE_HOLD], self.carry[-_DONE_HOLD:]
+        return out
+
+    def flush(self) -> bytes:
+        out, self.carry = self.carry, b""
+        return strip_trailing_done(out)
+
+
+_TOOL_CALL_TYPES = {
+    "function_call": "arguments",
+    "custom_tool_call": "input",
+}
+_TOOL_OUTPUT_TYPES = {"function_call_output", "custom_tool_call_output"}
+
+
+def _json_text_ok(value: object) -> bool:
+    if not isinstance(value, str):
+        return True
+    if not value.strip():
+        return True
+    try:
+        json.loads(value)
+    except ValueError:
+        return False
+    return True
+
+
+def sanitize_broken_tool_args(body: bytes) -> tuple[bytes, list[str]]:
+    """Drop history items whose tool-call arguments are not valid JSON.
+
+    An upstream that splices two parallel tool calls into one buffer leaves a
+    client with an `arguments` string that no longer parses. The client replays
+    that item in every later request, and the upstream answers the whole turn
+    with a bare "Invalid Argument" — one corrupt turn bricks the conversation.
+    Dropping the call together with its output keeps the remaining history
+    consistent, so the conversation continues from the next step.
+    """
+    if not body:
+        return body, []
+    try:
+        doc = json.loads(body)
+    except ValueError:
+        return body, []
+    if not isinstance(doc, dict):
+        return body, []
+    items = doc.get("input")
+    if not isinstance(items, list):
+        return body, []
+
+    broken: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        field = _TOOL_CALL_TYPES.get(item.get("type"))
+        if not field:
+            continue
+        call_id = item.get("call_id")
+        if isinstance(call_id, str) and not _json_text_ok(item.get(field)):
+            broken.add(call_id)
+    if not broken:
+        return body, []
+
+    kept = []
+    for item in items:
+        if isinstance(item, dict) and item.get("call_id") in broken:
+            kind = item.get("type")
+            if kind in _TOOL_CALL_TYPES or kind in _TOOL_OUTPUT_TYPES:
+                continue
+        kept.append(item)
+    doc["input"] = kept
+    return json.dumps(doc).encode("utf-8"), sorted(broken)
+
+
 async def _drain_upstream(aiter, resp: httpx.Response) -> None:
     try:
         async for _ in aiter:
@@ -102,10 +213,12 @@ async def _sse_body(
     ping_idle_s: float,
     first_byte_s: float,
     on_close=None,
+    responses_api: bool = False,
 ) -> AsyncIterator[bytes]:
     import time as _time
 
     st = SseCutState(ping_idle_s=ping_idle_s, first_byte_s=first_byte_s)
+    done_filter = ResponsesDoneFilter() if responses_api else None
     # The tally rides along on the same chunk walk the cut logic already does,
     # so usage costs no extra buffering and survives a cut: the events that
     # carry the counts (`message_start`, `message_delta`) arrive before
@@ -129,12 +242,18 @@ async def _sse_body(
             if ttft_ms is None and not event_is_ping(chunk):
                 ttft_ms = int((_time.monotonic() - started) * 1000)
             out, done = st.feed(chunk)
+            if done_filter is not None:
+                out = done_filter.feed(out) if out else b""
             if out:
                 yield out
             if done:
                 asyncio.create_task(_drain_upstream(aiter, resp))
                 handed_off = True
                 break
+        if done_filter is not None:
+            tail = done_filter.flush()
+            if tail:
+                yield tail
     finally:
         if not handed_off:
             await resp.aclose()
@@ -343,6 +462,16 @@ async def proxy(request: Request) -> Response:
         forward_body, reasoning_stripped = strip_reasoning(forward_body)
     forward_body, tools_dropped = strip_unsupported_tools(forward_body, _sent_model)
     forward_body, clamped = clamp_max_tokens(forward_body, clamp_map, fallback=clamp_fallback)
+    responses_api = request.url.path.rstrip("/") in RESPONSES_PATHS
+    dropped_calls: list[str] = []
+    if responses_api and request.method == "POST":
+        forward_body, dropped_calls = sanitize_broken_tool_args(forward_body)
+        if dropped_calls:
+            print(
+                f"[WATCHDOG] Dropped {len(dropped_calls)} history tool call(s) with "
+                f"unparseable arguments: {', '.join(dropped_calls)}",
+                flush=True,
+            )
     fwd_headers, auth_note = _fwd_headers(
         request, getattr(request.app.state, "master_key", None)
     )
@@ -394,6 +523,42 @@ async def proxy(request: Request) -> Response:
         content=forward_body or None,
         timeout=timeout,
     )
+    def fallback_request():
+        """Retry through LiteLLM when the native /responses door is down.
+
+        The body carries the upstream id (``gpt-6.1-sol``); LiteLLM only
+        answers to the deployment it was rendered with
+        (``qpcmqam-gpt-6.1-sol``). Sending it unchanged turned a transient 502
+        into a 400 "Invalid model name", which names neither the outage nor
+        the fix.
+        """
+        fb_body = body
+        alias = litellm_alias_for(_sent_model) if native_route else None
+        if alias:
+            try:
+                doc = json.loads(body)
+                doc["model"] = alias
+                fb_body = json.dumps(doc).encode("utf-8")
+                print(
+                    f"[WATCHDOG] Native fallback: model {_sent_model} -> {alias}",
+                    flush=True,
+                )
+            except (ValueError, TypeError):
+                pass
+        fallback_url = f"{upstream}{request.url.path}"
+        if request.url.query:
+            fallback_url = f"{fallback_url}?{request.url.query}"
+        fallback_headers, _ = _fwd_headers(
+            request, getattr(request.app.state, "master_key", None)
+        )
+        return client.build_request(
+            request.method,
+            fallback_url,
+            headers=fallback_headers,
+            content=fb_body or None,
+            timeout=timeout,
+        )
+
     r = None
     for attempt in range(4):
         try:
@@ -401,35 +566,13 @@ async def proxy(request: Request) -> Response:
             if native_route and r.status_code >= 500:
                 print(f"[WATCHDOG] Native /responses returned {r.status_code}, falling back to LiteLLM", flush=True)
                 await r.aclose()
-                fallback_url = f"{upstream}{request.url.path}"
-                if request.url.query:
-                    fallback_url = f"{fallback_url}?{request.url.query}"
-                fallback_headers, _ = _fwd_headers(request, getattr(request.app.state, "master_key", None))
-                req = client.build_request(
-                    request.method,
-                    fallback_url,
-                    headers=fallback_headers,
-                    content=body or None,
-                    timeout=timeout,
-                )
-                r = await client.send(req, stream=True)
+                r = await client.send(fallback_request(), stream=True)
             break
         except httpx.ConnectError:
             if attempt == 3:
                 if native_route:
                     print("[WATCHDOG] Native /responses connection failed, falling back to LiteLLM", flush=True)
-                    fallback_url = f"{upstream}{request.url.path}"
-                    if request.url.query:
-                        fallback_url = f"{fallback_url}?{request.url.query}"
-                    fallback_headers, _ = _fwd_headers(request, getattr(request.app.state, "master_key", None))
-                    req = client.build_request(
-                        request.method,
-                        fallback_url,
-                        headers=fallback_headers,
-                        content=body or None,
-                        timeout=timeout,
-                    )
-                    r = await client.send(req, stream=True)
+                    r = await client.send(fallback_request(), stream=True)
                     break
                 raise
             await asyncio.sleep(0.5)
@@ -465,6 +608,7 @@ async def proxy(request: Request) -> Response:
                 ping_idle_s=request.app.state.ping_idle_s,
                 first_byte_s=request.app.state.first_byte_s,
                 on_close=lambda tally, ttft, dur: _record(tally, ttft, dur, r.status_code, True),
+                responses_api=responses_api,
             ),
             status_code=r.status_code,
             media_type="text/event-stream",

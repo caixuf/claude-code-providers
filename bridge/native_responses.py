@@ -47,6 +47,24 @@ NATIVE_RESPONSES_ROUTING = {
 }
 
 
+def litellm_alias_for(model_name: str) -> str | None:
+    """The LiteLLM deployment name for a natively routed model.
+
+    The native path sends the *upstream* id (``gpt-6.1-sol``), while LiteLLM
+    only answers to the deployment it was rendered with
+    (``qpcmqam-gpt-6.1-sol``). The watchdog's fallback needs this: without it a
+    transient 502 from the native endpoint becomes a 400 "Invalid model name",
+    which names neither the outage nor the fix.
+    """
+    if not isinstance(model_name, str):
+        return None
+    route = NATIVE_RESPONSES_ROUTING.get(norm_model_key(model_name))
+    if not route:
+        return None
+    provider_name, real_model = route
+    return f"{provider_name}-{real_model}"
+
+
 def resolve_native_responses(
     model_name: str,
     path: str = "/v1/responses",

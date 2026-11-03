@@ -6,7 +6,22 @@ from pathlib import Path
 BRIDGE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRIDGE))
 
-from native_responses import resolve_native_responses
+from native_responses import litellm_alias_for, resolve_native_responses
+
+
+def test_fallback_alias_uses_the_litellm_deployment_name():
+    """The native path sends the upstream id; LiteLLM needs its own name.
+
+    Without this the fallback (native /responses 5xx) forwards `gpt-6.1-sol`
+    to LiteLLM, which does not serve that name, and the user sees a 400
+    "Invalid model name" instead of the relay's actual failure.
+    """
+    assert litellm_alias_for("gpt-6.1-sol") == "qpcmqam-gpt-6.1-sol"
+    assert litellm_alias_for("gpt-6.1-terra") == "qpcmqam-gpt-6.1-terra"
+    assert litellm_alias_for("gemini-4-argon") == "qpcmqam-gemini-4-argon"
+    assert litellm_alias_for("pro[1m]") == "qpcmqam-gpt-6.1-sol"
+    assert litellm_alias_for("main") is None
+    assert litellm_alias_for(None) is None
 
 
 def test_resolve_pro():
