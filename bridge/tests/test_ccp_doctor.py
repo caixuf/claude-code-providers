@@ -47,6 +47,85 @@ def test_a_commented_out_model_is_not_a_model():
     assert ccp_doctor.hermes_models(path) == ["live-model"]
 
 
+def test_a_route_name_is_not_a_model():
+    """`delegation.backends.model_map.default` names an option, not a model.
+
+    The option's own `model:` is what the bridge serves; matching the
+    `default:` key alone reported every real bot as dead for a name it never
+    sends upstream. `stt.*.model` is a speech model for the same reason.
+    """
+    path = Path("/tmp/hermes-test-config3.yaml")
+    path.write_text(
+        "model:\n"
+        "  default: main\n"
+        "fallback_model:\n"
+        "  - provider: custom:imfl\n"
+        "    model: MiniMax-M3.1-Flash\n"
+        "auxiliary:\n"
+        "  compression:\n"
+        "    model: MiniMax-M3.1-Flash\n"
+        "delegation:\n"
+        "  backends:\n"
+        "    model_map:\n"
+        "      default: deep\n"
+        "      options:\n"
+        "        - name: deep\n"
+        "          model: main\n"
+        "stt:\n"
+        "  local:\n"
+        "    model: base\n"
+    )
+    models = ccp_doctor.hermes_models(path)
+    assert models == ["main", "MiniMax-M3.1-Flash"], models
+    assert "deep" not in models, "a route name is not a model"
+    assert "base" not in models, "a speech model is not a bridge model"
+
+
+def test_only_the_bots_that_run_are_audited(tmp_path, monkeypatch, capsys):
+    """A profile directory is not a bot.
+
+    Only a gateway unit (or the profile named in `active_profile`) says that
+    somebody actually asks this config for a model. Auditing the rest reports a
+    test fixture — one deliberately pointed at a dead model — as a broken bot.
+    """
+    monkeypatch.setenv("CCP_MASTER_KEY", "sk-the-bridge-key")
+    repo = tmp_path / "repo"
+    (repo / "providers").mkdir(parents=True)
+    (repo / "providers" / "live.json.example").write_text(json.dumps({
+        "env": {"ANTHROPIC_MODEL": "live"},
+    }))
+    providers = tmp_path / "providers"
+    providers.mkdir()
+    (providers / "live.json").write_text(json.dumps({"env": {"ANTHROPIC_MODEL": "live"}}))
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({"env": {"ANTHROPIC_MODEL": "live"}}))
+
+    home = tmp_path / "home"
+    profiles = home / ".hermes" / "profiles"
+    (profiles / "running").mkdir(parents=True)
+    (profiles / "running" / "config.yaml").write_text('model:\n  default: "live"\n')
+    (profiles / "fixture").mkdir()
+    (profiles / "fixture" / "config.yaml").write_text('model:\n  default: "gone"\n')
+    unit = home / ".config" / "systemd" / "user"
+    unit.mkdir(parents=True)
+    (unit / "hermes-gateway-running.service").write_text("[Unit]\n")
+    (home / ".hermes" / "active_profile").write_text("running\n")
+
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("HERMES_HOME", str(home / ".hermes"))
+
+    rc = ccp_doctor.main([
+        "--providers-dir", str(providers),
+        "--settings", str(settings),
+        "--repo", str(repo),
+        "--bridge", "",
+    ])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "running" in out
+    assert "fixture" not in out
+
+
 def test_the_doctor_finds_a_dead_profile_and_a_dead_bot(tmp_path, monkeypatch, capsys):
     repo = tmp_path / "repo"
     (repo / "providers").mkdir(parents=True)

@@ -40,15 +40,67 @@ def hermes_home() -> Path:
     return Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes"))
 
 
+#: A YAML key line, optionally opening a list item (``- provider: …``).
+_KEY_LINE = re.compile(
+    r"^(?P<indent> *)(?:- +)?(?P<key>[A-Za-z_][\w.-]*):(?P<gap>[ \t]*)(?P<rest>.*)$"
+)
+
+#: Blocks whose ``model:`` key names a model the bridge is expected to serve.
+#: ``stt`` has a ``model:`` too (``base``, ``whisper-1``) — those are speech
+#: models, and asking the bridge for them reports a healthy machine as broken.
+_MODEL_BLOCKS = {"fallback_model", "auxiliary", "delegation"}
+
+
+def _active_profile() -> str | None:
+    """The profile named in ``active_profile``, if the install has one."""
+    try:
+        name = (hermes_home() / "active_profile").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return name or None
+
+
+def _installed_bot_profiles() -> set[str]:
+    """Profiles Hermes actually runs: one systemd unit per bot.
+
+    A profile directory is cheap to leave behind — a test fixture, a retired
+    bot, a one-off experiment. "There is a config.yaml" is therefore not
+    evidence that anybody runs it, and auditing a fixture reports a healthy
+    machine as broken: the identity check deliberately points an isolated
+    profile at ``gpt-4o-mini`` with an invalid key, to force one API call.
+    """
+    unit_dir = Path.home() / ".config" / "systemd" / "user"
+    prefix, suffix = "hermes-gateway-", ".service"
+    names: set[str] = set()
+    try:
+        for path in unit_dir.glob(prefix + "*" + suffix):
+            names.add(path.name[len(prefix):-len(suffix)])
+    except OSError:
+        pass
+    return names
+
+
 def _hermes_configs() -> list[Path]:
     """The Hermes config: one file for a single-config install, one per profile
-    otherwise. The bot is whatever profile is active, so the active one is the
-    one that matters."""
+    otherwise. The bot is whatever profile is actually run, so the profiles
+    with a gateway unit — plus the one named in ``active_profile`` — are the
+    ones that matter. A bare install says neither, and there we report them all
+    rather than none."""
     profiles = hermes_home() / "profiles"
-    if profiles.is_dir():
-        return sorted(profiles.glob("*/config.yaml"))
-    single = hermes_home() / "config.yaml"
-    return [single] if single.is_file() else []
+    if not profiles.is_dir():
+        single = hermes_home() / "config.yaml"
+        return [single] if single.is_file() else []
+    configs = {p.parent.name: p for p in profiles.glob("*/config.yaml")}
+    running = _installed_bot_profiles() & set(configs)
+    active = _active_profile()
+    if active in configs:
+        running.add(active)
+    return [configs[name] for name in sorted(running)] or sorted(configs.values())
+
+
+def _append_once(out: list[str], value: str) -> None:
+    if value and value not in out:
+        out.append(value)
 
 
 def hermes_models(path: Path) -> list[str]:
@@ -57,21 +109,41 @@ def hermes_models(path: Path) -> list[str]:
     The file is hand-written and heavily commented; a parser would need the
     whole document to be valid to answer one question, and a Hermes config
     that is halfway edited must still be reportable.
+
+    Only keys that carry a model count. ``default:`` is a model under the
+    top-level ``model:`` block, but a *route name* under
+    ``delegation.backends.model_map:`` — ``default: deep`` selects an option
+    whose own ``model: main`` is what the bridge serves, so keying on the name
+    alone reported every bot as dead for a model it never sends upstream.
     """
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return []
     out: list[str] = []
+    stack: list[tuple[int, str]] = []  # (indent, key), outermost first
     for line in text.splitlines():
         stripped = line.strip()
-        if stripped.startswith("#"):
+        if not stripped or stripped.startswith("#"):
             continue
-        for key in ("default_model:", "default:"):
-            if stripped.startswith(key):
-                value = stripped[len(key):].split("#")[0].strip().strip("'\"")
-                if value and value not in out:
-                    out.append(value)
+        m = _KEY_LINE.match(line)
+        if not m:
+            continue
+        indent = len(m.group("indent"))
+        key = m.group("key")
+        value = m.group("rest").split("#")[0].strip().strip("'\"")
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        parent = stack[-1][1] if stack else None
+        top = stack[0][1] if stack else None
+        if value:
+            if key == "default_model":
+                _append_once(out, value)
+            elif key == "default" and parent == "model":
+                _append_once(out, value)
+            elif key == "model" and top in _MODEL_BLOCKS:
+                _append_once(out, value)
+        stack.append((indent, key))
     return out
 
 
