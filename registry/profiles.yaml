@@ -219,17 +219,6 @@ profiles:
       sonnet:  {model: gpt-6.1-terra}
       haiku:   {model: gpt-6.1-terra}
 
-  local:
-    provider: local
-    native: true
-    primary_tier: default
-    tiers:
-      default: {model: imfl-local-qwen38}
-      opus:    {model: imfl-local-qwen38}
-      fable:   {model: imfl-local-qwen38}
-      sonnet:  {model: imfl-local-qwen38}
-      haiku:   {model: imfl-local-qwen38}
-
 # ── Short aliases exposed to LiteLLM (config.yaml model_name) ──────────
 # These are the names Claude Code puts in ANTHROPIC_MODEL. The `[1m]` marker
 # is appended automatically for models whose ctx >= 1000000 (the proxy strips
