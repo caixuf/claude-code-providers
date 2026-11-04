@@ -277,7 +277,10 @@ EOF
 # Detect and write default proxy.env if active
 PROXY_URL="${https_proxy:-${http_proxy:-${HTTPS_PROXY:-${HTTP_PROXY:-}}}}"
 if [ -z "$PROXY_URL" ]; then
-  for p in 7897 7899 7892; do
+  # 7899 is the live mixed port; 7897 (SingLink) and 7892 are retired. Probing
+  # a dead port first just costs a timeout, but a stale listener that still
+  # answers would pin the whole bridge to an address that cannot reach the web.
+  for p in 7899 7897 7892; do
     if timeout 1 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/$p" 2>/dev/null; then
       PROXY_URL="http://127.0.0.1:$p"
       break

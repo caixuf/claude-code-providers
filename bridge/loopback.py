@@ -72,11 +72,36 @@ def normalize_no_proxy(value: str | None) -> str:
     """
     entries = [e.strip() for e in (value or "").split(",")]
     entries = [e for e in entries if e]
+    entries = _add_suffix_spellings(entries)
     present = {e.lower() for e in entries}
     for host in LOOPBACK_HOSTS + DIRECT_HOSTS:
         if host.lower() not in present:
             entries.append(host)
     return ",".join(entries)
+
+
+def _add_suffix_spellings(entries: list[str]) -> list[str]:
+    """Mirror ``*.example.com`` as ``.example.com``.
+
+    WinINET and Chrome read ``*.example.com`` as "every subdomain"; curl,
+    urllib and wget do not read the asterisk at all, so the same entry means
+    "bypass" to a browser and "proxy it" to every command-line tool. Adding
+    the suffix spelling makes the one list mean the same thing to both.
+
+    Only dotted-domain wildcards are mirrored; IP wildcards like ``127.*`` or
+    ``10.*`` are left alone because the stacks that matter expect those as
+    CIDR, and inventing a suffix spelling for them would be meaningless.
+    """
+    seen = {e.lower() for e in entries}
+    extra: list[str] = []
+    for entry in entries:
+        if not entry.startswith("*.") or len(entry) < 4:
+            continue
+        suffix = entry[1:]
+        if suffix.lower() in seen or suffix.lower() in {e.lower() for e in extra}:
+            continue
+        extra.append(suffix)
+    return entries + extra
 
 
 def ensure_loopback_bypass() -> str:
