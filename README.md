@@ -20,6 +20,9 @@ claude ──> ccp profile ──┬─> vendor's /anthropic endpoint         (n
                          └─> :4100 local adapter ─────────────> (subscription)
 ```
 
+**ccp is a tool, not a product.** No business knowledge, no state, no accumulated
+history — the rules that keep it that way are in [PRINCIPLES.md](PRINCIPLES.md).
+
 ---
 
 ## 📇 What you get
