@@ -975,12 +975,24 @@ confusingly:
 * the **Hermes bot** left on a retired model, which fails only when somebody
   messages it;
 * a **credential** that is not the bridge's key — the calls still work, because
-  the bridge forwards its own, but the config no longer says what it means.
+  the bridge forwards its own, but the config no longer says what it means;
+* **litter** left in `~/.config/litellm/` — more than one backup per file, or a
+  `proxy.env` backup, which makes a revoked key restorable;
+* a **proxy** that is configured but not listening — every call then hangs for
+  the connect timeout instead of failing at once;
+* **two names for one secret** in `proxy.env` — one provider, one variable, or
+  a rotation lands in one place and not the other.
 
 ```bash
 ccp doctor          # what is installed, and what it points at
 ccp doctor --json   # the same, machine-readable
+ccp doctor --probe  # also send one request and name the model that answered
 ```
+
+`--probe` is the only check that spends a token: it asks for one short answer
+and reports the `model` that LiteLLM says served it. When a fallback answers,
+the doctor says which model did — a retired primary is otherwise invisible,
+because the request still succeeds and the answer still looks plausible.
 
 The served set is **derived**, not a list anyone maintains: the repository's
 rendered templates name the models the native providers answer to (they never

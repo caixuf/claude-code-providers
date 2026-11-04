@@ -23,7 +23,10 @@ import argparse
 import json
 import os
 import re
+import socket
 import sys
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 BRIDGE = Path(__file__).resolve().parent
@@ -178,12 +181,170 @@ def hermes_credentials(path: Path) -> list[dict]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# What the machine left behind. The install is a tool, not a museum: backups,
+# duplicate secrets and a dead proxy are the three ways it silently stops
+# being the thing the repository describes (PRINCIPLES.md §1 §2 §4).
+# ---------------------------------------------------------------------------
+
+DEFAULT_CONFIG_DIR = Path.home() / ".config" / "litellm"
+_PROXY_VARS = {"http_proxy", "https_proxy", "all_proxy", "no_proxy"}
+
+
+def read_env_file(path: Path) -> dict[str, str]:
+    """KEY=VALUE lines. An unreadable file is empty, never an exception."""
+    out: dict[str, str] = {}
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return out
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        if key.strip():
+            out[key.strip()] = value.strip()
+    return out
+
+
+def backup_litter(config_dir: Path) -> tuple[list[str], list[str]]:
+    """Backups are temporary; the config directory is not an archive.
+
+    Returns ``(problems, warnings)``. A ``proxy.env`` backup is a *problem*:
+    the README promises none, because a key revoked in the last write must not
+    come back by restoring a file. Everything else is a warning past one copy.
+    """
+    problems: list[str] = []
+    warnings: list[str] = []
+    groups: dict[str, list[Path]] = {}
+    try:
+        entries = list(config_dir.iterdir())
+    except OSError:
+        return problems, warnings
+    for path in entries:
+        if not path.is_file() or ".bak" not in path.name:
+            continue
+        groups.setdefault(path.name.split(".bak", 1)[0], []).append(path)
+    for base, paths in sorted(groups.items()):
+        if base == "proxy.env":
+            problems.append(
+                f"{config_dir}/{base} has {len(paths)} backup(s); a secret must not be "
+                "restorable from a backup (PRINCIPLES.md §2)"
+            )
+        elif len(paths) > 1:
+            warnings.append(
+                f"{config_dir}/{base} has {len(paths)} backups; keep at most one "
+                "(older copies are history, not assets — PRINCIPLES.md §2)"
+            )
+    return problems, warnings
+
+
+def duplicate_secrets(env: dict[str, str]) -> list[str]:
+    """One provider, one variable name.
+
+    Two names holding the same secret is how a rotation lands in one place and
+    not the other: on 2026-11-04 ``MINIMAX_PLAN_API_KEY`` was overwritten with
+    ``MINIMAX_API_KEY``'s value, the primary group started answering 402, and
+    LiteLLM fell back to another vendor without saying so.
+    """
+    by_value: dict[str, list[str]] = {}
+    for key, value in env.items():
+        if key.lower() in _PROXY_VARS or not value or value.startswith("YOUR_"):
+            continue
+        by_value.setdefault(value, []).append(key)
+    out: list[str] = []
+    for names in by_value.values():
+        if len(names) > 1:
+            out.append(
+                " and ".join(sorted(names))
+                + " hold the same secret; one provider, one variable (PRINCIPLES.md §1)"
+            )
+    return out
+
+
+def proxy_endpoint(env: dict[str, str]) -> tuple[str, int] | None:
+    """The ``host:port`` the file points provider traffic at, if any."""
+    raw = (
+        env.get("https_proxy")
+        or env.get("HTTPS_PROXY")
+        or env.get("http_proxy")
+        or env.get("HTTP_PROXY")
+    )
+    if not raw:
+        return None
+    parsed = urllib.parse.urlsplit(raw if "://" in raw else "http://" + raw)
+    if not parsed.hostname:
+        return None
+    return parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
+
+
+def proxy_port_alive(env: dict[str, str], *, timeout: float = 1.0) -> tuple[bool, str]:
+    """A configured proxy that is not listening fails every call ~15s at a time."""
+    endpoint = proxy_endpoint(env)
+    if endpoint is None:
+        return True, "no proxy configured"
+    host, port = endpoint
+    try:
+        with socket.create_connection(endpoint, timeout=timeout):
+            return True, f"{host}:{port} accepts connections"
+    except OSError as exc:
+        return False, f"{host}:{port} does not accept connections ({type(exc).__name__})"
+
+
+def model_family(name: str) -> str:
+    """``foo[1m]`` and ``foo`` are the same model: the marker only selects the
+    long-context deployment, and the served name comes back without it."""
+    return re.sub(r"\[1m\]$", "", name)
+
+
+def probe_model(
+    bridge: str,
+    master_key: str | None,
+    model: str,
+    *,
+    timeout: float = 30.0,
+    urlopen=urllib.request.urlopen,
+) -> tuple[str | None, str | None]:
+    """Ask for one token; report the model LiteLLM says actually answered.
+
+    A fallback is invisible from the caller's side otherwise: the request
+    succeeds, the answer is plausible, and a retired primary is never noticed.
+    """
+    body = json.dumps(
+        # Not 1: some Anthropic-compatible endpoints reject a one-token budget,
+        # and the probe would report a fallback that no real request triggers.
+        {"model": model, "max_tokens": 8, "messages": [{"role": "user", "content": "ok"}]}
+    ).encode()
+    headers = {"Content-Type": "application/json"}
+    if master_key:
+        headers["Authorization"] = "Bearer " + master_key
+    request = urllib.request.Request(
+        bridge.rstrip("/") + "/v1/chat/completions", data=body, headers=headers, method="POST"
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8", "replace"))
+    except Exception as exc:  # noqa: BLE001 - the failure *is* the finding
+        return None, f"{type(exc).__name__}: {exc}"
+    served = payload.get("model")
+    return (served if isinstance(served, str) and served else None), None
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--providers-dir", default=str(Path.home() / ".claude" / "providers"))
     ap.add_argument("--settings", default=str(Path.home() / ".claude" / "settings.json"))
     ap.add_argument("--repo", default=str(BRIDGE.parent))
     ap.add_argument("--bridge", default=profile_audit.DEFAULT_BRIDGE)
+    ap.add_argument("--config-dir", default=str(DEFAULT_CONFIG_DIR))
+    ap.add_argument(
+        "--probe",
+        action="store_true",
+        help="send one minimal request and report the model that actually answered",
+    )
+    ap.add_argument("--probe-model", default=None)
+    ap.add_argument("--probe-timeout", type=float, default=30.0)
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
 
@@ -243,6 +404,45 @@ def main(argv: list[str] | None = None) -> int:
                     "not the bridge's key (it will be replaced, so calls still work)"
                 )
 
+    # The machine's own state: litter, secret hygiene, the proxy it points at.
+    config_dir = Path(args.config_dir).expanduser()
+    proxy_report: dict[str, object] = {}
+    proxy_env = read_env_file(config_dir / "proxy.env")
+    if config_dir.is_dir():
+        litter_problems, litter_warnings = backup_litter(config_dir)
+        problems.extend(litter_problems)
+        warnings.extend(litter_warnings)
+        for duplicate in duplicate_secrets(proxy_env):
+            warnings.append(duplicate)
+        alive, detail = proxy_port_alive(proxy_env)
+        proxy_report = {"detail": detail, "alive": alive}
+        if not alive:
+            problems.append(
+                f"the proxy in {config_dir}/proxy.env is dead: {detail}; every provider "
+                "call will hang until it times out (PRINCIPLES.md §4)"
+            )
+
+    probe_report = None
+    if args.probe:
+        target = args.probe_model or active_model or (sorted(served)[0] if served else None)
+        if not target:
+            warnings.append("--probe was asked for, but there is no model name to ask for")
+        else:
+            answered, error = probe_model(
+                args.bridge or profile_audit.DEFAULT_BRIDGE,
+                master_key,
+                target,
+                timeout=args.probe_timeout,
+            )
+            probe_report = {"requested": target, "served": answered, "error": error}
+            if error:
+                problems.append(f"probing {target} through {args.bridge} failed: {error}")
+            elif answered and model_family(answered) != model_family(target):
+                warnings.append(
+                    f"{target} was answered by {answered} — a fallback is serving, the "
+                    "primary is out (PRINCIPLES.md §5)"
+                )
+
     if args.json:
         print(json.dumps(
             {
@@ -250,6 +450,8 @@ def main(argv: list[str] | None = None) -> int:
                 "profiles": profiles,
                 "active_model": active_model,
                 "bots": bots,
+                "proxy": proxy_report,
+                "probe": probe_report,
                 "problems": problems,
                 "warnings": warnings,
             },
@@ -263,6 +465,13 @@ def main(argv: list[str] | None = None) -> int:
     for bot in bots:
         state = "ok" if not bot["missing"] else f"dead: {', '.join(bot['missing'])}"
         print(f"hermes bot: {bot['config']} -> {', '.join(bot['models']) or '(none)'} [{state}]")
+    if proxy_report:
+        print(f"proxy: {proxy_report['detail']}")
+    if probe_report:
+        if probe_report["error"]:
+            print(f"probe: {probe_report['requested']} -> error: {probe_report['error']}")
+        else:
+            print(f"probe: {probe_report['requested']} -> {probe_report['served']}")
     if warnings:
         print()
         for w in warnings:

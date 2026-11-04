@@ -38,7 +38,8 @@
 - 备份不放在热路径目录里：`~/.config/litellm/archive/`，或干脆不留。
 - 超过 30 天自动删除；`ccp doctor` 报告任何超过 1 份备份的目录。
 - **密钥文件不留备份。** 已在 README 的 Credentials 里写了「`proxy.env` keeps no `.bak`」——
-  磁盘上现在有 6 份。文档说的必须是代码做的，否则文档就是谎言。
+  磁盘上现在有 6 份。文档说的必须是代码做的，否则文档就是谎言。密钥备份即使进了
+  `archive/` 也只是"暂时还没删"，不是合规状态。
 
 **反例（2026-11-04）**：`~/.config/litellm/` 里躺着 **80 份** `config.yaml.bak.*`。
 它们没有一份被读过，却让"当前生效的配置是哪一份"这个问题需要额外取证才能回答。
@@ -73,17 +74,18 @@ ccp 不认识 IMFL、需求号、用例、状态机、团队流程。这些不�
 一条原则如果不能被一条命令检查，它就只是愿望。能检查的进 `ccp doctor`；暂时不能的，
 写成 TODO 并说明卡在哪 —— 不许用"注意""务必"代替检查。
 
-**当前 TODO（本文件写下的欠账）：**
+**已落地（2026-11-04）：**
 
-- `ccp doctor` 新增四项检查：①每个目录的 `*.bak*` 数量 ≤ 1；②`proxy.env` 里无同义重复
-  密钥（两个变量名指向同一个值）；③`http_proxy` 端口此刻可连；④发一发最小请求，用响应里的
-  真实模型名证明"在干活的是谁"。
-- 备份统一落 `~/.config/litellm/archive/`，由脚本负责，不靠人手放。
+- `ccp doctor` 四项检查：①每个目录的 `*.bak*` 数量 ≤ 1（`proxy.env` 有备份直接判失败）；
+  ②`proxy.env` 里无同义重复密钥（两个变量名指向同一个值）；③`http_proxy` 端口此刻可连；
+  ④`ccp doctor --probe` 发一发最小请求，用响应里的真实模型名证明"在干活的是谁"。
+- `bridge/setup_bridge.sh` 每次生成配置后只留最新 1 份备份，不再累积。
+- 历史 85 份备份已移入 `~/.config/litellm/archive/`（只移不删，可回滚）。
 
 ## 8. 改完的定义（Definition of Done）
 
 1. `python3 bridge/render_config.py --check` 通过（生成物不陈旧）
-2. `ccp doctor` 通过（四项新检查落地前，按 §7 TODO 人工执行）
+2. `ccp doctor` 通过；发布前跑一次 `ccp doctor --probe`，确认主模型真的在答
 3. 一条 `curl` 证明真实模型，例如：
    `curl -s :4001/v1/chat/completions -d '{"model":"flash",...}' | jq -r .model` → `MiniMax-M3.1-Flash`
 4. 每个被改文件的备份 ≤ 1 份

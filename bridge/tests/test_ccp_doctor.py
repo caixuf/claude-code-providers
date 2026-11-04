@@ -8,6 +8,7 @@ it.
 from __future__ import annotations
 
 import json
+import socket
 import sys
 from pathlib import Path
 
@@ -119,6 +120,7 @@ def test_only_the_bots_that_run_are_audited(tmp_path, monkeypatch, capsys):
         "--settings", str(settings),
         "--repo", str(repo),
         "--bridge", "",
+        "--config-dir", str(tmp_path / "litellm"),
     ])
     out = capsys.readouterr().out
     assert rc == 0
@@ -156,6 +158,7 @@ def test_the_doctor_finds_a_dead_profile_and_a_dead_bot(tmp_path, monkeypatch, c
         "--settings", str(settings),
         "--repo", str(repo),
         "--bridge", "",
+        "--config-dir", str(tmp_path / "litellm"),
     ])
     out = capsys.readouterr().out
     assert rc == 1
@@ -189,6 +192,7 @@ def test_a_clean_machine_says_so(tmp_path, monkeypatch, capsys):
         "--settings", str(settings),
         "--repo", str(repo),
         "--bridge", "",
+        "--config-dir", str(tmp_path / "litellm"),
     ])
     out = capsys.readouterr().out
     assert rc == 0
@@ -237,6 +241,7 @@ def test_a_stale_bridge_credential_is_reported(tmp_path, monkeypatch, capsys):
         "--settings", str(settings),
         "--repo", str(repo),
         "--bridge", "",
+        "--config-dir", str(tmp_path / "litellm"),
     ])
     out = capsys.readouterr().out
     # the bridge replaces the credential, so nothing is broken - but the
@@ -277,7 +282,122 @@ def test_a_native_profile_is_not_asked_for_the_bridge_key(tmp_path, monkeypatch,
         "--settings", str(settings),
         "--repo", str(repo),
         "--bridge", "",
+        "--config-dir", str(tmp_path / "litellm"),
     ])
     out = capsys.readouterr().out
     assert rc == 0
     assert "not the bridge's key" not in out
+
+
+# ---------------------------------------------------------------------------
+# The machine's own state: what the install left behind, and who actually
+# answered the last request (PRINCIPLES.md §1 §2 §4 §5).
+# ---------------------------------------------------------------------------
+
+
+def test_more_than_one_backup_is_litter(tmp_path):
+    cfg = tmp_path / "litellm"
+    cfg.mkdir()
+    (cfg / "config.yaml").write_text("live")
+    for stamp in ("20260101-000000", "20260102-000000"):
+        (cfg / f"config.yaml.bak.{stamp}").write_text("old")
+    (cfg / "proxy.env.bak.before-keys").write_text("SECRET=1")
+
+    problems, warnings = ccp_doctor.backup_litter(cfg)
+    assert any("proxy.env" in p for p in problems), "a secret must not be restorable"
+    assert any("config.yaml has 2 backups" in w for w in warnings)
+
+
+def test_one_backup_per_file_is_fine(tmp_path):
+    cfg = tmp_path / "litellm"
+    cfg.mkdir()
+    (cfg / "config.yaml.bak.20260101-000000").write_text("old")
+    assert ccp_doctor.backup_litter(cfg) == ([], [])
+
+
+def test_two_names_for_the_same_secret_are_reported():
+    """2026-11-04: MINIMAX_PLAN_API_KEY was overwritten with MINIMAX_API_KEY's
+    value, the primary group answered 402, and LiteLLM fell back silently."""
+    env = {
+        "MINIMAX_API_KEY": "sk-same",
+        "MINIMAX_PLAN_API_KEY": "sk-same",
+        "DEEPSEEK_API_KEY": "sk-other",
+        "http_proxy": "http://127.0.0.1:7899",
+        "https_proxy": "http://127.0.0.1:7899",
+    }
+    found = ccp_doctor.duplicate_secrets(env)
+    assert len(found) == 1
+    assert "MINIMAX_API_KEY" in found[0] and "MINIMAX_PLAN_API_KEY" in found[0]
+    assert "sk-same" not in found[0], "never print the secret itself"
+
+
+def test_the_proxy_is_probed_not_assumed():
+    live = socket.socket()
+    live.bind(("127.0.0.1", 0))
+    live.listen(1)
+    closed = socket.socket()
+    closed.bind(("127.0.0.1", 0))
+    dead_port = closed.getsockname()[1]
+    closed.close()
+    try:
+        alive, detail = ccp_doctor.proxy_port_alive(
+            {"http_proxy": f"http://127.0.0.1:{live.getsockname()[1]}"}
+        )
+        assert alive and "accepts connections" in detail
+
+        alive, _ = ccp_doctor.proxy_port_alive(
+            {"http_proxy": f"http://127.0.0.1:{dead_port}"}
+        )
+        assert not alive, "a configured proxy that nobody listens on is a problem"
+    finally:
+        live.close()
+
+
+def test_no_proxy_configured_is_not_a_failure():
+    assert ccp_doctor.proxy_port_alive({}) == (True, "no proxy configured")
+
+
+def test_probe_reports_the_model_that_actually_answered():
+    seen = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps({"model": "qianfan-deepseek-v4.1-flash-1017"}).encode()
+
+    def fake_urlopen(req, timeout=None):
+        seen["body"] = json.loads(req.data)
+        return FakeResponse()
+
+    served, error = ccp_doctor.probe_model(
+        "http://127.0.0.1:4000",
+        "sk-bridge",
+        "flash",
+        urlopen=fake_urlopen,
+    )
+    assert error is None
+    assert served == "qianfan-deepseek-v4.1-flash-1017"
+    assert seen["body"]["max_tokens"] >= 2, "1 is rejected by some endpoints; it is not a routing signal"
+
+
+def test_probe_failure_is_reported_not_swallowed():
+    def boom(req, timeout=None):
+        raise OSError("connection refused")
+
+    served, error = ccp_doctor.probe_model(
+        "http://127.0.0.1:4000", "sk-bridge", "flash", urlopen=boom
+    )
+    assert served is None
+    assert "connection refused" in error
+
+
+def test_the_1m_marker_is_not_a_different_model():
+    """`foo[1m]` asks for the long-context deployment of `foo`; the served name
+    comes back without the marker, which is not a fallback."""
+    assert ccp_doctor.model_family("opencode-deepseek-v4.1-flash[1m]") == "opencode-deepseek-v4.1-flash"
+    assert ccp_doctor.model_family("flash") == "flash"

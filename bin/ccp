@@ -78,7 +78,7 @@ Usage:
   ccp quota [provider]       What is left on each plan
   ccp usage                  Tokens actually spent, from the bridge's ledger
   ccp doctor                 Is this machine still consistent with the repository?
-                             (--today, --days N, --by-model, --by-provider, --json)
+                             (--json, --probe [--probe-model M])
   ccp hermes [provider]      Point the local Hermes agent at a provider's model.
                              Bare `ccp hermes` shows what it runs now. Writes
                              ~/.hermes/profiles/<profile>/config.yaml and

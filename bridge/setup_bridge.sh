@@ -240,6 +240,11 @@ if [ -f "$SCRIPT_DIR/config.generated.yaml" ]; then
   migrate_keys_to_env "$CONFIG_DIR/config.yaml" "$CONFIG_DIR/proxy.env"
   if [ -f "$CONFIG_DIR/config.yaml" ]; then
     cp "$CONFIG_DIR/config.yaml" "$CONFIG_DIR/config.yaml.bak.$(date +%Y%m%d-%H%M%S)"
+    # Keep one, not a pile: eighty copies answer nothing the newest does not,
+    # and they make "which config is live" a forensic question (PRINCIPLES.md §2).
+    ls -1t "$CONFIG_DIR"/config.yaml.bak.* 2>/dev/null | tail -n +2 | while read -r stale; do
+      rm -f -- "$stale"
+    done
   fi
   cp "$SCRIPT_DIR/config.generated.yaml" "$CONFIG_DIR/config.yaml"
   # also ship the clamp map next to the watchdog
