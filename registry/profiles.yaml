@@ -318,10 +318,10 @@ accounts: {}
 groups:
   main:
     members:
-    - MiniMax-M3.1-Flash
-    fallback:
     - qianfan-deepseek-v4.1-flash-1017
-    - opencode-deepseek-v4.1-flash
+    fallback:
+    - opendesign-deepseek-v4.1-flash
+    - MiniMax-M3.1-Flash
   pro:
     # terra was the first pick, but it answered thinner than sol on the same
     # prompt (1200 vs 7946 output tokens, 11.0 vs 10.0 on the bench's 6-axis
@@ -330,14 +330,15 @@ groups:
     - qpcmqam-gpt-6.1-sol
     fallback:
     - qpcmqam-gpt-6.1-terra
+    - qianfan-deepseek-v4.1-flash-1017
+    - opendesign-deepseek-v4.1-flash
     - MiniMax-M3.1-Flash
-    - opencode-deepseek-v4.1-flash
   flash:
     members:
-    - MiniMax-M3.1-Flash
-    fallback:
     - qianfan-deepseek-v4.1-flash-1017
-    - opencode-deepseek-v4.1-flash
+    fallback:
+    - opendesign-deepseek-v4.1-flash
+    - MiniMax-M3.1-Flash
 # Example — cheap-first, escalating to a different vendor when both are out:
 #   groups:
 #     daily:
