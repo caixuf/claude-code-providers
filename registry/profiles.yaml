@@ -36,17 +36,6 @@ version: 1
 # CLAUDE_CODE_MAX_CONTEXT_TOKENS for the whole profile (Claude Code has one
 # context number per session, so we advertise the slot the user starts on).
 profiles:
-  cline:
-    provider: cline
-    primary_tier: default
-    tiers:
-      default: {model: deepseek/deepseek-v4.1-flash}
-      opus:    {model: deepseek/deepseek-v4.1-flash}
-      fable:   {model: deepseek/deepseek-v4.1-flash}
-      sonnet:  {model: deepseek/deepseek-v4.1-flash}
-      haiku:   {model: deepseek/deepseek-v4.1-flash}
-
-
   # ── Native Anthropic-compatible endpoints (no bridge clamp needed) ──
   # These talk straight to the provider's /anthropic endpoint; they are
   # rendered into config.yaml too so `ccp models` can list them, but the
@@ -242,7 +231,6 @@ aliases:
   # source of truth, and the two disagreed — this file said 1000000 where
   # the registry said 1048576, and 168000 where it said 1000000 — while
   # nothing read the alias copy at all.
-  cline-deepseek-v4.1-flash:            {provider: cline, model: deepseek/deepseek-v4.1-flash}
   # Qianfan: bridged, so these resolve through LiteLLM like the cline alias.
   qianfan-deepseek-v4.1-flash:          {provider: qianfan, model: deepseek-v4.1-flash-1017}
   qianfan-deepseek-v4.1-flash-1017:     {provider: qianfan, model: deepseek-v4.1-flash-1017}
