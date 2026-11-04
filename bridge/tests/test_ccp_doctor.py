@@ -401,3 +401,39 @@ def test_the_1m_marker_is_not_a_different_model():
     comes back without the marker, which is not a fallback."""
     assert ccp_doctor.model_family("opencode-deepseek-v4.1-flash[1m]") == "opencode-deepseek-v4.1-flash"
     assert ccp_doctor.model_family("flash") == "flash"
+
+
+def test_an_unreachable_bridge_is_named_instead_of_blaming_every_model(tmp_path, monkeypatch, capsys):
+    """A bridge that is still starting is not a dead model (emily, 2026-11-04).
+
+    `flash` exists only in the bridge's own list, so without this guard the
+    doctor would report the profile, the active config and every bot as dead.
+    """
+    repo = tmp_path / "repo"
+    (repo / "providers").mkdir(parents=True)
+    (repo / "providers" / "qianfan.json.example").write_text(
+        json.dumps({"env": {"ANTHROPIC_MODEL": "qianfan-deepseek-v4.1-flash"}})
+    )
+    providers = tmp_path / "providers"
+    providers.mkdir()
+    (providers / "bridged.json").write_text(json.dumps({"env": {"ANTHROPIC_MODEL": "flash"}}))
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({"env": {"ANTHROPIC_MODEL": "flash"}}))
+    hermes_home = tmp_path / ".hermes"
+    hermes_home.mkdir()
+    (hermes_home / "config.yaml").write_text('model:\n  default: "flash"\n')
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+    rc = ccp_doctor.main([
+        "--providers-dir", str(providers),
+        "--settings", str(settings),
+        "--repo", str(repo),
+        "--bridge", "http://127.0.0.1:9",
+        "--bridge-attempts", "1",
+        "--bridge-delay", "0",
+        "--config-dir", str(tmp_path / "litellm"),
+    ])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "did not answer /v1/models" in out
+    assert "which the bridge no longer serves" not in out

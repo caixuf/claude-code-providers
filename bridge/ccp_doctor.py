@@ -337,6 +337,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--settings", default=str(Path.home() / ".claude" / "settings.json"))
     ap.add_argument("--repo", default=str(BRIDGE.parent))
     ap.add_argument("--bridge", default=profile_audit.DEFAULT_BRIDGE)
+    ap.add_argument(
+        "--bridge-attempts",
+        type=int,
+        default=3,
+        help="how many times to wait for a bridge that is still starting (default 3)",
+    )
+    ap.add_argument("--bridge-delay", type=float, default=2.0)
     ap.add_argument("--config-dir", default=str(DEFAULT_CONFIG_DIR))
     ap.add_argument(
         "--probe",
@@ -349,9 +356,25 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     repo = Path(args.repo).expanduser()
-    served = profile_audit.served_names(repo, args.bridge or None)
+    bridge_notes: list[str] = []
+    served = profile_audit.served_names(
+        repo,
+        args.bridge or None,
+        attempts=args.bridge_attempts,
+        delay=args.bridge_delay,
+        error_out=bridge_notes,
+    )
     problems: list[str] = []
     warnings: list[str] = []
+
+    # A bridge that is still starting is not a dead model. Say which one it is
+    # instead of blaming every profile for a machine that is merely late.
+    if bridge_notes:
+        problems.append(
+            "; ".join(bridge_notes)
+            + ". Its model list is unknown, so dead-model findings are withheld: "
+            "they would blame the models for a bridge that has not finished starting."
+        )
 
     # The credential the bridge actually accepts: the master key in the
     # config LiteLLM runs on. A client that carries another one still gets
@@ -359,10 +382,8 @@ def main(argv: list[str] | None = None) -> int:
     # config, not a broken one.
     master_key, key_source = bridge_auth.load_master_key()
 
-    profiles = profile_audit.audit(
-        Path(args.providers_dir).expanduser(), repo, args.bridge or None
-    )
-    dead = [row for row in profiles if row["dead"]]
+    profiles = profile_audit.rows_for(Path(args.providers_dir).expanduser(), served)
+    dead = [] if bridge_notes else [row for row in profiles if row["dead"]]
     for row in dead:
         problems.append(
             f"profile {row['profile']} names {', '.join(row['missing'])}, "
@@ -381,7 +402,7 @@ def main(argv: list[str] | None = None) -> int:
         active_token = env.get("ANTHROPIC_AUTH_TOKEN")
     except (OSError, ValueError):
         pass
-    if active_model and active_model not in served:
+    if active_model and active_model not in served and not bridge_notes:
         problems.append(f"the active profile asks for {active_model}, which the bridge no longer serves")
     if bridge_auth.is_bridge_url(active_base) and active_token != master_key:
         warnings.append(
@@ -392,7 +413,7 @@ def main(argv: list[str] | None = None) -> int:
     bots = []
     for cfg in _hermes_configs():
         models = hermes_models(cfg)
-        missing = [m for m in models if m not in served]
+        missing = [] if bridge_notes else [m for m in models if m not in served]
         creds = hermes_credentials(cfg)
         bots.append({"config": str(cfg), "models": models, "missing": missing, "credentials": creds})
         for m in missing:

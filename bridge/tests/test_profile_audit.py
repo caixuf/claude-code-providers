@@ -89,3 +89,53 @@ def test_an_unreadable_profile_is_not_a_dead_one(tmp_path):
     (profiles / "broken.json").write_text("{not json")
     rows = profile_audit.audit(profiles, repo, bridge="")
     assert rows == [], rows
+
+
+def test_a_starting_bridge_is_retried_before_its_models_are_called_dead(monkeypatch):
+    """A cold bridge answers 5xx for up to ~90s (measured on emily, 2026-11-04).
+
+    Retrying is the difference between "the bridge is late" and a report that
+    every bridged profile and every Hermes bot is dead.
+    """
+    import urllib.error
+
+    calls = {"n": 0}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps({"data": [{"id": "flash"}]}).encode()
+
+    def fake_urlopen(req, timeout=None):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise urllib.error.HTTPError(req.full_url, 500, "still starting", {}, None)
+        return FakeResponse()
+
+    monkeypatch.setattr(profile_audit.urllib.request, "urlopen", fake_urlopen)
+    names, error = profile_audit.bridge_models("http://127.0.0.1:4000", attempts=3, delay=0)
+    assert names == {"flash"}
+    assert error is None
+    assert calls["n"] == 3
+
+
+def test_a_wrong_key_is_not_retried(monkeypatch):
+    """401 is a wrong credential, not a slow start; waiting cannot fix it."""
+    import urllib.error
+
+    calls = {"n": 0}
+
+    def fake_urlopen(req, timeout=None):
+        calls["n"] += 1
+        raise urllib.error.HTTPError(req.full_url, 401, "no", {}, None)
+
+    monkeypatch.setattr(profile_audit.urllib.request, "urlopen", fake_urlopen)
+    names, error = profile_audit.bridge_models("http://127.0.0.1:4000", attempts=3, delay=0)
+    assert names == set()
+    assert error == "HTTP 401"
+    assert calls["n"] == 1

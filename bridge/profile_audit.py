@@ -28,6 +28,7 @@ import argparse
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -68,13 +69,19 @@ def profile_models(path: Path) -> list[str]:
     return seen
 
 
-def served_names(repo: Path, bridge: str | None = DEFAULT_BRIDGE) -> set[str]:
-    """Every model name the bridge answers to, from templates and the bridge."""
-    names: set[str] = set()
-    for ex in sorted((repo / "providers").glob("*.json.example")):
-        names.update(profile_models(ex))
+def bridge_models(
+    bridge: str, *, attempts: int = 3, delay: float = 2.0
+) -> tuple[set[str], str | None]:
+    """The bridge's own model list, and why it is missing when it is.
 
-    if bridge:
+    A bridge that is still loading answers 5xx for a while — measured at ~90s
+    on a cold start (emily, 2026-11-04). Without a retry the caller's next
+    sentence is "these models are dead", which is a lie about a bridge that is
+    merely late. A 4xx is not retried: that is a wrong key or a wrong URL, and
+    waiting will not fix it.
+    """
+    error: str | None = None
+    for attempt in range(max(1, attempts)):
         try:
             req = urllib.request.Request(
                 bridge.rstrip("/") + "/v1/models",
@@ -82,18 +89,41 @@ def served_names(repo: Path, bridge: str | None = DEFAULT_BRIDGE) -> set[str]:
             )
             with urllib.request.urlopen(req, timeout=5) as resp:
                 doc = json.loads(resp.read().decode("utf-8"))
-            names.update(m["id"] for m in doc.get("data", []) if m.get("id"))
-        except (urllib.error.URLError, OSError, ValueError, TimeoutError):
-            # The bridge being down is not the audit's business: the templates
-            # still name every native model, and a bridged profile whose name
-            # only the bridge knows is caught the moment the bridge is up.
-            pass
+            return {m["id"] for m in doc.get("data", []) if m.get("id")}, None
+        except urllib.error.HTTPError as exc:
+            error = f"HTTP {exc.code}"
+            if exc.code < 500:
+                return set(), error
+        except (urllib.error.URLError, OSError, ValueError, TimeoutError) as exc:
+            error = f"{type(exc).__name__}: {exc}"
+        if attempt + 1 < attempts:
+            time.sleep(delay)
+    return set(), error
+
+
+def served_names(
+    repo: Path,
+    bridge: str | None = DEFAULT_BRIDGE,
+    *,
+    attempts: int = 1,
+    delay: float = 2.0,
+    error_out: list[str] | None = None,
+) -> set[str]:
+    """Every model name the bridge answers to, from templates and the bridge."""
+    names: set[str] = set()
+    for ex in sorted((repo / "providers").glob("*.json.example")):
+        names.update(profile_models(ex))
+
+    if bridge:
+        live, error = bridge_models(bridge, attempts=attempts, delay=delay)
+        names.update(live)
+        if error and error_out is not None:
+            error_out.append(f"{bridge} did not answer /v1/models ({error})")
     return names
 
 
-def audit(providers_dir: Path, repo: Path, bridge: str | None = DEFAULT_BRIDGE) -> list[dict]:
-    """One row per installed profile: what it names, and what is missing."""
-    served = served_names(repo, bridge)
+def rows_for(providers_dir: Path, served: set[str]) -> list[dict]:
+    """One row per installed profile, judged against an already-known set."""
     rows: list[dict] = []
     for path in sorted(providers_dir.glob("*.json")):
         models = profile_models(path)
@@ -109,6 +139,11 @@ def audit(providers_dir: Path, repo: Path, bridge: str | None = DEFAULT_BRIDGE) 
             }
         )
     return rows
+
+
+def audit(providers_dir: Path, repo: Path, bridge: str | None = DEFAULT_BRIDGE) -> list[dict]:
+    """One row per installed profile: what it names, and what is missing."""
+    return rows_for(providers_dir, served_names(repo, bridge))
 
 
 def main(argv: list[str] | None = None) -> int:

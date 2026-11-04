@@ -994,6 +994,12 @@ and reports the `model` that LiteLLM says served it. When a fallback answers,
 the doctor says which model did — a retired primary is otherwise invisible,
 because the request still succeeds and the answer still looks plausible.
 
+A bridge that is still loading answers 5xx for a while — a cold start was
+measured at ~90s on this machine. The doctor retries (3 attempts, 2s apart,
+`--bridge-attempts` / `--bridge-delay`) and, if it never answers, names the
+bridge instead of declaring every bridged model dead. A 4xx is not retried:
+a wrong key is not a slow start.
+
 The served set is **derived**, not a list anyone maintains: the repository's
 rendered templates name the models the native providers answer to (they never
 reach LiteLLM, so the proxy's own model list does not have them), and the
