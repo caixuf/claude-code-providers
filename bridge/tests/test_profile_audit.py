@@ -61,7 +61,7 @@ def test_the_bridge_is_asked_when_it_is_up(tmp_path):
     repo = _repo(tmp_path)
     profiles = tmp_path / "providers"
     profiles.mkdir()
-    _profile(profiles / "cline.json", "cline-deepseek-v4.1-flash")
+    _profile(profiles / "qianfan.json", "qianfan-deepseek-v4.1-flash-1017")
     # no template names it, so only the live bridge can clear it
     rows = profile_audit.audit(profiles, repo, bridge="")
     assert rows[0]["dead"] is True

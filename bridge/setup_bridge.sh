@@ -198,7 +198,6 @@ text = pathlib.Path(src).read_text()
 # map api_base host -> env var name
 HOSTS = {
     "api.commandcode.ai": "CMDC_API_KEY",
-    "api.cline.bot": "CLINE_API_KEY",
     "www.codebuddy.ai": "CODEBUDDY_API_KEY",
     "copilot.tencent.com": "CODEBUDDY_API_KEY",
 }
@@ -299,9 +298,9 @@ if [ -n "$PROXY_URL" ] && [ ! -f "$CONFIG_DIR/proxy.env" ]; then
   # relay, and the provider that fell out of the union would go through a
   # tunnel that cannot reach it.
   NO_PROXY_LIST="$("$VENV_DIR/bin/python" "$SCRIPT_DIR/loopback.py" \
-    "localhost,127.0.0.1,::1,.local,api.deepseek.com,api.minimax.cn,api.cline.bot,qianfan.baidubce.com" \
+    "localhost,127.0.0.1,::1,.local,api.deepseek.com,api.minimax.cn,qianfan.baidubce.com" \
     2>/dev/null || true)"
-  [ -n "$NO_PROXY_LIST" ] || NO_PROXY_LIST="localhost,127.0.0.1,::1,.local,api.deepseek.com,api.minimax.cn,api.cline.bot,qianfan.baidubce.com"
+  [ -n "$NO_PROXY_LIST" ] || NO_PROXY_LIST="localhost,127.0.0.1,::1,.local,api.deepseek.com,api.minimax.cn,qianfan.baidubce.com"
   cat > "$CONFIG_DIR/proxy.env" <<EOF
 http_proxy=$PROXY_URL
 https_proxy=$PROXY_URL

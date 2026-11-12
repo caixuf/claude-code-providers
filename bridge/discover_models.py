@@ -27,7 +27,7 @@ still hand-edit; re-running merges (never clobbers manual ``aliases``/``tiers``)
 
 Usage:
   python3 discover_models.py                  # refresh all providers into registry
-  python3 discover_models.py --provider cline # just one
+  python3 discover_models.py --provider qianfan # just one
   python3 discover_models.py --dry-run        # print, don't write
   python3 discover_models.py --diff           # show what changed vs current file
 """
@@ -50,31 +50,6 @@ from loopback import ensure_loopback_bypass  # noqa: E402
 # Provider definitions. ``auth_file`` points at the deployed litellm config or
 # env so we can read the token without hard-coding secrets here.
 PROVIDERS = {
-    "cline": {
-        "models_url": "https://api.cline.bot/api/v1/models",
-        "api_base": "https://api.cline.bot/api/v1",
-        "endpoint_kind": "openai",
-        "litellm_prefix": "openai/",
-        "auth_env": "CLINE_API_KEY",
-        "auth_file": "~/.config/litellm/config.yaml",
-        "auth_grep": "api.cline.bot",
-        # ClinePass advertises 469 ids but its plan serves a small subset. Every
-        # family it does NOT serve — Google (42 ids), OpenAI, Anthropic and xAI
-        # included — answers `{"error":"model not found"}` when called, so the
-        # catalogue is not a capability list. ``only_models`` keeps the registry
-        # to the ids verified by direct probe; without it `ccp models` claims 469
-        # models of which ~6 work.
-        #
-        # Verified 2026-10-14 against https://api.cline.bot/api/v1 with
-        # `model: cline-pass/<id>`. The prefix is mandatory: without it the
-        # gateway answers "invalid model format. Expected format: modelType/model".
-        # Re-probe when the plan changes, and extend this list rather than
-        # trusting the catalogue again.
-        "only_models": [
-                "deepseek/deepseek-v4.1-flash",
-            ],
-        "max_output_default": None,
-    },
     # Native Anthropic-compatible endpoints (no bridge). Rich metadata where
     # the provider exposes it (DeepSeek gives context_window + input_modalities).
     "deepseek": {
@@ -643,7 +618,6 @@ def norm_qianfan(entry: dict, provider: dict, cmap: dict, idx: dict | None = Non
 
 
 NORMALIZERS = {
-    "cline": norm_generic,
     "deepseek": norm_deepseek,
     "minimax": norm_generic,
     "opendesign": norm_opendesign,

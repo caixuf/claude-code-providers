@@ -42,19 +42,25 @@ def test_unnamed_groups_survive_the_window_unchanged():
     merged = _module('render_config').apply_local_overlay(committed, _night())
     assert merged['groups']['main'] == _night()['groups']['main']
     assert merged['groups']['pro'] == committed['groups']['pro']
-    assert merged['groups']['flash'] == {'members': ['beam-free']}
+    assert merged['groups']['flash'] == committed['groups']['flash']
     assert set(merged['groups']) == set(committed['groups'])
 
 
-def test_flash_group_inherits_beam_compatibility_rules():
+def test_flash_group_keeps_its_own_clamp():
+    """flash is a curated group, not a copy of whichever route was last tried.
+
+    Its current members (OpenDesign / MiniMax / Qianfan / omp) are all
+    vision-capable and carry a 328k output cap; the old Beam-only rule is
+    history and must not clamp the group to 131072.
+    """
     render_config = _module('render_config')
     models, providers = render_config.index_models(_committed('models.yaml'))
     profiles = _committed('profiles.yaml')
     emitted = {}
     render_config.render_config(models, providers, profiles, emitted)
-    assert 'flash' in render_config.render_media_rules(models, profiles, emitted)
-    assert render_config.render_field_rules(models, profiles, emitted).get('flash') == ['cache_control']
-    assert render_config.render_clamp(models, providers, profiles)['flash'] == 131072
+    assert 'flash' not in render_config.render_media_rules(models, profiles, emitted)
+    assert render_config.render_field_rules(models, profiles, emitted).get('flash') is None
+    assert render_config.render_clamp(models, providers, profiles)['flash'] == 328000
 
 
 def test_overlay_keeps_groups_it_does_not_name():

@@ -30,17 +30,6 @@ model_list:
       api_key: YOUR_COMMANDCODE_AUTH_TOKEN
 
   # -------------------------------------------------------------
-  # 2. Cline Pass (Subscription Token Plan)
-  # NOTE: MUST use the 'cline-pass/' prefix to draw from your flat
-  # monthly subscription rather than pay-as-you-go credits!
-  # -------------------------------------------------------------
-  - model_name: cline-deepseek
-    litellm_params:
-      model: openai/cline-pass/deepseek-v4.1-flash
-      api_base: https://api.cline.bot/api/v1
-      api_key: YOUR_CLINE_PASS_API_KEY
-
-  # -------------------------------------------------------------
   # 3. OpenRouter (Optional)
   # -------------------------------------------------------------
   - model_name: openrouter-claude

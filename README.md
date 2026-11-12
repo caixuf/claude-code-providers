@@ -32,7 +32,6 @@ history — the rules that keep it that way are in [PRINCIPLES.md](PRINCIPLES.md
 | `deepseek/` | DeepSeek-Flash (1M) | native Anthropic | 1 |
 | `minimax/` | MiniMax-M3.1-Flash (1M) | native Anthropic | 2 |
 | `opendesign/` | DeepSeek-V4.1-Flash (1.05M) | native, Anthropic-native aggregator | 1 |
-| `cline/` | DeepSeek-V4.1-Flash (1M) | bridged → LiteLLM | 1 |
 | `qianfan/` | DeepSeek-V4.1-Flash (1.44M) | bridged → LiteLLM | 1 |
 | `trae/` | DeepSeek-V4.1-Flash (1M) | local adapter `:4100` | 1 |
 | `opencode/` | DeepSeek-V4.1-Flash (1M) | native, Anthropic-native gateway | 1 |
@@ -79,8 +78,8 @@ repo. Provider profiles are generated from `providers/*.json.example`.
 
 ```bash
 ccp                                  # list providers; the active one is starred
-ccp cline                            # switch to a provider's default model
-ccp -m cline-glm-5.3                 # change model inside the current provider
+ccp qianfan                          # switch to a provider's default model
+ccp -m qianfan-deepseek-v4.1-flash-1017  # change model inside the current provider
 ccp minimax MiniMax-M3.1-Flash       # native Anthropic: the vendor's own id, no bridge
 ccp trae deepseek-v4.1-flash         # switch provider *and* model
 ccp trae/deepseek-v4.1-flash         # same thing, as a path
@@ -143,7 +142,7 @@ would 404 upstream.
 How a folder's contents are spelled depends on how it is reached, and
 `bridge/ccp_pick.py` is what keeps that honest: a **native** folder lists the
 vendor's own ids, a **bridged** one lists the LiteLLM alias with the provider
-prefix stripped. That is why `ccp trae kimi-k3` and `ccp cline glm-5.3` read
+prefix stripped. That is why `ccp trae kimi-k3` and `ccp qianfan deepseek-v4.1-flash` read
 the way they do.
 
 ### Staying on one profile: `groups`
@@ -263,7 +262,7 @@ token instantly and still never act, which is the failure that wastes the turn.
 
 ## 🌉 The bridge
 
-Two providers, `cline/` and `qianfan/`, speak plain OpenAI
+Two providers, `qianfan/` and `opencode/`, speak plain OpenAI
 `chat/completions` and are **bridged**: Claude Code talks to a local gateway that
 translates on the way out. Every other folder takes one of the other two paths —
 an Anthropic-native endpoint or the Trae local adapter — both covered below.
@@ -278,7 +277,7 @@ ccp bridge status                # what is running, on which port
 ```
 
 `setup_bridge.sh` creates an isolated venv at `~/.local/share/litellm-venv`,
-applies the upstream patches (ClinePass' `cline-pass/` prefix, the
+applies the upstream patches (provider-specific model prefixes, the
 `{"data":{"choices":…}}` envelope unwrap, dropping client headers strict proxies
 reject), and registers the systemd units.
 
@@ -560,17 +559,6 @@ price. Its `/v1/models` is unusually complete
 > found`. `render_config.py` therefore keeps aliases and the marker bridged-only.
 > DeepSeek and MiniMax only appeared to work because their tiers happened to use
 > ids with no alias — they were one rename away from the same failure.
-
-### ClinePass
-
-469 models in the catalogue, **6 that actually answer.** Its `/v1/models` is a
-public list, not an entitlement list: every Google, OpenAI, Anthropic and xAI id
-returns `{"error":"model not found"}` when called. The request model must also be
-`cline-pass/<id>` — without the prefix the gateway answers
-`invalid model format`. `only_models` in `discover_models.py` keeps the registry
-to the six verified ids, and the `cline-pass/` prefix is fixed per deployment in
-`render_config.py` (dropping it silently bills pay-as-you-go instead of the flat
-pass). Re-probe before extending that list.
 
 ### Qianfan (百度千帆 Token Plan)
 
@@ -1004,9 +992,9 @@ underneath. Claude Code reaches the curated groups through `ccp groups`
 `ccp -m group/<name>` when already on a bridged profile.
 
 ```bash
-ccp accounts group add daily cline-deepseek-v4.1-flash \
+ccp accounts group add daily qianfan-deepseek-v4.1-flash \
     opendesign-deepseek-v4.1-flash --strategy usage-based-routing-v2 \
-    --fallback opendesign-deepseek-v4-pro
+    --fallback opendesign-deepseek-v4-flash
 ccp -m group/daily
 ```
 
@@ -1157,8 +1145,6 @@ row (2 rounds, ~200 output tokens per round):
 | :--- | :--- | ---: | ---: | ---: | :---: |
 | **opendesign** | `deepseek-v4-flash` | 1.4 s | **309.6** | **2.0 s** | 1M |
 | opendesign | `deepseek-v4.1-flash` | 1.7 s | 279.3 | 2.4 s | 1M |
-| cline | `deepseek-v4-pro` | **1.3 s** | 107.2 | 3.2 s | 1M |
-| cline | `deepseek-v4.1-flash` | 2.0 s | 165.7 | 3.2 s | 1M |
 | minimax | `MiniMax-M3` | 2.4 s | 92.4 | 4.4 s | 1M |
 | minimax | `MiniMax-M3.1-Flash` | 4.7 s | 42.5² | 5.7 s | 1M |
 | trae | `DeepSeek-V4.1-Flash` | 3.4 s | 63.8² | 3.5 s | 1M |
@@ -1180,12 +1166,10 @@ the total, and read the `Think` column as part of the answer: it is the
 wait paid on every turn, before the first useful token exists.
 
 OpenDesign finishes a turn fastest here — `deepseek-v4-flash` in 2.0 s at
-309.6 tok/s, and `deepseek-v4.1-flash` half a second behind it. Cline has
-the first token (1.3 s) and pays for it in generation time. Trae is the
+309.6 tok/s, and `deepseek-v4.1-flash` half a second behind it. The archived Cline rows were the first-token winner (1.3 s) and paid for it in generation time. Trae is the
 slowest to start — 3.4–6.4 s before the first token — and fast only once it
 is decoding: `DeepSeek-V4-Flash-Official` moves 166.5 tok/s. Total time is
-the column an agent feels, which is why the 3.2 s cline row beats trae's
-3.5 s one despite half the throughput.
+the column an agent feels.
 
 ### How the speed number is computed
 
@@ -1255,16 +1239,10 @@ gateway error on a loopback endpoint is the proxy answering for it.
 
 ## 📦 Archived providers
 
-CommandCode (out of credits), GitHub Copilot (no healthy deployments), OpenCode
-and Antigravity (`agy`) are archived, along with what it takes to bring one back:
-[`docs/archived-providers.md`](docs/archived-providers.md).
-
-Two more were removed on 2026-10-28, with their reasons recorded there:
-**Codex** (a GPT-only catalogue — every rung on it is a paid-per-token model,
-and it is the one family the DeepSeek-only rule exists to keep out of reach)
-and **壹佳API (yjapi.shop)**, whose $2 balance was spent by a context probe
-against a 26x-priced model and which has not been recharged. MiniMax stayed:
-its M3 plan is a flat subscription, so it costs nothing to keep.
+ClinePass, CommandCode, GitHub Copilot, Codex and Antigravity (`agy`) are
+retired; their notes and revival steps live in
+[`docs/archived-providers.md`](docs/archived-providers.md). OpenCode was
+archived in October and is active again — the folder is in the table above.
 
 ---
 

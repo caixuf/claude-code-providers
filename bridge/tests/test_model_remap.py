@@ -23,7 +23,7 @@ import model_remap  # noqa: E402
 SERVED = {
     "qianfan-deepseek-v4.1-flash",
     "qianfan-deepseek-v4.1-flash[1m]",
-    "cline-deepseek-v4.1-flash",
+    "qianfan-deepseek-v4.1-flash",
     "main",
     "pro",
 }
@@ -59,9 +59,9 @@ def test_a_bare_alias_is_never_remapped():
 
 def test_two_models_of_one_provider_leave_the_name_alone():
     """Guessing between two is worse than failing: the caller asked for one."""
-    two = {"cline-deepseek-v4.1-flash", "cline-glm-5.3"}
-    assert model_remap.remap_model("cline-deepseek-v4-pro", two) == (
-        "cline-deepseek-v4-pro",
+    two = {"qianfan-deepseek-v4.1-flash", "qianfan-glm-5.3"}
+    assert model_remap.remap_model("qianfan-deepseek-v4-pro", two) == (
+        "qianfan-deepseek-v4-pro",
         None,
     )
 

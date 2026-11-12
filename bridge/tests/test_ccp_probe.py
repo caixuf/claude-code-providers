@@ -71,7 +71,6 @@ def test_get_configured_models_specific_target():
     # every row is the model that was asked for, at the provider that serves it
     assert all("deepseek" in c["wire_name"].lower() for c in found)
     assert {c["provider"] for c in found} <= {
-        "cline",
         "opendesign",
         "qianfan",
         "trae",
@@ -307,7 +306,7 @@ def test_print_table(capsys):
 
 def test_every_provider_has_candidates():
     """A provider that cannot be probed is the bug this guards."""
-    for name in ("cline", "deepseek", "minimax", "opendesign", "qianfan", "trae"):
+    for name in ("opencode", "deepseek", "minimax", "opendesign", "qianfan", "trae"):
         found = get_configured_models(target=name)
         assert found, f"{name} yielded no probe candidates"
 
@@ -343,9 +342,9 @@ def test_native_providers_are_probed_not_skipped():
 
 def test_bridged_providers_use_the_alias_litellm_accepts():
     """Bridged goes through LiteLLM, which only knows the alias — `[1m]` included."""
-    q = get_configured_models(target="cline")
+    q = get_configured_models(target="opencode")
     names = [c["wire_name"] for c in q]
-    assert "cline-deepseek-v4.1-flash[1m]" in names
+    assert "opencode-deepseek-v4.1-flash[1m]" in names
     assert not any(c["native"] for c in q)
 
 
@@ -372,7 +371,7 @@ def test_each_candidate_carries_its_own_endpoint_and_credential():
     if trae and _installed_endpoint("trae")[0]:
         assert trae[0]["endpoint"].startswith("http://127.0.0.1:4100")
 
-    spec = get_configured_models(target="cline")[0]
+    spec = get_configured_models(target="opencode")[0]
     assert spec["endpoint"] == DEFAULT_BRIDGE_URL
     assert spec["token"] == DEFAULT_MASTER_KEY
 

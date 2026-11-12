@@ -18,9 +18,9 @@ file never is.
 
 Usage:
   python3 ccp_accounts.py list
-  python3 ccp_accounts.py add cline a2 --token sk-…
-  python3 ccp_accounts.py remove cline a2
-  python3 ccp_accounts.py group add daily cline-deepseek-v4.1-flash --strategy usage-based-routing-v2
+  python3 ccp_accounts.py add qianfan a2 --token sk-…
+  python3 ccp_accounts.py remove qianfan a2
+  python3 ccp_accounts.py group add daily qianfan-deepseek-v4.1-flash --strategy usage-based-routing-v2
   python3 ccp_accounts.py group remove daily
 """
 from __future__ import annotations
@@ -131,7 +131,7 @@ def load_registry() -> tuple[dict, dict]:
 
 
 def env_var_for(provider: str, suffix: str) -> str:
-    """CLINE_API_KEY_A2 for ('cline', 'a2'), CLINE_API_KEY_EDU for …"""
+    """QIANFAN_API_KEY_A2 for ('qianfan', 'a2'), QIANFAN_API_KEY_EDU for …"""
     return f"{provider.upper()}_API_KEY_{suffix.upper()}"
 
 

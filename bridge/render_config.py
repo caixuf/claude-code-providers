@@ -677,19 +677,6 @@ def render_strip_reasoning_rules(
 def litellm_model_string_override(pname: str, mname: str, profiles_doc: dict | None = None) -> str | None:
     """LiteLLM model string for non-registry providers (copilot uses its native
     ``github_copilot/`` prefix and must NOT get an ``openai/`` prefix)."""
-    if pname == "cline":
-        # Cline Pass is a flat subscription namespace: the request model MUST be
-        # ``cline-pass/<model>`` (org segment dropped) or it silently bills
-        # pay-as-you-go credits instead of the pass. Documented in
-        # bridge/config.example.yaml; dropping it here re-broke that (402).
-        #
-        # ``hosted_vllm/``, not ``openai/``: the ``openai/`` prefix routes to the
-        # Responses API, and Cline's gateway only serves ``/api/v1/chat/completions`
-        # — ``/api/v1/responses`` answers a bare 404, which surfaces as
-        # "No fallback model group found". Same opt-out CodeBuddy and Codex need
-        # (see the branches below); the prefix only picks the request builder and
-        # leaves the ``cline-pass/`` billing namespace untouched.
-        return f"hosted_vllm/cline-pass/{mname.rsplit('/', 1)[-1]}"
     if pname in ("codebuddy", "workbuddy"):
         # Retired with the provider (docs/archived-providers.md), kept so an
         # old registry still renders the prefix it expects rather than falling

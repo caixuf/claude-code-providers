@@ -59,7 +59,6 @@ groups:
     fallback:
     - opencode-deepseek-v4.1-flash
     - opendesign-deepseek-v4.1-flash
-    - cline-deepseek-v4.1-flash
 """
 
 

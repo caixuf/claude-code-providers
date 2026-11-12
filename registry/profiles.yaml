@@ -17,7 +17,7 @@
 # ── A profile is a PROVIDER, not one model ─────────────────────────────
 # `ccp` lists one folder per profile; the provider's models are its contents:
 #
-#     cline/  deepseek/  minimax/  opendesign/  qianfan/  trae/
+#     deepseek/  minimax/  opendesign/  qianfan/  opencode/  trae/
 #
 #     ccp                       # the folders, with how many models each holds
 #     ccp trae                  # switch to trae's default + list its models
@@ -182,7 +182,7 @@ profiles:
 
   # ── qpcmqam relay (ai.qpcmqam.cn) ─────────────────────────────────────
   # A personal OpenAI-compatible relay. Bridged, not native: it speaks Chat
-  # Completions, so it renders through LiteLLM like cline and qianfan.
+  # Completions, so it renders through LiteLLM like qianfan and opencode.
   #
   # Deliberately one model — gemini-4-argon — because that is the only id this
   # request asked for, and the relay also serves gemini-3.8-flash that was not
@@ -286,7 +286,7 @@ aliases:
   # source of truth, and the two disagreed — this file said 1000000 where
   # the registry said 1048576, and 168000 where it said 1000000 — while
   # nothing read the alias copy at all.
-  # Qianfan: bridged, so these resolve through LiteLLM like the cline alias.
+  # Qianfan: bridged, so these resolve through LiteLLM like any bridged alias.
   qianfan-deepseek-v4.1-flash:          {provider: qianfan, model: deepseek-v4.1-flash-1017}
   qianfan-deepseek-v4.1-flash-1017:     {provider: qianfan, model: deepseek-v4.1-flash-1017}
   qianfan-ernie-5.5-flash-preview:      {provider: qianfan, model: ernie-5.5-flash-preview}
@@ -334,8 +334,8 @@ aliases:
 accounts: {}
 # Example — two logins for one provider behind a pool:
 #   accounts:
-#     cline:
-#       a2: {auth_env: CLINE_API_KEY_2, label: "second account"}
+#     qianfan:
+#       a2: {auth_env: QIANFAN_API_KEY_2, label: "second account"}
 
 # ── Routing groups: one name, several models ───────────────────────────
 # A group is a LiteLLM model_name shared by several deployments. `members`
@@ -406,9 +406,9 @@ groups:
 # Example — cheap-first, escalating to a different vendor when both are out:
 #   groups:
 #     daily:
-#       members: [qianfan-deepseek-v4.1-flash, cline-deepseek-v4.1-flash]
+#       members: [qianfan-deepseek-v4.1-flash, opencode-deepseek-v4.1-flash]
 #       routing_strategy: usage-based-routing-v2
-#       fallback: opendesign-deepseek-v4-pro
+#       fallback: opendesign-deepseek-v4.1-flash
 
 # ── Models that get individual LiteLLM entries (so `ccp -m <name>` works) ─
 # Keep this list short: each entry becomes a selectable model name, and a raw

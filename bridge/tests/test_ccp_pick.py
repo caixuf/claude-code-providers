@@ -88,12 +88,12 @@ def test_each_folder_exposes_every_model_of_that_provider(docs, providers):
 
 def test_bridged_folders_expose_their_aliases_not_upstream_ids(providers):
     """Bridged goes through LiteLLM, which only knows `model_name`."""
-    c = providers["cline"]
+    c = providers["opencode"]
     assert not c.native
     names = [n for n, _ in c.models]
     assert "deepseek-v4.1-flash" in names
     assert "deepseek-v4.1-flash[1m]" not in names  # marker is added on the wire
-    assert "cline-deepseek-v4.1-flash" not in names  # prefix stripped
+    assert "opencode-deepseek-v4.1-flash" not in names  # prefix stripped
 
 
 def test_native_folders_expose_upstream_ids(providers):
@@ -115,7 +115,7 @@ def test_native_folders_expose_upstream_ids(providers):
 
 def test_resolve_without_a_model_gives_the_profile_default(providers):
     assert providers["trae"].resolve("")[0] == "DeepSeek-V4.1-Flash"
-    assert providers["cline"].resolve("")[0] == "deepseek-v4.1-flash"
+    assert providers["opencode"].resolve("")[0] == "deepseek-v4.1-flash"
 
 
 def test_model_names_match_case_insensitively_but_keep_vendor_spelling():
@@ -134,7 +134,7 @@ def test_bridged_models_get_the_1m_marker_only_when_the_window_is_1m():
     request goes upstream. A model with a smaller window must not carry it —
     the name would match no deployment at all.
     """
-    rc, out, _ = run("resolve", "cline", "deepseek-v4.1-flash")
+    rc, out, _ = run("resolve", "opencode", "deepseek-v4.1-flash")
     assert kv(out)["MODEL"].endswith("[1m]")  # 1048576 context — the marker applies
 
     # Under 1M the marker must not appear. Every shipped provider carries a
@@ -183,8 +183,8 @@ def test_resolve_reports_the_real_context_window():
     model must not leave the old window advertised."""
     _, out, _ = run("resolve", "trae", "DeepSeek-V4.1-Flash")
     assert kv(out)["CTX"] == "1000000"  # the verified window
-    _, out, _ = run("resolve", "cline", "deepseek-v4.1-flash")
-    assert kv(out)["CTX"] == "1048576"  # a different window from the row above
+    _, out, _ = run("resolve", "opencode", "deepseek-v4.1-flash")
+    assert kv(out)["CTX"] == "1000000"  # a different window from the row above
 
 
 def test_unknown_model_is_rejected_and_shows_the_options(providers):
@@ -207,17 +207,17 @@ def test_unknown_provider_is_rejected():
 
 def test_a_model_is_not_resolvable_from_the_wrong_folder(providers):
     """Guard against cross-provider slips: another provider's id does not
-    belong to cline.
+    belong to opencode.
 
-    Trae is no use as the example — its `DeepSeek-V4.1-Flash` and cline's
+    Trae is no use as the example — its `DeepSeek-V4.1-Flash` and opencode's
     selectable `deepseek-v4.1-flash` are the same model and match
     case-insensitively on purpose. The ids below belong to vendors whose
-    models cline does not serve.
+    models opencode does not serve.
     """
     with pytest.raises(KeyError):
-        providers["cline"].resolve("MiniMax-M3.1-Flash")
+        providers["opencode"].resolve("MiniMax-M3.1-Flash")
     with pytest.raises(KeyError):
-        providers["cline"].resolve("deepseek-flash")
+        providers["opencode"].resolve("deepseek-flash")
 
 
 def test_folders_command_lists_one_line_per_provider():
@@ -279,7 +279,7 @@ def test_group_context_is_the_smallest_window_in_the_chain(providers):
 
 
 def test_same_model_tolerates_the_1m_marker_and_case():
-    assert cp._same_model("cline-deepseek-v4.1-flash[1m]", "cline-deepseek-v4.1-flash")
+    assert cp._same_model("opencode-deepseek-v4.1-flash[1m]", "opencode-deepseek-v4.1-flash")
     assert cp._same_model("DeepSeek-V4.1-Flash", "deepseek-v4.1-flash")
     assert cp._same_model("openai/deepseek-v4.1-flash", "deepseek-v4.1-flash")
 

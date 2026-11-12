@@ -9,7 +9,7 @@ Not every provider publishes a usage API, and ccp does not invent one. Each
 provider below declares the endpoint and the shape of its answer; a provider
 with no entry is reported as "no usage API" rather than guessed at.
 
-  cline       GET  /api/v1/users/me                     (identity only today)
+  omp         GET  /v1/usage via `omp usage --json`    (per-account plan windows)
   others      — no public usage endpoint
 
 A reading is cached briefly, because these endpoints are rate limited and
@@ -17,7 +17,7 @@ A reading is cached briefly, because these endpoints are rate limited and
 
 Usage:
   python3 ccp_quota.py            # every provider that can be read
-  python3 ccp_quota.py cline      # just one
+  python3 ccp_quota.py omp        # just one
   python3 ccp_quota.py --json     # machine-readable
 """
 from __future__ import annotations
@@ -83,16 +83,6 @@ def _get_json(url: str, token: str) -> dict:
 #       {"name":…, "used":float, "total":float, "unit":str, "resets":str|None}]}
 
 
-def read_cline(env_name: str = "CLINE_API_KEY") -> dict:
-    """Cline exposes identity but no published balance endpoint."""
-    tok = _token(env_name)
-    if not tok:
-        raise RuntimeError(f"{env_name} not set")
-    doc = _get_json("https://api.cline.bot/api/v1/users/me", tok)
-    who = ((doc.get("data") or {}).get("email")) or "?"
-    return {"provider": "cline", "account": who, "windows": [], "note": "no usage API"}
-
-
 def read_omp() -> dict:
     """omp's broker already knows every logged-in account's plan windows.
 
@@ -147,9 +137,7 @@ def read_omp() -> dict:
     }
 
 
-READERS = {
-    "cline": read_cline,
-}
+READERS = {}
 if (Path.home() / ".local/bin/omp").exists() or shutil.which("omp"):
     READERS["omp"] = read_omp
 

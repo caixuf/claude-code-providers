@@ -273,7 +273,7 @@ def _installed_endpoint(provider: str) -> Tuple[str, str]:
 
     The file is not necessarily named after the provider. Profiles are named
     after the model they run (`opendesign-deepseek-v4.1-flash.json`,
-    `cline-deepseek-v4.1-flash.json`), and a rename in the registry renames
+    `qianfan-deepseek-v4.1-flash.json`), and a rename in the registry renames
     the installed file with it. Looking for `opendesign.json`, finding nothing
     and returning "" demoted every renamed provider to the LiteLLM bridge —
     and LiteLLM carries only the aliases, not the bare upstream ids, so the
