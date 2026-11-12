@@ -481,6 +481,11 @@ def get_configured_models(target: Optional[str] = None, all_models: bool = False
     known_provider = target_lower in {n.lower() for n in providers}
     known_group = target_lower in {g.lower() for g in groups} or target_lower in ("group", "groups")
     for name, prov in providers.items():
+        # The `groups` profile's models are the routing groups, already added
+        # above. Its wire names carry `[1m]` while the group candidate uses the
+        # bare name, so emitting it here would double-count every group.
+        if getattr(prov, "routing_groups", False):
+            continue
         if target and not known_provider and not all_models:
             continue  # the target names a model, handled in step 3
         if known_provider and target_lower != name.lower():

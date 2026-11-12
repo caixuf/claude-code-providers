@@ -126,6 +126,11 @@ def rows_for(providers_dir: Path, served: set[str]) -> list[dict]:
     """One row per installed profile, judged against an already-known set."""
     rows: list[dict] = []
     for path in sorted(providers_dir.glob("*.json")):
+        # A profile ccp generated from a live service (currently `ccp omp`)
+        # names that service's models, not the ccp bridge's. Judging it
+        # against the bridge's served set would archive a working profile.
+        if path.with_name(path.name + ".ccp-dynamic").is_file():
+            continue
         models = profile_models(path)
         if not models:
             continue

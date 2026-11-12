@@ -75,6 +75,10 @@ Usage:
                              list | add <provider> <suffix> | remove <provider> <suffix>
                              | group add <name> <member...> | group remove <name>
                              (a pool fails over natively when a quota runs out)
+  ccp omp [model]            Use omp's auth-gateway (multi-account login/refresh):
+                             setup | login [provider] | accounts | models | status |
+                             start | stop | restart. Omit the subcommand to switch
+                             to the gateway's best available model.
   ccp quota [provider]       What is left on each plan
   ccp usage                  Tokens actually spent, from the bridge's ledger
   ccp doctor                 Is this machine still consistent with the repository?
@@ -98,6 +102,10 @@ Examples:
   ccp minimax                # Switch to MiniMax's default model (M3.1-Flash)
   ccp groups                 # Stay on the routing groups; default is main
   ccp groups pro             # Start a session on the deliberate `pro` group
+  ccp omp setup              # Install/start omp auth-broker + auth-gateway
+  ccp omp login              # Log in to a provider through omp (once)
+  ccp omp accounts           # Per-account quota in the omp broker
+  ccp omp                    # Switch Claude Code to the omp gateway
   ccp trae kimi-k3           # Switch provider and pick the model in one step
   ccp -m cline-glm-5.3       # Change the active model within the current provider
   ccp ping                   # 2-round sustained speed & stability test (~200 tokens)
@@ -1387,6 +1395,74 @@ switch_provider() {
   list_provider_models "$provider"
 }
 
+# omp owns the logins and refresh tokens; ccp installs a profile that points
+# Claude Code at omp's gateway. The gateway token, not a provider credential,
+# is the only secret in settings.json.
+switch_omp() {
+  local model="${1:-}"
+  local repo_dir py
+  repo_dir=$(ccp_repo_dir)
+  py=$(ccp_python)
+  if [ ! -f "$repo_dir/bridge/omp_gateway.py" ]; then
+    echo -e "\033[31mError: omp adapter not found (need bridge/omp_gateway.py).\033[0m" >&2
+    return 1
+  fi
+
+  mkdir -p "$PROVIDERS_DIR" "$CLAUDE_DIR"
+  local profile="$PROVIDERS_DIR/omp.json"
+  if ! "$py" "$repo_dir/bridge/omp_gateway.py" profile ${model:+"$model"} --out "$profile"; then
+    echo -e "\033[31mCould not build the omp profile. Run 'ccp omp status'.\033[0m" >&2
+    return 1
+  fi
+
+  local primary ctx base_url
+  primary=$(grep -oE '"model"[[:space:]]*:[[:space:]]*"[^"]+"' "$profile" 2>/dev/null | head -1 | sed -E 's/.*"([^"]+)"$/\1/')
+  ctx=$(grep -oE '"CLAUDE_CODE_MAX_CONTEXT_TOKENS"[[:space:]]*:[[:space:]]*"[^"]+"' "$profile" 2>/dev/null | head -1 | sed -E 's/.*"([^"]+)"$/\1/')
+  base_url=$(grep -oE '"ANTHROPIC_BASE_URL"[[:space:]]*:[[:space:]]*"[^"]+"' "$profile" 2>/dev/null | head -1 | sed -E 's/.*"([^"]+)"$/\1/')
+  if [ -z "$primary" ]; then
+    echo -e "\033[31momp profile has no model.\033[0m" >&2
+    return 1
+  fi
+
+  capture_pristine_settings
+  if [ -f "$SETTINGS_FILE" ]; then
+    cp "$SETTINGS_FILE" "$SETTINGS_FILE.bak.$(date +%Y%m%d-%H%M%S)"
+  fi
+  cp "$profile" "$SETTINGS_FILE"
+  chmod 600 "$SETTINGS_FILE" 2>/dev/null || true
+
+  echo -e "\033[32m✔ omp → $primary\033[0m"
+  echo "  gateway: ${base_url:-?}  ctx: ${ctx:-?}"
+  echo "  Accounts and OAuth refresh stay in omp; no provider key enters this profile."
+  echo "  'ccp omp accounts' shows the per-account quota; 'ccp omp models' lists models."
+  echo "  Restart an active 'claude' session once to load this settings.json."
+  echo "  Inside that session '/model' switches the tiers from the profile."
+}
+
+# `ccp omp <subcommand>` is the management surface; a lone model (or nothing)
+# switches Claude Code to the gateway. Keep the dispatch here so the bash side
+# does not learn omp's command tree.
+omp_command() {
+  local repo_dir py
+  repo_dir=$(ccp_repo_dir)
+  py=$(ccp_python)
+  if [ ! -f "$repo_dir/bridge/omp_gateway.py" ]; then
+    echo -e "\033[31mError: omp adapter not found (need bridge/omp_gateway.py).\033[0m" >&2
+    return 1
+  fi
+  case "${1:-}" in
+    status|setup|start|stop|restart|login|accounts|models|profile)
+      "$py" "$repo_dir/bridge/omp_gateway.py" "$@"
+      ;;
+    -h|--help)
+      "$py" "$repo_dir/bridge/omp_gateway.py" --help
+      ;;
+    *)
+      switch_omp "${1:-}"
+      ;;
+  esac
+}
+
 main() {
   case "${1:-}" in
     "")
@@ -1409,6 +1485,9 @@ main() {
       ;;
     -t|--test|test)
       test_provider "${2:-}"
+      ;;
+    omp)
+      omp_command "${@:2}"
       ;;
     bridge)
       manage_bridge "${2:-status}"

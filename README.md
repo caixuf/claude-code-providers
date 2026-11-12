@@ -243,6 +243,7 @@ call is evidence:
 | `ccp bridge [status\|restart\|start\|stop\|deploy\|logs]` | Manage the local gateway and adapters |
 | `ccp bridge {start\|stop\|restart}-trae` | Address the local Trae adapter |
 | `ccp accounts …` | Extra logins and routing groups (see below) |
+| `ccp omp <sub\|model>` | omp multi-account login/gateway and a Claude Code profile |
 | `ccp quota [provider]` | What is left on each plan |
 | `ccp hermes [provider]` | Point the local Hermes agent at a provider's model |
 | `ccp -t` / `ccp --test` | Quick round-trip through Claude Code |
@@ -913,12 +914,45 @@ and are restricted to what applies to a tool that does **not** own the account:
 
 Deliberately **not** adopted: account pools that switch the agent's own login,
 and quota-driven routing. ccp never takes ownership of a credential it does not
-own, and lets LiteLLM's cooldown decide which account is out.
+own, and lets LiteLLM's cooldown decide which account is out. `ccp omp` is the
+one exception in shape, not in ownership: it delegates the pool to omp's broker
+and only receives a gateway token.
 
 ```bash
 ccp auth copilot            # GitHub Copilot device flow
 ccp auth trae               # import the TraeCLI personal access token
 ```
+
+---
+
+## 🔐 omp accounts (multi-account login)
+
+`ccp` does not implement provider logins. If you want the “log in once, use
+several accounts” experience, ccp adapts **omp**, whose auth-broker owns the
+OAuth refresh and whose auth-gateway exposes the account pool as one Anthropic
+endpoint:
+
+```bash
+ccp omp setup      # install + start omp auth-broker (:8765) and auth-gateway (:4010)
+ccp omp login      # run `omp auth-broker login`; pick a provider once
+ccp omp accounts   # `omp usage`: per-account quota
+ccp omp models     # what the gateway serves, with context/output/vision
+ccp omp            # switch Claude Code to the gateway's best model
+ccp omp opus       # ...or to a fuzzy match / exact provider/model id
+```
+
+The generated `~/.claude/providers/omp.json` carries **only the gateway
+bearer token**, never a provider credential. OAuth refresh, account rotation
+and quota stay in omp. Its sidecar `omp.json.ccp-dynamic` tells `ccp sync` and
+`ccp doctor` not to reconcile or archive the profile against the ccp bridge.
+
+Use exact omp ids such as `google-antigravity/claude-sonnet-4-6`; the HTTP
+gateway does not accept omp CLI role selectors like `@smol` (verified 404).
+`pi` is not used for this: it supports one credential per provider, while omp
+supports indexed OAuth accounts (`omp token <provider> --list` / `--account N`).
+
+Ports are `127.0.0.1:8765` (broker) and `127.0.0.1:4010` (gateway), deliberately
+outside ccp's own `4000/4001/4100` loopback range.
 
 ---
 

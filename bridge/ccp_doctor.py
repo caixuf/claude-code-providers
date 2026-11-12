@@ -390,6 +390,14 @@ def main(argv: list[str] | None = None) -> int:
             "which the bridge no longer serves"
         )
 
+    # A profile ccp generated from a live service (currently `ccp omp`) names
+    # that service's models, not the bridge's. Do not call those dead just
+    # because the bridge cannot resolve them.
+    dynamic_models: set[str] = set()
+    providers_dir = Path(args.providers_dir).expanduser()
+    for sidecar in providers_dir.glob("*.json.ccp-dynamic"):
+        dynamic_models.update(profile_audit.profile_models(sidecar.with_name(sidecar.name[: -len(".ccp-dynamic")])))
+
     # The active profile: what Claude Code will actually ask for.
     active_model = None
     active_base = None
@@ -402,7 +410,12 @@ def main(argv: list[str] | None = None) -> int:
         active_token = env.get("ANTHROPIC_AUTH_TOKEN")
     except (OSError, ValueError):
         pass
-    if active_model and active_model not in served and not bridge_notes:
+    if (
+        active_model
+        and active_model not in served
+        and active_model not in dynamic_models
+        and not bridge_notes
+    ):
         problems.append(f"the active profile asks for {active_model}, which the bridge no longer serves")
     if bridge_auth.is_bridge_url(active_base) and active_token != master_key:
         warnings.append(
