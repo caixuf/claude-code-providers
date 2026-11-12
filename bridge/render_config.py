@@ -678,7 +678,7 @@ def litellm_model_string_override(pname: str, mname: str, profiles_doc: dict | N
     """LiteLLM model string for non-registry providers (copilot uses its native
     ``github_copilot/`` prefix and must NOT get an ``openai/`` prefix)."""
     if pname in ("codebuddy", "workbuddy"):
-        # Retired with the provider (docs/archived-providers.md), kept so an
+        # Retired with the provider, kept so an
         # old registry still renders the prefix it expects rather than falling
         # through to ``openai/`` and hitting the Responses API. Both gateways
         # serve /chat/completions only under /v2 and 404 the whole /v1/* and
@@ -998,9 +998,8 @@ def main() -> None:
     # selected any more, yet is still listed as installed and still costs
     # nothing to keep alive.
     #
-    # Only the files this renderer owns are removed: `providers/archived/` is
-    # a separate directory and is never touched. And only when `--prune` says
-    # so: this renderer is also run by the test suite with a doctored
+    # Only the files this renderer owns are removed. And only when `--prune`
+    # says so: this renderer is also run by the test suite with a doctored
     # registry, and a deletion there would take the repository's real
     # templates with it.
     removed = []

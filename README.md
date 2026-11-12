@@ -293,7 +293,7 @@ place the request-rewriting layer exists.
 | `strip_1m_beta` | Drops the `anthropic-beta` 1M-context token that triggers `400` upstream |
 | `clamp_max_tokens` | Caps `max_tokens` at the model's discovered output limit, fixing `400 Invalid max_tokens value` |
 | `downgrade_media` | Replaces an image with a text marker for a model the registry records as text-only, fixing `400 Invalid content type. image_url is only supported by certain models` |
-| `sanitize_channel` *(no provider uses it today)* | Satisfies a gateway's *client-identity check*: it strips the `x-anthropic-billing-header` block and neutralises Claude Code's identity line wherever a gateway inspects it. Applies **only** to providers listed under `request_rules:` in `registry/profiles.yaml`, because stripping the billing header anywhere else is a silent prompt mutation. Built for WorkBuddy, which is retired — `docs/workbuddy-channel-check.md` keeps the measurement |
+| `sanitize_channel` *(no provider uses it today)* | Satisfies a gateway's *client-identity check*: it strips the `x-anthropic-billing-header` block and neutralises Claude Code's identity line wherever a gateway inspects it. Applies **only** to providers listed under `request_rules:` in `registry/profiles.yaml`, because stripping the billing header anywhere else is a silent prompt mutation. Built for WorkBuddy, which is retired |
 | `normalize_auth` (`bridge/bridge_auth.py`) | Forwards the credential LiteLLM accepts, whatever the client sent. A stale key used to be answered `400 No connected db.`, and no key at all `500` — see below |
 | `remap_model` (`bridge/model_remap.py`) | Points a retired model id at the one model its provider now serves, fixing `400 Invalid model name passed in model=…` — see below |
 
@@ -1014,7 +1014,7 @@ ccp quota omp          # omp broker: per-account plan windows
 ```
 
 *(No provider in the kept set publishes a usage API, so this prints nothing
-today. CodeBuddy's reader went with it — see docs/archived-providers.md.)*
+today. CodeBuddy's reader went with it.)*
 Readings are cached for two minutes because these endpoints are rate limited.
 
 > No provider in the current set uses accounts yet — that part was built for a
@@ -1236,13 +1236,6 @@ that does not exist), and an empty body is named rather than left blank: a
 gateway error on a loopback endpoint is the proxy answering for it.
 
 ---
-
-## 📦 Archived providers
-
-ClinePass, CommandCode, GitHub Copilot, Codex and Antigravity (`agy`) are
-retired; their notes and revival steps live in
-[`docs/archived-providers.md`](docs/archived-providers.md). OpenCode was
-archived in October and is active again — the folder is in the table above.
 
 ---
 

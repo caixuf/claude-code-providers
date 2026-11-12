@@ -17,10 +17,8 @@ this pulls them from, in priority order:
       max_input_tokens / max_output_tokens / supports_vision.
    3. A tiny built-in defaults table for the few facts neither source knows.
 
-Only the providers ccp currently keeps are registered here. Archived ones
-(CommandCode, CodeBuddy, Copilot) are described in
-docs/archived-providers.md; restoring one means putting its entry back and
-re-running discovery.
+Only the providers ccp currently keeps are registered here. Adding a provider
+means putting its entry back and re-running discovery.
 
 Output is a *generated but committed* ``registry/models.yaml`` that a human can
 still hand-edit; re-running merges (never clobbers manual ``aliases``/``tiers``).

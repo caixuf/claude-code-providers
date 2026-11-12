@@ -597,7 +597,7 @@ def test_opendesign_is_registered_and_discovered():
 # ── request rewrites ──────────────────────────────────────────────────────
 # One rule is in force: `sanitize_channel`, for WorkBuddy alone. Its gateway
 # demands that no foreign client identity reaches it
-# (docs/workbuddy-channel-check.md), and Claude Code always sends one.
+# and Claude Code always sends one.
 # Everywhere else the rewrite must not fire: stripping Anthropic's billing
 # header anywhere but the gateway that asks for it is a silent prompt mutation.
 

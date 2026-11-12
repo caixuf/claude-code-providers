@@ -197,7 +197,7 @@ weight:
    risk class from `cline/` or `trae/`, which are official (if under-documented)
    API surfaces.
 2. **The credential model fights the repo's rules.** The design notes in
-   `README.md` and `docs/archived-providers.md` say **read, never refresh** for a
+   `README.md` says **read, never refresh** for a
    token a CLI owns, because a second refresher can rotate the token out from
    under the owner. Grok is the opposite shape: 6-hour tokens that *must* be
    refreshed by whoever holds them. Supporting it means adding a self-refreshing
@@ -226,7 +226,7 @@ The cheapest shape, given the measurements above:
 4. `ccp discover grok`: the CLI catalogue carries `context_window` and
    `reasoning_effort` but no output cap or vision flag, so it needs `only_models`
    pinned to the four real ids plus `hints` for the facts it omits — the same
-   shape as MiniMax, see `docs/archived-providers.md` for that pattern.
+   shape as MiniMax, follow the same read-only import pattern.
 
 Do not trust the pipeline without the two probes that found the surprises here:
 `max_tokens` just above and below the real cap, and a prompt just above and below

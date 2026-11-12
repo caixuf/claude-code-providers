@@ -127,9 +127,9 @@ Examples:
   ccp hermes                 # What model the local Hermes bot is running
   ccp hermes codex           # Point the bot at codex's default model too
 
-Note: CommandCode, GitHub Copilot, Codex and Antigravity are archived — see
-docs/archived-providers.md. `ccp auth copilot` still runs the Copilot device
-flow. OpenCode is active again as `opencode/`.
+Note: CommandCode, GitHub Copilot, Codex and Antigravity are retired and no
+longer shipped. `ccp auth copilot` still runs the Copilot device flow.
+OpenCode is active again as `opencode/`.
 
 Directories:
   Profiles:  ~/.claude/providers/*.json
@@ -820,7 +820,7 @@ manage_bridge() {
       #
       # The adapter is independent of LiteLLM: its own process on its own port,
       # driven by a local CLI. (opencode and agy were the same shape and are
-      # archived — see docs/archived-providers.md.)
+      # archived.)
       local adapter="${action#*-}" adapter="${adapter%-*}"  # strip verb, strip suffix
       case "$adapter" in
         trae)     unit=ccp-trae-bridge.service;     port=4100; label=Trae ;;
@@ -980,8 +980,7 @@ except Exception as e:
       # channel check refused real sessions often enough that the plan is not a
       # dependable route. Say so rather than run a stale copy.
       echo -e "\033[33mWorkBuddy / CodeBuddy was removed.\033[0m" >&2
-      echo "  The importer and the measurement notes are in bridge/archived/ and" >&2
-      echo "  docs/workbuddy-channel-check.md. For a provider that stays reachable:" >&2
+      echo "  Its importer and notes were removed with the provider. For a provider that stays reachable:" >&2
       echo "  ccp - lists what is installed." >&2
       return 1
       ;;
