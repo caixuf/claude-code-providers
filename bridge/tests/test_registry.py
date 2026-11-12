@@ -463,6 +463,67 @@ def test_bridged_profiles_still_use_alias_and_1m_marker():
     assert env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:4000"
 
 
+def test_group_profile_names_groups_and_advertises_the_chain_window():
+    """The `groups` profile is the bridge abstraction Claude Code can stay on.
+
+    Its tiers are routing-group names, not model ids. The `[1m]` marker follows
+    the group's whole-chain window: main/flash get it, pro does not, because
+    qpcmqam caps the chain at 272k. The context advertised is that same minimum.
+    """
+    doc, profiles = _load()
+    models, providers = render_config.index_models(doc)
+    spec = profiles["profiles"]["groups"]
+    assert spec.get("routing_groups") is True
+
+    profile = json.loads(
+        render_config.render_profile(
+            "groups", spec, models, providers, render_config._alias_index(profiles), profiles
+        )
+    )
+    env = profile["env"]
+    assert env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:4000"
+    assert env["ANTHROPIC_MODEL"] == "main[1m]"
+    assert env["ANTHROPIC_DEFAULT_OPUS_MODEL"] == "pro"
+    assert env["ANTHROPIC_DEFAULT_FABLE_MODEL"] == "main[1m]"
+    assert env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "main[1m]"
+    assert env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "flash[1m]"
+    assert env["ANTHROPIC_SMALL_FAST_MODEL"] == "flash[1m]"
+    assert env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] == "1000000"
+
+
+def test_group_never_emits_a_bogus_openai_deployment():
+    """A group tier must not fall through step 1b as `openai/main`.
+
+    That would register the group name as a plain translation deployment before
+    step 3 adds the real members, and the router would sometimes pick the one
+    upstream that is not part of the group at all.
+    """
+    doc, profiles = _load()
+    text = _render_with(profiles)
+    assert "model: openai/main" not in text
+    assert "model: openai/pro" not in text
+    assert "model: openai/flash" not in text
+
+
+def test_group_clamp_is_the_lowest_cap_in_the_whole_chain():
+    """The watchdog clamps before LiteLLM picks a member.
+
+    A cap borrowed from the primary member overruns a smaller fallback after a
+    failover; the safe value is the minimum across members AND fallbacks.
+    """
+    doc, profiles = _load()
+    profiles = {**profiles, "groups": {
+        "g": {
+            "members": ["opendesign-deepseek-v4.1-flash"],
+            "fallback": ["qpcmqam-gpt-6.1-sol"],
+        }
+    }}
+    models, providers = render_config.index_models(doc)
+    clamp = render_config.render_clamp(models, providers, profiles)
+    assert clamp["g"] == 65536
+    assert clamp["g[1m]"] == 65536
+
+
 def test_trae_is_native_and_answers_on_the_loopback():
     """Trae is a local adapter that speaks Anthropic, so nothing may be bridged.
 

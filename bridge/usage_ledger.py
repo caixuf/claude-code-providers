@@ -244,6 +244,10 @@ class UsageLedger:
         duration_ms: int | None = None,
         streamed: bool = False,
         ttft_ms: int | None = None,
+        queue_ms: int | None = None,
+        total_ms: int | None = None,
+        upstream_ms: int | None = None,
+        overhead_ms: int | None = None,
     ) -> None:
         if usage is None or usage.is_empty():
             return
@@ -256,10 +260,22 @@ class UsageLedger:
         }
         if status is not None:
             rec["status"] = status
-        if duration_ms is not None:
-            rec["duration_ms"] = duration_ms
-        if ttft_ms is not None:
-            rec["ttft_ms"] = ttft_ms
+        # Four different clocks, kept apart on purpose. `duration_ms` is the
+        # legacy generation-tail number (it starts after the upstream response
+        # headers); `queue_ms` is request-entry -> upstream headers, `ttft_ms`
+        # is request-entry -> first byte, and `total_ms` is the whole turn.
+        # Summing `duration_ms` and calling the remainder "queueing" is exactly
+        # the mistake these fields exist to prevent.
+        for key, value in (
+            ("duration_ms", duration_ms),
+            ("ttft_ms", ttft_ms),
+            ("queue_ms", queue_ms),
+            ("total_ms", total_ms),
+            ("upstream_ms", upstream_ms),
+            ("overhead_ms", overhead_ms),
+        ):
+            if value is not None:
+                rec[key] = value
         self.append(rec)
 
 

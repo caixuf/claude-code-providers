@@ -251,7 +251,13 @@ def render_config(
 
     # 1b. every model referenced by a profile's tiers (so copilot, whose
     #     provider isn't auto-discovered, still gets config entries).
+    #     A routing-group profile is the exception: its tiers name groups, and
+    #     those deployments are emitted by step 3 below. Falling through here
+    #     would first register `main` as a bogus `openai/main` deployment and
+    #     then add the real members under the same name.
     for profile, spec in (profiles_doc.get("profiles") or {}).items():
+        if spec.get("routing_groups"):
+            continue
         pname = spec["provider"]
         for tier, tspec in (spec.get("tiers") or {}).items():
             mname = tspec["model"]
@@ -430,13 +436,21 @@ def render_clamp(models: dict, providers: dict, profiles_doc: dict) -> dict:
         cv = clamp_value(meta)
         if cv:
             out.setdefault(name, cv)
-    # Text-only groups such as Beam need their own output cap. Keep existing
-    # behavior for other groups; use the lowest cap only when all are known.
-    for group, metas in _group_metadata(models, profiles_doc).items():
+    # A routing group is a name Claude Code may put in ANTHROPIC_MODEL, so the
+    # watchdog has to be able to clamp it. The safe cap is the LOWEST one in
+    # the group's whole chain (members and fallbacks): the request is clamped
+    # before LiteLLM chooses a deployment, and a cap borrowed from the primary
+    # member would violate a smaller fallback member after a failover. The old
+    # rule only emitted groups whose members were all text-only, which left
+    # every other group clamped by `__fallback__` — 65k for a group that could
+    # take 328k, with no error to show it.
+    for group in (profiles_doc.get("groups") or {}):
+        metas = group_metadata(models, profiles_doc, group, include_fallback=True)
         caps = [clamp_value(meta) for meta in metas]
-        if (caps and all(meta.get("vision") is False for meta in metas)
-                and all(cap is not None for cap in caps)):
+        caps = [cap for cap in caps if cap is not None]
+        if caps:
             out[group] = min(caps)
+            out[group + "[1m]"] = min(caps)
     # explicit fallback for models not in the map: use the most common cap
     # (the bridged gateways all share one), NOT the global minimum, which can
     # be a tiny obscure model and would over-truncate.
@@ -452,13 +466,40 @@ def _np_providers(profiles_doc: dict) -> dict:
     return profiles_doc.get("providers") or {}
 
 
+def group_metadata(
+    models: dict,
+    profiles_doc: dict,
+    group: str,
+    *,
+    include_fallback: bool = False,
+) -> list[dict]:
+    """The registry metadata of one routing group's members.
+
+    ``include_fallback`` extends the list with the fallback chain. A caller that
+    is about to promise a capability for the *group name* must include it: the
+    failover is part of what the name means, and a window or output cap larger
+    than a fallback member can honour is a promise that turns into an error
+    halfway through a conversation.
+
+    Members that do not resolve are skipped rather than raising: render_config
+    reports them at emit time, and the metadata readers must stay usable on a
+    registry with a typo.
+    """
+    spec = (profiles_doc.get("groups") or {}).get(group) or {}
+    names = list(spec.get("members") or [])
+    if include_fallback:
+        names += list(spec.get("fallback") or [])
+    metas = []
+    for member in names:
+        provider, model = _split_member(profiles_doc, models, member)
+        metas.append(models.get((provider, model), {}) if provider else {})
+    return metas
+
+
 def _group_metadata(models: dict, profiles_doc: dict) -> dict[str, list[dict]]:
     groups = {}
-    for name, spec in (profiles_doc.get("groups") or {}).items():
-        metas = []
-        for member in spec.get("members") or []:
-            provider, model = _split_member(profiles_doc, models, member)
-            metas.append(models.get((provider, model), {}) if provider else {})
+    for name in (profiles_doc.get("groups") or {}):
+        metas = group_metadata(models, profiles_doc, name)
         if metas:
             groups[name] = metas
     return groups
@@ -714,6 +755,14 @@ def render_profile(
     alias_idx = alias_idx or {}
     profiles_doc = profiles_doc or {}
 
+    # A routing-group profile names groups, not registry models. Its tiers are
+    # resolved against `groups:` and its capabilities are the group's, computed
+    # from the whole chain. Without this carve-out the generic resolver would
+    # look for a model literally called `main`, find nothing, and fall back to
+    # a 200k window while the group actually honours 1M.
+    routing_groups = bool(spec.get("routing_groups"))
+    groups = profiles_doc.get("groups") or {}
+
     # A native profile talks to the provider directly: there is no bridge to
     # translate the name it sends, so it must send the UPSTREAM model id and
     # never the alias or the `[1m]` suffix. Both are ccp inventions that exist
@@ -730,7 +779,7 @@ def render_profile(
 
         Bridged only: a native endpoint has no idea what an alias is.
         """
-        if native:
+        if native or routing_groups:
             return mname
         a = alias_idx.get((pname, mname))
         return a if a else mname
@@ -741,6 +790,30 @@ def render_profile(
         if tier not in tiers:
             continue
         mname = tiers[tier]["model"]
+        if routing_groups:
+            if mname not in groups:
+                print(
+                    f"  ! profile {profile}: tier {tier} names unknown group {mname}",
+                    file=sys.stderr,
+                )
+            metas = group_metadata(
+                models, profiles_doc, mname, include_fallback=True
+            )
+            ctxs = [
+                int(meta["ctx"])
+                for meta in metas
+                if isinstance(meta.get("ctx"), (int, float))
+            ]
+            ctx = min(ctxs) if ctxs else None
+            resolved[tier] = {
+                "display": mname,
+                "ctx": ctx,
+                # Claude Code reads this suffix to enable the 1M-context path.
+                # A group whose weakest member cannot honour 1M must not carry
+                # it; main/flash do, pro does not (qpcmqam caps at 272k).
+                "bracketed": (ctx or 0) >= 1_000_000,
+            }
+            continue
         meta = models.get((pname, mname))
         if meta is None:
             # scan any provider for the name (native / cross-provider)

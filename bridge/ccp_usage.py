@@ -103,6 +103,29 @@ def cmd_summary(records, args) -> int:
         print()
         print(f"  {DIM}{share:.1f}% of input was served from cache{RESET}")
 
+    def _avg_ms(key: str) -> float | None:
+        values = [r.get(key) for r in records if isinstance(r.get(key), (int, float))]
+        return sum(values) / len(values) if values else None
+
+    # The four clocks answer different questions. `queue` is provider wait,
+    # `ttft` is first visible token, `duration` is the generation tail (the
+    # legacy field), `total` is the whole turn. Showing them together stops
+    # "sum of duration_ms = model time" from being read as "the rest is queue".
+    total = _avg_ms("total_ms")
+    if total is not None:
+        print()
+        print(f"  {BOLD}latency{RESET} {DIM}(average per request){RESET}")
+        for label, key in (
+            ("provider wait", "queue_ms"),
+            ("first token", "ttft_ms"),
+            ("generation", "duration_ms"),
+            ("end to end", "total_ms"),
+            ("upstream reported", "upstream_ms"),
+        ):
+            value = _avg_ms(key)
+            if value is not None:
+                print(f"  {label:<18} {value:>8.0f} ms")
+
     by_day = aggregate(records, "day")
     keys = sort_keys(by_day, "day")
     rows = []

@@ -90,8 +90,14 @@ In-Session Model Hot-Switching:
   Inside a running Claude Code session, type /model to switch between Opus,
   Sonnet, and Haiku tiers mapped to your provider's top models!
 
+  Stay on `ccp groups` to make quota exhaustion invisible: the three tiers are
+  the LiteLLM routing groups `main`, `pro`, `flash`, and a member that runs out
+  is failed over inside the request — no exit, no new session.
+
 Examples:
   ccp minimax                # Switch to MiniMax's default model (M3.1-Flash)
+  ccp groups                 # Stay on the routing groups; default is main
+  ccp groups pro             # Start a session on the deliberate `pro` group
   ccp trae kimi-k3           # Switch provider and pick the model in one step
   ccp -m cline-glm-5.3       # Change the active model within the current provider
   ccp ping                   # 2-round sustained speed & stability test (~200 tokens)
@@ -129,6 +135,15 @@ get_current_model() {
   fi
 }
 
+# Every model name a profile pins a Claude Code slot to. Used only to identify
+# the active profile: a routing-group profile stores `main` in ANTHROPIC_MODEL
+# but the session may be on `pro` or `flash`, which live in the tier keys.
+profile_models() {
+  [ -r "$1" ] || return 0
+  grep -oE '"(ANTHROPIC_MODEL|ANTHROPIC_DEFAULT_[A-Z]+_MODEL|ANTHROPIC_SMALL_FAST_MODEL)"[[:space:]]*:[[:space:]]*"[^"]+"' "$1" 2>/dev/null \
+    | sed -E 's/.*"([^"]+)"$/\1/'
+}
+
 get_active_profile_name() {
   local cur_url cur_model
   cur_url=$(get_current_url)
@@ -144,6 +159,13 @@ get_active_profile_name() {
     p_model=$(grep -oE '"ANTHROPIC_MODEL"[^,]*' "$p" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/' | head -1)
     if [ "$p_url" = "$cur_url" ]; then
       if [ "$p_model" = "$cur_model" ]; then
+        basename "$p" .json
+        return
+      fi
+      # `ccp groups pro` moves ANTHROPIC_MODEL to a tier the profile also
+      # names; exact equality alone would miss it and later fall back to
+      # whichever bridged profile happens to sort first.
+      if [ -n "$cur_model" ] && profile_models "$p" | grep -Fxq "$cur_model"; then
         basename "$p" .json
         return
       fi
@@ -519,7 +541,11 @@ set_active_model() {
   fi
 
   echo -e "\033[32m✔ Active model updated to: $model\033[0m"
-  echo "Restart any active 'claude' interactive sessions to take effect."
+  if [ "$(get_active_profile_name)" = "groups" ]; then
+    echo "Inside an existing session, '/model' switches between main, pro and flash — no restart."
+  else
+    echo "Restart any active 'claude' interactive sessions to take effect."
+  fi
 }
 
 check_bridge_port() {
@@ -1335,7 +1361,12 @@ switch_provider() {
   [ -n "$target_url" ] && ensure_bridge_running "$target_url"
 
   echo -e "\033[32m✔ $provider → $wire_model\033[0m"
-  echo "Restart any active 'claude' interactive sessions to take effect."
+  if [ "$provider" = "groups" ]; then
+    echo "Stays on one profile: '/model' moves between main, pro and flash in a running session."
+    echo "A member that runs out of quota is failed over by LiteLLM without a restart."
+  else
+    echo "Restart any active 'claude' interactive sessions to take effect."
+  fi
   list_provider_models "$provider"
 }
 

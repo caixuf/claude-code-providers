@@ -214,6 +214,8 @@ async def _sse_body(
     first_byte_s: float,
     on_close=None,
     responses_api: bool = False,
+    request_started: float | None = None,
+    headers_at: float | None = None,
 ) -> AsyncIterator[bytes]:
     import time as _time
 
@@ -224,7 +226,11 @@ async def _sse_body(
     # carry the counts (`message_start`, `message_delta`) arrive before
     # `message_stop`, which is where we stop forwarding.
     tally = UsageTally()
-    started = _time.monotonic()
+    body_started = _time.monotonic()
+    # `started` is the request's entry into the watchdog, not the body walk.
+    # Without it `duration_ms` is only the generation tail and a 2s provider
+    # wait looks like a 100ms call.
+    started = request_started if request_started is not None else body_started
     ttft_ms: int | None = None
     aiter = resp.aiter_bytes()
     handed_off = False
@@ -261,7 +267,14 @@ async def _sse_body(
         # upstream whether or not the rest of the stream was read.
         if on_close is not None:
             try:
-                on_close(tally, ttft_ms, int((_time.monotonic() - started) * 1000))
+                now = _time.monotonic()
+                on_close(
+                    tally,
+                    ttft_ms,
+                    int((now - body_started) * 1000),
+                    int((headers_at - started) * 1000) if headers_at is not None else None,
+                    int((now - started) * 1000),
+                )
             except Exception:
                 pass
 
@@ -409,6 +422,7 @@ async def _served_loop(app) -> None:
 
 
 async def proxy(request: Request) -> Response:
+    request_started = time.monotonic()
     upstream = request.app.state.upstream
     url = f"{upstream}{request.url.path}"
     if request.url.query:
@@ -576,6 +590,7 @@ async def proxy(request: Request) -> Response:
                     break
                 raise
             await asyncio.sleep(0.5)
+    headers_at = time.monotonic()
     ctype = (r.headers.get("content-type") or "").lower()
     out_headers = {
         k: v
@@ -585,7 +600,13 @@ async def proxy(request: Request) -> Response:
     ledger = getattr(request.app.state, "ledger", None)
     sent_model = _sent_model or "unknown"
 
-    def _record(tally, ttft_ms, duration_ms, status, streamed):
+    def _header_ms(name: str) -> int | None:
+        try:
+            return int(float(r.headers.get(name, "")))
+        except (TypeError, ValueError):
+            return None
+
+    def _record(tally, ttft_ms, duration_ms, status, streamed, queue_ms=None, total_ms=None):
         if ledger is None:
             return
         try:
@@ -597,6 +618,10 @@ async def proxy(request: Request) -> Response:
                 duration_ms=duration_ms,
                 streamed=streamed,
                 ttft_ms=ttft_ms,
+                queue_ms=queue_ms,
+                total_ms=total_ms,
+                upstream_ms=_header_ms("x-litellm-response-duration-ms"),
+                overhead_ms=_header_ms("x-litellm-overhead-duration-ms"),
             )
         except Exception:
             pass
@@ -607,18 +632,20 @@ async def proxy(request: Request) -> Response:
                 r,
                 ping_idle_s=request.app.state.ping_idle_s,
                 first_byte_s=request.app.state.first_byte_s,
-                on_close=lambda tally, ttft, dur: _record(tally, ttft, dur, r.status_code, True),
+                on_close=lambda tally, ttft, dur, queue, total: _record(
+                    tally, ttft, dur, r.status_code, True, queue, total
+                ),
                 responses_api=responses_api,
+                request_started=request_started,
+                headers_at=headers_at,
             ),
             status_code=r.status_code,
             media_type="text/event-stream",
             headers=out_headers,
         )
 
-    import time as _time
-
-    _t0 = _time.monotonic()
     data = await r.aread()
+    now = time.monotonic()
     await r.aclose()
     if r.status_code < 400:
         # `/health`, `/v1/models` and friends share this port and carry no
@@ -626,7 +653,15 @@ async def proxy(request: Request) -> Response:
         tally = UsageTally()
         tally.absorb_json(data)
         if not tally.usage.is_empty():
-            _record(tally, None, int((_time.monotonic() - _t0) * 1000), r.status_code, False)
+            _record(
+                tally,
+                None,
+                int((now - headers_at) * 1000),
+                r.status_code,
+                False,
+                queue_ms=int((headers_at - request_started) * 1000),
+                total_ms=int((now - request_started) * 1000),
+            )
     return Response(
         content=data,
         status_code=r.status_code,

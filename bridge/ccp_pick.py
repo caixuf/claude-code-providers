@@ -72,13 +72,18 @@ class Provider:
     def __init__(self, name: str, profiles_doc: dict, models_doc: dict):
         self.name = name
         self.profile = (profiles_doc.get("profiles") or {}).get(name) or {}
-        self.native = bool(self.profile.get("native"))
+        # A routing-group profile has no vendor: its "models" are the names in
+        # the top-level `groups:` table. It still lives in the same folder
+        # picker, because Claude Code selects a model name and `groups` is one
+        # more folder whose contents happen to be abstractions.
+        self.routing_groups = bool(self.profile.get("routing_groups"))
+        self.native = False if self.routing_groups else bool(self.profile.get("native"))
         provider = self.profile.get("provider", name)
 
         # (provider, model) -> alias, honouring last-wins like render_config
         self._alias_for: dict[str, str] = {}
         for alias, spec in (profiles_doc.get("aliases") or {}).items():
-            if spec.get("provider") == provider:
+            if not self.routing_groups and spec.get("provider") == provider:
                 self._alias_for[spec["model"]] = alias
 
         models = [
@@ -88,7 +93,29 @@ class Provider:
 
         # selectable name -> upstream registry model
         self._choices: dict[str, str] = {}
-        if self.native:
+        self._group_ctxs: dict[str, int | None] = {}
+        if self.routing_groups:
+            groups = profiles_doc.get("groups") or {}
+            self._choices = {g: g for g in groups}
+            # The context a group can promise is the smallest window in its
+            # whole chain. This is the same rule render_config uses when it
+            # writes CLAUDE_CODE_MAX_CONTEXT_TOKENS for the profile; deriving
+            # it here keeps `ccp groups` from advertising a number the group
+            # would break on after a failover.
+            import render_config
+
+            model_index, _ = render_config.index_models(models_doc)
+            for gname in groups:
+                metas = render_config.group_metadata(
+                    model_index, profiles_doc, gname, include_fallback=True
+                )
+                ctxs = [
+                    int(meta["ctx"])
+                    for meta in metas
+                    if isinstance(meta.get("ctx"), (int, float))
+                ]
+                self._group_ctxs[gname] = min(ctxs) if ctxs else None
+        elif self.native:
             for m in self._meta:
                 self._choices[m] = m
         else:
@@ -110,12 +137,22 @@ class Provider:
         upstream = spec.get("model")
         if not upstream:
             return None
+        if self.routing_groups:
+            # The tier names a group; the group name is also what goes on the
+            # wire. An unknown name is a curation error, not a model to guess.
+            if upstream not in self._choices:
+                raise KeyError(
+                    f"{self.name}: tier names unknown group '{upstream}'"
+                )
+            return upstream, upstream
         name = upstream if self.native else _strip(
             self._alias_for.get(upstream, f"{self.name}-{upstream}"), self.name
         )
         return name, upstream
 
     def ctx(self, upstream: str) -> int | None:
+        if self.routing_groups:
+            return self._group_ctxs.get(upstream)
         return self._meta.get(upstream, {}).get("ctx")
 
     def resolve(self, wanted: str) -> tuple[str, str]:
@@ -143,6 +180,13 @@ class Provider:
 
     def wire_name(self, selectable: str, upstream: str) -> str:
         """What actually goes into ANTHROPIC_MODEL."""
+        if self.routing_groups:
+            # A group name is already the LiteLLM model_name, but Claude Code
+            # uses the `[1m]` suffix to turn on its 1M-context path. Add it for
+            # a group whose chain can honour 1M; the watchdog strips it before
+            # forwarding, so LiteLLM still sees `main`/`flash`.
+            ctx = self.ctx(upstream) or 0
+            return f"{upstream}[1m]" if ctx >= ONE_M else upstream
         if self.native:
             return upstream  # the vendor endpoint wants its own id
         alias = self._alias_for.get(upstream, f"{self.name}-{selectable}")

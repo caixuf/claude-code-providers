@@ -236,6 +236,42 @@ def test_folders_command_lists_one_line_per_provider():
         assert int(count) > 0
         assert default
 
+
+def test_group_profile_exposes_the_routing_groups(providers):
+    """`groups` is a folder whose contents are the routing groups.
+
+    It is bridged by definition: a group only exists inside LiteLLM, so the
+    client has to reach the local bridge. Its wire name is the bare group name
+    — a provider prefix or a `[1m]` marker would match no deployment.
+    """
+    group = providers["groups"]
+    assert group.routing_groups
+    assert not group.native
+
+    p_doc = yaml.safe_load(PROFILES.read_text()) or {}
+    assert [name for name, _ in group.models] == sorted(p_doc["groups"])
+
+    assert group.default() == ("main", "main")
+    name, upstream = group.resolve("pro")
+    assert group.wire_name(name, upstream) == "pro"
+    name, upstream = group.resolve("main")
+    assert group.wire_name(name, upstream) == "main[1m]"
+    name, upstream = group.resolve("flash")
+    assert group.wire_name(name, upstream) == "flash[1m]"
+
+
+def test_group_context_is_the_smallest_window_in_the_chain(providers):
+    """A group must not promise more context than its weakest member.
+
+    The failover is part of what the name means: advertising the primary
+    member's 1.44M window would let a session fill a conversation the fallback
+    cannot accept, turning a quota failover into a context error.
+    """
+    group = providers["groups"]
+    assert group.ctx("main") == 1_000_000
+    assert group.ctx("pro") == 272_000
+    assert group.ctx("flash") == 1_000_000
+
 # ── verification: the catalogue is a claim, the response is the evidence ──────
 # MiniMax answers a request for `MiniMax-M3.1` with HTTP 200 and a completion
 # from M3, and any unknown name falls back to M3 the same way. So "it returned

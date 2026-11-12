@@ -146,6 +146,31 @@ vendor's own ids, a **bridged** one lists the LiteLLM alias with the provider
 prefix stripped. That is why `ccp trae kimi-k3` and `ccp cline glm-5.3` read
 the way they do.
 
+### Staying on one profile: `groups`
+
+`ccp groups` is the folder whose three models are the routing groups declared
+in `registry/profiles.yaml` — `main`, `pro`, `flash`. They are not vendors;
+they are names LiteLLM owns, so a member that runs out of quota is replaced
+underneath the request:
+
+```bash
+ccp groups            # switch to the groups profile; default tier is main
+ccp groups pro        # start a session on the deliberate group instead
+```
+
+The profile maps Claude Code's slots as `default/sonnet/fable -> main`,
+`opus -> pro`, `haiku -> flash`. Inside a running session, `/model` moves
+between those tiers, so neither a quota exhaustion nor an intentional tier
+change requires quitting and losing the conversation. `main` and `flash` carry
+the `[1m]` marker (their whole chain can honour 1M); `pro` does not, because
+qpcmqam caps its chain at 272k. The context advertised is the **smallest**
+window in the group's member+fallback chain — a failover must not promise more
+than the member that ends up answering can honour.
+
+> Switching provider with `ccp <provider>` rewrites `settings.json`, which
+> Claude Code reads at startup. That is the path that costs you a session.
+> `ccp groups` is the profile that avoids taking it.
+
 ### One registry, discovered not typed
 
 Every fact about a model — context window, output cap, whether it takes images —
@@ -205,6 +230,7 @@ call is evidence:
 | :--- | :--- |
 | `ccp` | List providers; the active one is starred |
 | `ccp <provider> [model]` | Switch provider, optionally to a specific model |
+| `ccp groups [main\|pro\|flash]` | Stay on the routing-group profile; failover inside the session |
 | `ccp -m <model>` | Hot-switch model inside the current provider |
 | `ccp -c` / `ccp -r [N]` | Show active state / roll back N backups |
 | `ccp restore` / `ccp reset` | Return to the pre-ccp settings and stop the bridges |
@@ -917,7 +943,9 @@ of that variable is recorded in `registry/profiles.yaml`, which is committed.
 
 A **routing group** is one model name with a deployment per `(member, account)`
 pair, so a group is also a pool. Use it as the model and failover happens
-underneath.
+underneath. Claude Code reaches the curated groups through `ccp groups`
+(see [Staying on one profile](#staying-on-one-profile-groups)), or through
+`ccp -m group/<name>` when already on a bridged profile.
 
 ```bash
 ccp accounts group add daily cline-deepseek-v4.1-flash \
