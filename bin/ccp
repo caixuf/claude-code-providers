@@ -80,7 +80,7 @@ Usage:
                              `ccp omp opencode` sits beside `ccp opencode`;
                              `ccp omp` lists upstreams. Management:
                              setup | login [provider] | accounts | models |
-                             status | start | stop | restart.
+                             status | sync-token | start | stop | restart.
   ccp quota [provider]       What is left on each plan
   ccp usage                  Tokens actually spent, from the bridge's ledger
   ccp doctor                 Is this machine still consistent with the repository?
@@ -1433,6 +1433,10 @@ switch_omp_provider() {
     return 0
   fi
 
+  # The groups' omp deployments read this token from proxy.env. Mirroring it
+  # here keeps the direct profile and the fallback on the same credential.
+  "$py" "$repo_dir/bridge/omp_gateway.py" sync-token >/dev/null 2>&1 || true
+
   mkdir -p "$PROVIDERS_DIR" "$CLAUDE_DIR"
   local safe_upstream profile
   safe_upstream=$(printf '%s' "$upstream" | tr '/ ' '--' | tr -cd 'A-Za-z0-9._-')
@@ -1485,7 +1489,7 @@ omp_command() {
     "")
       "$py" "$repo_dir/bridge/omp_gateway.py" upstreams
       ;;
-    status|setup|start|stop|restart|login|accounts|models|upstreams|profile)
+    status|setup|start|stop|restart|login|accounts|models|upstreams|profile|sync-token)
       "$py" "$repo_dir/bridge/omp_gateway.py" "$@"
       ;;
     -h|--help)

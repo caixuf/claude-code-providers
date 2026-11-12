@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import ssl
 import sys
 import time
@@ -92,9 +93,65 @@ def read_cline(env_name: str = "CLINE_API_KEY") -> dict:
     return {"provider": "cline", "account": who, "windows": [], "note": "no usage API"}
 
 
+def read_omp() -> dict:
+    """omp's broker already knows every logged-in account's plan windows.
+
+    `omp usage --json` is the single source; ccp only normalises its shapes
+    into the same bars the other readers use. It never invents a quota.
+    """
+    import subprocess
+
+    omp = shutil.which("omp") or str(Path.home() / ".local/bin/omp")
+    if not Path(omp).exists() and shutil.which("omp") is None:
+        raise RuntimeError("omp not installed")
+    out = subprocess.run(
+        [omp, "usage", "--json"], capture_output=True, text=True, timeout=90
+    )
+    if out.returncode != 0:
+        raise RuntimeError(out.stderr.strip()[:200] or "omp usage failed")
+    doc = json.loads(out.stdout or "{}")
+    reports = doc.get("reports") or []
+    windows = []
+    seen = set()
+    for report in reports:
+        provider = report.get("provider") or "omp"
+        for limit in report.get("limits") or []:
+            amount = limit.get("amount") or {}
+            used = amount.get("used")
+            total = amount.get("limit")
+            if used is None or total is None:
+                continue
+            window = limit.get("window") or {}
+            label = limit.get("label") or window.get("label") or "?"
+            window_label = window.get("label")
+            name = f"{provider} · {label}"
+            if window_label and window_label not in label:
+                name += f" ({window_label})"
+            resets = window.get("resetsAt")
+            key = (name, resets)
+            if key in seen:
+                continue
+            seen.add(key)
+            windows.append({
+                "name": name,
+                "used": float(used),
+                "total": float(total),
+                "unit": amount.get("unit") or "",
+                "resets": str(resets) if resets else None,
+            })
+    return {
+        "provider": "omp",
+        "account": f"{len(reports)} provider(s)",
+        "windows": windows,
+        "note": "omp auth-broker usage",
+    }
+
+
 READERS = {
     "cline": read_cline,
 }
+if (Path.home() / ".local/bin/omp").exists() or shutil.which("omp"):
+    READERS["omp"] = read_omp
 
 
 def _num(v):

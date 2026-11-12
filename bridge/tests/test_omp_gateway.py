@@ -136,3 +136,18 @@ def test_unit_text_wires_the_gateway_to_the_broker():
     assert "auth-gateway serve --bind=127.0.0.1:4010" in gateway
     assert "OMP_AUTH_BROKER_URL=http://127.0.0.1:8765" in gateway
     assert "omp-auth-broker.service" in gateway
+
+
+def test_gateway_token_is_mirrored_without_a_provider_credential(tmp_path, monkeypatch):
+    import ccp_accounts
+
+    env = tmp_path / "proxy.env"
+    env.write_text("OTHER_KEY=keep\n", encoding="utf-8")
+    monkeypatch.setattr(og, "gateway_token", lambda: "gateway-token")
+    monkeypatch.setattr(ccp_accounts, "PROXY_ENV", env)
+
+    assert og.sync_gateway_token() == env
+    text = env.read_text()
+    assert "OTHER_KEY=keep" in text
+    assert "OMP_AUTH_GATEWAY_TOKEN=gateway-token" in text
+    assert (env.stat().st_mode & 0o777) == 0o600

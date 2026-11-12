@@ -330,6 +330,24 @@ def write_dynamic(path: Path, profile: dict, upstream: str | None = None) -> Non
     sidecar.chmod(0o600)
 
 
+def sync_gateway_token() -> Path:
+    """Expose the gateway bearer to LiteLLM without copying a provider token.
+
+    The groups' omp deployments use `os.environ/OMP_AUTH_GATEWAY_TOKEN`, which
+    systemd reads from proxy.env. omp remains the writer of the real credential;
+    this only mirrors its gateway token into the file LiteLLM loads.
+    """
+    token = gateway_token()
+    if not token:
+        raise SystemExit(
+            "no omp auth-gateway token; run `ccp omp setup` first"
+        )
+    from ccp_accounts import PROXY_ENV, set_secret
+
+    set_secret(PROXY_ENV, "OMP_AUTH_GATEWAY_TOKEN", token)
+    return PROXY_ENV
+
+
 def render_models(models: list[dict], as_json: bool = False) -> str:
     if as_json:
         return json.dumps(
@@ -429,7 +447,19 @@ def cmd_setup(args: argparse.Namespace) -> int:
         print("Not started (--no-start).")
         return 0
     systemctl("enable", "--now", BROKER_UNIT, GATEWAY_UNIT)
+    try:
+        path = sync_gateway_token()
+        print(f"Mirrored gateway token -> {path}")
+        print("Run `ccp bridge restart` so LiteLLM picks it up for group fallback.")
+    except SystemExit as exc:
+        print(f"gateway token not mirrored yet: {exc}", file=sys.stderr)
     return cmd_status(argparse.Namespace())
+
+
+def cmd_sync_token(args: argparse.Namespace) -> int:
+    print(f"Mirrored gateway token -> {sync_gateway_token()}")
+    print("Run `ccp bridge restart` so LiteLLM picks it up.")
+    return 0
 
 
 def cmd_service(args: argparse.Namespace) -> int:
@@ -522,6 +552,9 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("upstreams", help="list the provider layer")
     s.add_argument("--json", action="store_true")
     s.set_defaults(func=cmd_upstreams)
+
+    s = sub.add_parser("sync-token", help="mirror the gateway token into proxy.env")
+    s.set_defaults(func=cmd_sync_token)
 
     s = sub.add_parser("profile", help="emit a Claude Code profile")
     s.add_argument("model", nargs="?")

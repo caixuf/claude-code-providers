@@ -242,6 +242,27 @@ profiles:
       sonnet:  {model: main}
       haiku:   {model: flash}
 
+# ── Non-discovered providers (the omp auth-gateway) ─────────────────────
+# The gateway exposes Anthropic Messages at its own loopback port, with omp
+# resolving the account. ccp only carries the gateway token; the models are
+# curated aliases because their catalogue depends on which omp accounts are
+# logged in. `ccp omp` generates the profile side; these entries let the same
+# gateway participate in the routing groups as a last-resort fallback.
+providers:
+  omp:
+    # omp's gateway accepts both Anthropic Messages and OpenAI Chat, but only
+    # the OpenAI face uses `Authorization: Bearer` — the Anthropic face wants
+    # `Authorization` too and rejects LiteLLM's `x-api-key` (verified 401).
+    # Route the fallback deployments through Chat Completions.
+    api_base: http://127.0.0.1:4010/v1
+    endpoint_kind: openai
+    auth_env: OMP_AUTH_GATEWAY_TOKEN
+    model_defaults:
+      opencode-go/deepseek-v4.1-flash:
+        {ctx: 1000000, max_output: 384000, vision: true}
+      opencode-go/kimi-k3:
+        {ctx: 1050000, max_output: 131072, vision: true}
+
 # ── Short aliases exposed to LiteLLM (config.yaml model_name) ──────────
 # These are the names Claude Code puts in ANTHROPIC_MODEL. The `[1m]` marker
 # is appended automatically for models whose ctx >= 1000000 (the proxy strips
@@ -291,6 +312,11 @@ aliases:
   # only these two are wanted. terra is the slow-and-deliberate one that `pro`
   # uses; sol is the faster rung for the cheap slots.
   qpcmqam-gpt-6.1-sol:                  {provider: qpcmqam, model: gpt-6.1-sol}
+  # omp gateway: same Anthropic endpoint, but the provider/account is resolved
+  # by omp. These aliases let the groups use it as a last fallback; the direct
+  # `ccp omp opencode` profile remains a sibling of `ccp opencode`.
+  omp-deepseek-v4.1-flash:              {provider: omp, model: opencode-go/deepseek-v4.1-flash}
+  omp-kimi-k3:                          {provider: omp, model: opencode-go/kimi-k3}
 
 # ── Accounts: several logins for one provider ──────────────────────────
 # Each extra account becomes its own LiteLLM deployment named
@@ -357,6 +383,7 @@ groups:
     fallback:
     - MiniMax-M3.1-Flash
     - qianfan-deepseek-v4.1-flash-1017
+    - omp-deepseek-v4.1-flash
   pro:
     # terra was the first pick, but it answered thinner than sol on the same
     # prompt (1200 vs 7946 output tokens, 11.0 vs 10.0 on the bench's 6-axis
@@ -368,12 +395,14 @@ groups:
     - opendesign-deepseek-v4.1-flash
     - MiniMax-M3.1-Flash
     - qianfan-deepseek-v4.1-flash-1017
+    - omp-kimi-k3
   flash:
     members:
     - opendesign-deepseek-v4.1-flash
     fallback:
     - MiniMax-M3.1-Flash
     - qianfan-deepseek-v4.1-flash-1017
+    - omp-deepseek-v4.1-flash
 # Example — cheap-first, escalating to a different vendor when both are out:
 #   groups:
 #     daily:

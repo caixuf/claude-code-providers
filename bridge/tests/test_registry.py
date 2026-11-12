@@ -524,6 +524,33 @@ def test_group_clamp_is_the_lowest_cap_in_the_whole_chain():
     assert clamp["g[1m]"] == 65536
 
 
+def test_omp_is_the_last_fallback_without_lowering_the_group_clamp():
+    """omp joins the groups as a last resort, via its chat-completions face.
+
+    The Anthropic face of the gateway rejects LiteLLM's x-api-key (401), so the
+    deployments use `openai/` + Bearer. `omp-kimi-k3` caps output at 131072 and
+    must not be put in `main`/`flash`, or their 328k clamp would collapse.
+    """
+    doc, profiles = _load()
+    models, providers = render_config.index_models(doc)
+    for pname, pdef in render_config._np_providers(profiles).items():
+        providers.setdefault(pname, pdef)
+    text = render_config.render_config(models, providers, profiles)
+    assert "model: openai/opencode-go/deepseek-v4.1-flash" in text
+    assert "api_base: http://127.0.0.1:4010/v1" in text
+
+    groups = profiles["groups"]
+    assert "omp-deepseek-v4.1-flash" in groups["main"]["fallback"]
+    assert "omp-deepseek-v4.1-flash" in groups["flash"]["fallback"]
+    assert "omp-kimi-k3" in groups["pro"]["fallback"]
+    assert "omp-kimi-k3" not in groups["main"]["fallback"]
+
+    clamp = render_config.render_clamp(models, providers, profiles)
+    assert clamp["main"] == 328000
+    assert clamp["pro"] == 65536
+    assert clamp["flash"] == 328000
+
+
 def test_trae_is_native_and_answers_on_the_loopback():
     """Trae is a local adapter that speaks Anthropic, so nothing may be bridged.
 

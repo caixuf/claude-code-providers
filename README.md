@@ -958,6 +958,14 @@ does not accept omp CLI role selectors like `@smol` (verified 404). `pi` is not
 used for this: it supports one credential per provider, while omp supports
 indexed OAuth accounts (`omp token <provider> --list` / `--account N`).
 
+`ccp groups` also uses omp as the **last fallback** in every group:
+`omp-deepseek-v4.1-flash` after the main/flash chains and `omp-kimi-k3` after
+`pro`. The deployments use omp's OpenAI chat face with
+`Authorization: Bearer`; its Anthropic face rejects LiteLLM's `x-api-key`
+(verified 401). `ccp omp setup` mirrors the gateway token into `proxy.env` as
+`OMP_AUTH_GATEWAY_TOKEN`; run `ccp bridge restart` once after that. If the
+gateway token is rotated later, run `ccp omp sync-token && ccp bridge restart`.
+
 Ports are `127.0.0.1:8765` (broker) and `127.0.0.1:4010` (gateway), deliberately
 outside ccp's own `4000/4001/4100` loopback range.
 
@@ -1007,6 +1015,7 @@ Members may be aliases, registry ids, or `provider/model`.
 
 ```bash
 ccp quota              # every provider that publishes a usage API
+ccp quota omp          # omp broker: per-account plan windows
 ```
 
 *(No provider in the kept set publishes a usage API, so this prints nothing
