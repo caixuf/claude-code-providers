@@ -63,6 +63,14 @@ providers:
         aliases:
           - deepseek-v4.1-flash
         tiers: []
+      - name: ernie-5.5-flash-preview
+        ctx: 2097152
+        max_output: 1048576
+        vision: false
+        system_array: null
+        endpoint_kind: openai
+        aliases: []
+        tiers: []
   - name: opencode
     api_base: https://opencode.ai/inference/go/anthropic
     endpoint_kind: anthropic

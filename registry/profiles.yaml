@@ -234,6 +234,7 @@ aliases:
   # Qianfan: bridged, so these resolve through LiteLLM like the cline alias.
   qianfan-deepseek-v4.1-flash:          {provider: qianfan, model: deepseek-v4.1-flash-1017}
   qianfan-deepseek-v4.1-flash-1017:     {provider: qianfan, model: deepseek-v4.1-flash-1017}
+  qianfan-ernie-5.5-flash-preview:      {provider: qianfan, model: ernie-5.5-flash-preview}
   # OpenDesign: hot-swap between the aggregator's rungs with `ccp -m`
   opendesign-deepseek-v4.1-flash:       {provider: opendesign, model: deepseek-v4.1-flash}
   opencode-deepseek-v4.1-flash:        {provider: opencode, model: deepseek-v4.1-flash}

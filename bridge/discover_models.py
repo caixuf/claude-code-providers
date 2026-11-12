@@ -177,11 +177,15 @@ PROVIDERS = {
     #   * the Token Plan key is only accepted on the `/v2/tokenplan/personal/`
     #     prefix — the same key gets `token_plan_person_api_key_not_allowed`
     #     on plain `/v2/chat/completions`;
-    #   * the catalogue lists ~35 models but Token Plan Person only serves the
-    #     GLM / DeepSeek families; the ERNIE, Qwen, VL, OCR and embedding ids
-    #     all answer `token_plan_person_model_not_supported`. ``only_models``
-    #     narrows the registry to the verified set so no profile advertises a
-    #     model this key cannot call.
+    #   * the catalogue is not a capability list: it advertises ~30 ids, but the
+    #     plan serves a subscription-specific subset and which families are in
+    #     it changes with the key. Re-probed against the 2026-11-12 key:
+    #     `ernie-5.5-flash-preview` and `ernie-light-dt-1.0` answer 200, while
+    #     `ernie-5.1` — the "文心 5.1" the owner asked for — is refused with
+    #     `token_plan_person_model_not_supported`; that same key gets 401
+    #     `token_plan_person_api_key_not_allowed` on plain `/v2/chat/completions`.
+    #     ``only_models`` narrows the registry to the verified set so no profile
+    #     advertises a model this key cannot call.
     #
     # The verified set is re-derived per subscription, not inherited: the
     # 2026-10-24 key answers for nine ids where the previous one answered for
@@ -199,6 +203,7 @@ PROVIDERS = {
         # Verified to answer on the Token Plan Person endpoint.
         "only_models": [
                 "deepseek-v4.1-flash",
+                "ernie-5.5-flash-preview",
             ],
         "max_output_default": 32000,
     },
