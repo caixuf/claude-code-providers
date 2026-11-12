@@ -243,7 +243,7 @@ call is evidence:
 | `ccp bridge [status\|restart\|start\|stop\|deploy\|logs]` | Manage the local gateway and adapters |
 | `ccp bridge {start\|stop\|restart}-trae` | Address the local Trae adapter |
 | `ccp accounts …` | Extra logins and routing groups (see below) |
-| `ccp omp <sub\|model>` | omp multi-account login/gateway and a Claude Code profile |
+| `ccp omp <upstream> [model]` | omp-backed provider family (e.g. `ccp omp opencode`) |
 | `ccp quota [provider]` | What is left on each plan |
 | `ccp hermes [provider]` | Point the local Hermes agent at a provider's model |
 | `ccp -t` / `ccp --test` | Quick round-trip through Claude Code |
@@ -933,23 +933,30 @@ OAuth refresh and whose auth-gateway exposes the account pool as one Anthropic
 endpoint:
 
 ```bash
-ccp omp setup      # install + start omp auth-broker (:8765) and auth-gateway (:4010)
-ccp omp login      # run `omp auth-broker login`; pick a provider once
-ccp omp accounts   # `omp usage`: per-account quota
-ccp omp models     # what the gateway serves, with context/output/vision
-ccp omp            # switch Claude Code to the gateway's best model
-ccp omp opus       # ...or to a fuzzy match / exact provider/model id
+ccp omp setup              # install + start omp auth-broker (:8765) and auth-gateway (:4010)
+ccp omp login              # run `omp auth-broker login`; pick a provider once
+ccp omp accounts           # `omp usage`: per-account quota
+ccp omp                    # list omp upstreams (opencode, anthropic, ...)
+ccp omp models opencode    # what that upstream serves
+ccp omp opencode           # switch to omp-backed OpenCode
+ccp omp opencode kimi-k3   # ...or a model inside it
 ```
 
-The generated `~/.claude/providers/omp.json` carries **only the gateway
-bearer token**, never a provider credential. OAuth refresh, account rotation
-and quota stay in omp. Its sidecar `omp.json.ccp-dynamic` tells `ccp sync` and
-`ccp doctor` not to reconcile or archive the profile against the ccp bridge.
+**The layer is the provider, not one gateway-wide profile.** `ccp opencode`
+(direct ccp provider) and `ccp omp opencode` (omp account pool) are siblings:
+both are provider folders, and either can be active. The generated profile is
+`~/.claude/providers/omp-opencode.json`; an omp login for `anthropic` would
+produce `omp-anthropic.json` the same way.
 
-Use exact omp ids such as `google-antigravity/claude-sonnet-4-6`; the HTTP
-gateway does not accept omp CLI role selectors like `@smol` (verified 404).
-`pi` is not used for this: it supports one credential per provider, while omp
-supports indexed OAuth accounts (`omp token <provider> --list` / `--account N`).
+The generated profile carries **only the gateway bearer token**, never a
+provider credential. OAuth refresh, account rotation and quota stay in omp. Its
+sidecar `omp-*.json.ccp-dynamic` tells `ccp sync` and `ccp doctor` not to
+reconcile or archive the profile against the ccp bridge.
+
+Use exact omp ids such as `opencode-go/deepseek-v4.1-flash`; the HTTP gateway
+does not accept omp CLI role selectors like `@smol` (verified 404). `pi` is not
+used for this: it supports one credential per provider, while omp supports
+indexed OAuth accounts (`omp token <provider> --list` / `--account N`).
 
 Ports are `127.0.0.1:8765` (broker) and `127.0.0.1:4010` (gateway), deliberately
 outside ccp's own `4000/4001/4100` loopback range.

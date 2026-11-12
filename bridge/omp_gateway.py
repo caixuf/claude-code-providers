@@ -17,12 +17,18 @@ Commands
   start|stop|restart         manage those units
   login [provider]           run `omp auth-broker login`
   accounts                   run `omp usage` (per-account quota)
-  models [--json]            list what the gateway currently serves
-  profile [model] [--out P]  emit a Claude Code profile for the chosen model
+  upstreams [--json]         list the provider layer (opencode, anthropic, ...)
+  models [upstream] [--json] list what the gateway serves
+  profile [model] --upstream U --out P
+                             emit a Claude Code profile for one upstream
 
 The model names are omp's exact ids (`provider/model`). The gateway does not
 accept omp role selectors such as `@smol` on its HTTP endpoint; those only work
 in omp's own CLI.
+
+The layer is the provider: `opencode-go/...` and `opencode-zen/...` both fold
+into the `opencode` upstream, so `ccp omp opencode` is a sibling of the direct
+`ccp opencode` profile rather than one gateway-wide profile above every vendor.
 """
 
 from __future__ import annotations
@@ -149,6 +155,30 @@ def _provider(model_id: str) -> str:
     return model_id.split("/", 1)[0] if "/" in model_id else ""
 
 
+def upstream_of(model_id: str) -> str:
+    """The provider layer a gateway model belongs to.
+
+    omp exposes `opencode-go/...` and `opencode-zen/...` as separate ids, but
+    for ccp they are one provider layer: `ccp omp opencode` should be a sibling
+    of `ccp opencode`, not two folders that make the user choose a plan name.
+    """
+    provider = _provider(model_id)
+    return "opencode" if provider.startswith("opencode-") else provider
+
+
+def models_for_upstream(models: list[dict], upstream: str | None) -> list[dict]:
+    if not upstream or upstream == "all":
+        return models
+    return [m for m in models if upstream_of(m["id"]) == upstream]
+
+
+def upstreams(models: list[dict]) -> dict[str, list[dict]]:
+    out: dict[str, list[dict]] = {}
+    for model in models:
+        out.setdefault(upstream_of(model["id"]), []).append(model)
+    return dict(sorted(out.items()))
+
+
 def _provider_rank(model_id: str, wanted: tuple[str, ...]) -> tuple[int, int]:
     provider = _provider(model_id)
     try:
@@ -169,13 +199,22 @@ def _pick(models: list[dict], needles: tuple[str, ...], wanted: tuple[str, ...])
     return hits[0]
 
 
-def pick_models(models: list[dict], requested: str | None = None) -> dict[str, dict]:
+def pick_models(
+    models: list[dict],
+    requested: str | None = None,
+    upstream: str | None = None,
+) -> dict[str, dict]:
     """Choose one model per Claude Code tier from the gateway's catalogue.
 
     A requested model wins the default/sonnet/fable slots. The other tiers are
     best-effort family picks: opus prefers an `opus` id, haiku prefers
     `haiku`/`flash`. When a family is absent the primary model backs the slot,
     which is safer than inventing a model name the gateway will 404.
+
+    For OpenCode Go, the useful default is its cheap DeepSeek Flash, not the
+    GPT rung that happens to sort first — the plan is a flat subscription, but
+    a coding-agent session should still start on the model the ccp registry
+    curated for that plan.
     """
     by_id = {m["id"]: m for m in models}
 
@@ -191,6 +230,14 @@ def pick_models(models: list[dict], requested: str | None = None) -> dict[str, d
                 )
             hits.sort(key=lambda m: _provider_rank(m["id"], PROVIDER_PRIORITY))
             primary = hits[0]
+    elif upstream == "opencode":
+        primary = (
+            _pick(models, ("deepseek-v4.1-flash",), PROVIDER_PRIORITY)
+            or _pick(models, ("kimi-k3",), PROVIDER_PRIORITY)
+            or _pick(models, ("glm-5.3-flash",), PROVIDER_PRIORITY)
+            or _pick(models, ("claude-sonnet",), PROVIDER_PRIORITY)
+            or models[0]
+        )
     else:
         primary = (
             _pick(models, ("claude-sonnet",), PROVIDER_PRIORITY)
@@ -199,7 +246,14 @@ def pick_models(models: list[dict], requested: str | None = None) -> dict[str, d
             or models[0]
         )
 
-    opus = _pick(models, ("opus",), PROVIDER_PRIORITY) or primary
+    if upstream == "opencode":
+        opus = (
+            _pick(models, ("kimi-k3",), PROVIDER_PRIORITY)
+            or _pick(models, ("claude-opus", "opus"), PROVIDER_PRIORITY)
+            or primary
+        )
+    else:
+        opus = _pick(models, ("opus",), PROVIDER_PRIORITY) or primary
     haiku = (
         _pick(models, ("haiku", "flash"), PROVIDER_PRIORITY)
         or primary
@@ -213,8 +267,16 @@ def pick_models(models: list[dict], requested: str | None = None) -> dict[str, d
     }
 
 
-def profile_for(models: list[dict], requested: str | None = None) -> dict:
-    chosen = pick_models(models, requested)
+def profile_for(
+    models: list[dict],
+    requested: str | None = None,
+    upstream: str | None = None,
+) -> dict:
+    pool = models_for_upstream(models, upstream)
+    if not pool:
+        known = ", ".join(upstreams(models)) or "none"
+        raise SystemExit(f"omp has no models for upstream '{upstream}' (known: {known})")
+    chosen = pick_models(pool, requested, upstream)
     contexts = [ctx_of(m) for m in chosen.values() if ctx_of(m)]
     # One context number per Claude Code session, so advertise the smallest
     # window in the tier set. The gateway may route the same id differently
@@ -248,7 +310,7 @@ def profile_for(models: list[dict], requested: str | None = None) -> dict:
     }
 
 
-def write_dynamic(path: Path, profile: dict) -> None:
+def write_dynamic(path: Path, profile: dict, upstream: str | None = None) -> None:
     """Write a profile and the sidecar that says 'ccp omp owns this file'.
 
     `ccp sync` must not reconcile a dynamic profile back to a template, and
@@ -261,7 +323,10 @@ def write_dynamic(path: Path, profile: dict) -> None:
     os.replace(tmp, path)
     path.chmod(0o600)
     sidecar = path.with_name(path.name + DYNAMIC_SUFFIX)
-    sidecar.write_text("omp\n", encoding="utf-8")
+    sidecar.write_text(
+        json.dumps({"source": "omp", "upstream": upstream or "all"}) + "\n",
+        encoding="utf-8",
+    )
     sidecar.chmod(0o600)
 
 
@@ -392,15 +457,35 @@ def cmd_accounts(args: argparse.Namespace) -> int:
 
 
 def cmd_models(args: argparse.Namespace) -> int:
-    print(render_models(fetch_models(), as_json=args.json))
+    models = models_for_upstream(fetch_models(), args.upstream)
+    print(render_models(models, as_json=args.json))
+    return 0
+
+
+def cmd_upstreams(args: argparse.Namespace) -> int:
+    """List the provider layer, not omp's individual login plans."""
+    grouped = upstreams(fetch_models())
+    if args.json:
+        print(json.dumps(
+            {name: [m["id"] for m in models] for name, models in grouped.items()},
+            indent=2,
+            ensure_ascii=False,
+        ))
+        return 0
+    print(f"omp auth-gateway — {len(grouped)} upstreams at {gateway_url()}")
+    print(f"  {'upstream':30s} {'models':>6}  example")
+    for name, models in grouped.items():
+        print(f"  {name:30s} {len(models):>6}  {models[0]['id']}")
+    print("\nSwitch with: ccp omp <upstream> [model]   (e.g. ccp omp opencode)")
     return 0
 
 
 def cmd_profile(args: argparse.Namespace) -> int:
-    profile = profile_for(fetch_models(), args.model)
+    models = fetch_models()
+    profile = profile_for(models, args.model, args.upstream)
     text = json.dumps(profile, indent=2) + "\n"
     if args.out:
-        write_dynamic(Path(args.out), profile)
+        write_dynamic(Path(args.out), profile, args.upstream)
         print(f"wrote {args.out}", file=sys.stderr)
     else:
         sys.stdout.write(text)
@@ -430,11 +515,17 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(func=cmd_accounts)
 
     s = sub.add_parser("models", help="list the gateway's models")
+    s.add_argument("upstream", nargs="?")
     s.add_argument("--json", action="store_true")
     s.set_defaults(func=cmd_models)
 
+    s = sub.add_parser("upstreams", help="list the provider layer")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(func=cmd_upstreams)
+
     s = sub.add_parser("profile", help="emit a Claude Code profile")
     s.add_argument("model", nargs="?")
+    s.add_argument("--upstream")
     s.add_argument("--out")
     s.set_defaults(func=cmd_profile)
 

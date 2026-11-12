@@ -75,10 +75,12 @@ Usage:
                              list | add <provider> <suffix> | remove <provider> <suffix>
                              | group add <name> <member...> | group remove <name>
                              (a pool fails over natively when a quota runs out)
-  ccp omp [model]            Use omp's auth-gateway (multi-account login/refresh):
-                             setup | login [provider] | accounts | models | status |
-                             start | stop | restart. Omit the subcommand to switch
-                             to the gateway's best available model.
+  ccp omp <upstream> [model]
+                             Use omp's auth-gateway as a provider family:
+                             `ccp omp opencode` sits beside `ccp opencode`;
+                             `ccp omp` lists upstreams. Management:
+                             setup | login [provider] | accounts | models |
+                             status | start | stop | restart.
   ccp quota [provider]       What is left on each plan
   ccp usage                  Tokens actually spent, from the bridge's ledger
   ccp doctor                 Is this machine still consistent with the repository?
@@ -105,7 +107,8 @@ Examples:
   ccp omp setup              # Install/start omp auth-broker + auth-gateway
   ccp omp login              # Log in to a provider through omp (once)
   ccp omp accounts           # Per-account quota in the omp broker
-  ccp omp                    # Switch Claude Code to the omp gateway
+  ccp omp opencode           # omp-backed OpenCode, beside `ccp opencode`
+  ccp omp opencode kimi-k3   # ...and pick a model inside that upstream
   ccp trae kimi-k3           # Switch provider and pick the model in one step
   ccp -m cline-glm-5.3       # Change the active model within the current provider
   ccp ping                   # 2-round sustained speed & stability test (~200 tokens)
@@ -218,6 +221,23 @@ list_providers() {
       printf "   %-14s %-8s %2s models   %s\n" "$name/" "$kind" "$count" "$default"
     fi
   done <<< "$folders"
+
+  # omp-backed providers are generated per upstream (omp-opencode, omp-anthropic,
+  # ...), so they are not in registry/profiles.yaml and ccp_pick cannot list
+  # them. Show them here anyway: `omp-opencode/` must read as a sibling of
+  # `opencode/`, not as a hidden second-class mode.
+  local p name model
+  for p in "$PROVIDERS_DIR"/omp-*.json; do
+    [ -r "$p" ] || continue
+    [ -f "$p.ccp-dynamic" ] || continue
+    name=$(basename "$p" .json)
+    model=$(grep -oE '"model"[[:space:]]*:[[:space:]]*"[^"]+"' "$p" 2>/dev/null | head -1 | sed -E 's/.*"([^"]+)"$/\1/')
+    if [ "$name" = "$active" ]; then
+      printf " \033[32m* %-18s\033[0m %-8s %s\n" "$name/" "omp" "active: ${cur_model:-$model}"
+    else
+      printf "   %-18s %-8s %s\n" "$name/" "omp" "$model"
+    fi
+  done
 
   cat <<'EOF'
 
@@ -1395,11 +1415,12 @@ switch_provider() {
   list_provider_models "$provider"
 }
 
-# omp owns the logins and refresh tokens; ccp installs a profile that points
-# Claude Code at omp's gateway. The gateway token, not a provider credential,
-# is the only secret in settings.json.
-switch_omp() {
-  local model="${1:-}"
+# omp owns the logins and refresh tokens; ccp installs one profile per omp
+# upstream provider, so `ccp omp opencode` sits beside `ccp opencode` instead
+# of replacing every provider with one gateway-wide profile.
+switch_omp_provider() {
+  local upstream="${1:-}"
+  local model="${2:-}"
   local repo_dir py
   repo_dir=$(ccp_repo_dir)
   py=$(ccp_python)
@@ -1407,11 +1428,19 @@ switch_omp() {
     echo -e "\033[31mError: omp adapter not found (need bridge/omp_gateway.py).\033[0m" >&2
     return 1
   fi
+  if [ -z "$upstream" ]; then
+    "$py" "$repo_dir/bridge/omp_gateway.py" upstreams
+    return 0
+  fi
 
   mkdir -p "$PROVIDERS_DIR" "$CLAUDE_DIR"
-  local profile="$PROVIDERS_DIR/omp.json"
-  if ! "$py" "$repo_dir/bridge/omp_gateway.py" profile ${model:+"$model"} --out "$profile"; then
-    echo -e "\033[31mCould not build the omp profile. Run 'ccp omp status'.\033[0m" >&2
+  local safe_upstream profile
+  safe_upstream=$(printf '%s' "$upstream" | tr '/ ' '--' | tr -cd 'A-Za-z0-9._-')
+  [ -n "$safe_upstream" ] || { echo -e "\033[31mInvalid omp upstream: $upstream\033[0m" >&2; return 1; }
+  profile="$PROVIDERS_DIR/omp-$safe_upstream.json"
+  if ! "$py" "$repo_dir/bridge/omp_gateway.py" profile --upstream "$upstream" \
+       ${model:+"$model"} --out "$profile"; then
+    echo -e "\033[31mCould not build the omp/$upstream profile. Run 'ccp omp upstreams'.\033[0m" >&2
     return 1
   fi
 
@@ -1431,17 +1460,19 @@ switch_omp() {
   cp "$profile" "$SETTINGS_FILE"
   chmod 600 "$SETTINGS_FILE" 2>/dev/null || true
 
-  echo -e "\033[32m✔ omp → $primary\033[0m"
-  echo "  gateway: ${base_url:-?}  ctx: ${ctx:-?}"
+  echo -e "\033[32m✔ omp/$upstream → $primary\033[0m"
+  echo "  profile: omp-$safe_upstream  gateway: ${base_url:-?}  ctx: ${ctx:-?}"
   echo "  Accounts and OAuth refresh stay in omp; no provider key enters this profile."
-  echo "  'ccp omp accounts' shows the per-account quota; 'ccp omp models' lists models."
+  echo "  'ccp omp accounts' shows the per-account quota; 'ccp omp models $upstream' lists models."
   echo "  Restart an active 'claude' session once to load this settings.json."
   echo "  Inside that session '/model' switches the tiers from the profile."
 }
 
-# `ccp omp <subcommand>` is the management surface; a lone model (or nothing)
-# switches Claude Code to the gateway. Keep the dispatch here so the bash side
-# does not learn omp's command tree.
+# `ccp omp` is the management surface and the provider-family selector:
+#   ccp omp                 list omp upstreams
+#   ccp omp opencode        switch to the omp-backed opencode provider
+#   ccp omp opencode kimi-k3
+#   ccp omp login [provider]
 omp_command() {
   local repo_dir py
   repo_dir=$(ccp_repo_dir)
@@ -1451,14 +1482,19 @@ omp_command() {
     return 1
   fi
   case "${1:-}" in
-    status|setup|start|stop|restart|login|accounts|models|profile)
+    "")
+      "$py" "$repo_dir/bridge/omp_gateway.py" upstreams
+      ;;
+    status|setup|start|stop|restart|login|accounts|models|upstreams|profile)
       "$py" "$repo_dir/bridge/omp_gateway.py" "$@"
       ;;
     -h|--help)
       "$py" "$repo_dir/bridge/omp_gateway.py" --help
       ;;
     *)
-      switch_omp "${1:-}"
+      local upstream="$1"
+      shift
+      switch_omp_provider "$upstream" "${1:-}"
       ;;
   esac
 }

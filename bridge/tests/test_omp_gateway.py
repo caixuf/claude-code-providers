@@ -32,7 +32,45 @@ def _models():
          "max_output_tokens": 64000, "input_modalities": ["text", "image"]},
         {"id": "anthropic/claude-haiku-4-5", "context_length": 200_000,
          "max_output_tokens": 32000, "input_modalities": ["text", "image"]},
+        {"id": "opencode-go/deepseek-v4.1-flash", "context_length": 1_000_000,
+         "max_output_tokens": 384000, "input_modalities": ["text", "image"]},
+        {"id": "opencode-go/kimi-k3", "context_length": 1_050_000,
+         "max_output_tokens": 131072, "input_modalities": ["text", "image"]},
+        {"id": "opencode-zen/beam-free", "context_length": 1_048_576,
+         "max_output_tokens": 131072, "input_modalities": ["text"]},
     ]
+
+
+def test_opencode_go_and_zen_are_one_provider_layer():
+    """`ccp omp opencode` must be a sibling of `ccp opencode`.
+
+    omp exports the same vendor under `opencode-go/` and `opencode-zen/`; the
+    ccp provider layer is the vendor, not the login plan.
+    """
+    assert og.upstream_of("opencode-go/deepseek-v4.1-flash") == "opencode"
+    assert og.upstream_of("opencode-zen/beam-free") == "opencode"
+    assert og.upstream_of("google-antigravity/gemini-2.5-flash") == "google-antigravity"
+    names = set(og.upstreams(_models()))
+    assert names == {"opencode", "google-antigravity", "anthropic"}
+    assert len(og.models_for_upstream(_models(), "opencode")) == 3
+
+
+def test_profile_can_be_scoped_to_one_upstream(monkeypatch):
+    monkeypatch.setenv("OMP_AUTH_GATEWAY_TOKEN", "gateway-token")
+    profile = og.profile_for(_models(), upstream="opencode")
+    env = profile["env"]
+    assert env["ANTHROPIC_MODEL"].startswith("opencode-")
+    assert "deepseek-v4.1-flash" in env["ANTHROPIC_MODEL"]
+    assert env["ANTHROPIC_DEFAULT_OPUS_MODEL"].startswith("opencode-")
+    assert env["ANTHROPIC_DEFAULT_HAIKU_MODEL"].startswith("opencode-")
+    assert env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] == "1000000"
+
+
+def test_unknown_upstream_is_rejected_with_the_known_list(monkeypatch):
+    monkeypatch.setenv("OMP_AUTH_GATEWAY_TOKEN", "gateway-token")
+    with pytest.raises(SystemExit) as exc:
+        og.profile_for(_models(), upstream="no-such-upstream")
+    assert "known:" in str(exc.value)
 
 
 def test_pick_models_prefers_sonnet_for_the_default_tier():
