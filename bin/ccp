@@ -81,6 +81,9 @@ Usage:
                              `ccp omp` lists upstreams. Management:
                              setup | login [provider] | accounts | models |
                              status | sync-token | start | stop | restart.
+  ccp route [--json] [--strict]
+                             Show each group's chain and the quota evidence
+                             (omp only; other providers publish no usage API).
   ccp quota [provider]       What is left on each plan
   ccp usage                  Tokens actually spent, from the bridge's ledger
   ccp doctor                 Is this machine still consistent with the repository?
@@ -1528,6 +1531,16 @@ main() {
       ;;
     omp)
       omp_command "${@:2}"
+      ;;
+    route)
+      local repo_dir py_bin
+      repo_dir=$(ccp_repo_dir)
+      py_bin=$(ccp_python)
+      if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/ccp_route.py" ]; then
+        echo -e "\033[31mError: route planner not found (need bridge/ccp_route.py).\033[0m" >&2
+        return 1
+      fi
+      "$py_bin" "$repo_dir/bridge/ccp_route.py" "${@:2}"
       ;;
     bridge)
       manage_bridge "${2:-status}"

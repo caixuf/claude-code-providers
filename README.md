@@ -244,6 +244,7 @@ call is evidence:
 | `ccp bridge {start\|stop\|restart}-trae` | Address the local Trae adapter |
 | `ccp accounts …` | Extra logins and routing groups (see below) |
 | `ccp omp <upstream> [model]` | omp-backed provider family (e.g. `ccp omp opencode`) |
+| `ccp route` | Group chain + the quota evidence that actually exists (omp only) |
 | `ccp quota [provider]` | What is left on each plan |
 | `ccp hermes [provider]` | Point the local Hermes agent at a provider's model |
 | `ccp -t` / `ccp --test` | Quick round-trip through Claude Code |
@@ -965,6 +966,12 @@ indexed OAuth accounts (`omp token <provider> --list` / `--account N`).
 (verified 401). `ccp omp setup` mirrors the gateway token into `proxy.env` as
 `OMP_AUTH_GATEWAY_TOKEN`; run `ccp bridge restart` once after that. If the
 gateway token is rotated later, run `ccp omp sync-token && ccp bridge restart`.
+
+`ccp route` prints each group's actual member → fallback order and the quota
+evidence. Only omp publishes a usage API here; OpenDesign, MiniMax and Qianfan
+do not. The command therefore marks those as unknown instead of inventing a
+ranking. `ccp route --strict` exits 1 when omp is in a group but is unreachable
+or below `--threshold` (default 10% remaining), which is suitable for a timer.
 
 Ports are `127.0.0.1:8765` (broker) and `127.0.0.1:4010` (gateway), deliberately
 outside ccp's own `4000/4001/4100` loopback range.
