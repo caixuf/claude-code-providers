@@ -127,9 +127,9 @@ Examples:
   ccp hermes                 # What model the local Hermes bot is running
   ccp hermes codex           # Point the bot at codex's default model too
 
-Note: CommandCode, GitHub Copilot, OpenCode and Antigravity are archived — see
+Note: CommandCode, GitHub Copilot, Codex and Antigravity are archived — see
 docs/archived-providers.md. `ccp auth copilot` still runs the Copilot device
-flow.
+flow. OpenCode is active again as `opencode/`.
 
 Directories:
   Profiles:  ~/.claude/providers/*.json

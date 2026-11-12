@@ -1166,7 +1166,7 @@ the total, and read the `Think` column as part of the answer: it is the
 wait paid on every turn, before the first useful token exists.
 
 OpenDesign finishes a turn fastest here — `deepseek-v4-flash` in 2.0 s at
-309.6 tok/s, and `deepseek-v4.1-flash` half a second behind it. The archived Cline rows were the first-token winner (1.3 s) and paid for it in generation time. Trae is the
+309.6 tok/s, and `deepseek-v4.1-flash` half a second behind it. Trae is the
 slowest to start — 3.4–6.4 s before the first token — and fast only once it
 is decoding: `DeepSeek-V4-Flash-Official` moves 166.5 tok/s. Total time is
 the column an agent feels.
