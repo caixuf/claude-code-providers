@@ -517,6 +517,23 @@ set_active_model() {
   # a window the model cannot honour.
   local ctx="${2:-}"
 
+  # `ccp -m main` on the groups profile must become `main[1m]`, not bare
+  # `main`: Claude Code reads the suffix to enable its 1M-context path. Resolve
+  # through the same picker `ccp groups` uses, so the suffix and the context
+  # number cannot drift from the group's member+fallback chain.
+  if [ -z "$ctx" ] && [ "$(get_active_profile_name)" = "groups" ]; then
+    local repo_dir py_bin resolved ref_model ref_ctx
+    repo_dir=$(ccp_repo_dir)
+    py_bin=$(ccp_python)
+    resolved=$("$py_bin" "$repo_dir/bridge/ccp_pick.py" resolve groups "$model" 2>/dev/null || true)
+    ref_model=$(printf '%s\n' "$resolved" | sed -n 's/^MODEL=//p')
+    ref_ctx=$(printf '%s\n' "$resolved" | sed -n 's/^CTX=//p')
+    if [ -n "$ref_model" ]; then
+      model="$ref_model"
+      [ -n "$ref_ctx" ] && ctx="$ref_ctx"
+    fi
+  fi
+
   if command -v jq >/dev/null 2>&1; then
     local tmp
     tmp=$(mktemp)
