@@ -43,7 +43,7 @@ mkdir -p "$CLAUDE_PROVIDERS_DIR"
 mkdir -p "$HOME/.claude/providers_disabled"
 
 # Archive obsolete / discontinued profiles
-for obsolete in longcat.json u2flash.json unisound.json openrouter.json minmax.json qianfan.json; do
+for obsolete in longcat.json u2flash.json unisound.json openrouter.json minmax.json; do
   if [ -f "$CLAUDE_PROVIDERS_DIR/$obsolete" ]; then
     mv "$CLAUDE_PROVIDERS_DIR/$obsolete" "$HOME/.claude/providers_disabled/"
     echo "  -- Archived deprecated profile $obsolete to ~/.claude/providers_disabled/"
@@ -69,7 +69,7 @@ if [[ "${1:-}" == "--bridge" ]]; then
   bash "$SCRIPT_DIR/bridge/setup_bridge.sh"
 else
   echo ""
-  echo "Tip: To enable OpenAI / CommandCode / ClinePass models,"
+  echo "Tip: To enable the bridged providers and the Trae adapter,"
   echo "run the local bridge setup: bash $SCRIPT_DIR/bridge/setup_bridge.sh"
 fi
 

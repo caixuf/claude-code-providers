@@ -1,62 +1,60 @@
 # The OpenAI face
 
-The bridge is **one API**, not a Claude Code accessory. It answers the OpenAI
-protocol as well as the Anthropic one, so a client that already speaks OpenAI
-needs nothing installed: no litellm, no ccp, no Anthropic shim.
+The ccp bridge is **one API**, not a Claude Code accessory. It answers the
+OpenAI Chat Completions protocol as well as Anthropic Messages, so any
+OpenAI-compatible client can use the same local gateway.
 
-Anthropic compatibility exists for exactly one reason — Claude Code only speaks
-that dialect. It is a compatibility layer, not the API.
+Anthropic compatibility exists because Claude Code speaks that dialect. It is a
+compatibility layer, not the API.
 
 ## Three ways in
 
 | client | base URL | credential | protocol |
-| :-- | :-- | :-- | :-- |
-| OpenAI client **straight to the relay** | `https://ai.qpcmqam.cn/v1` | the relay key | OpenAI |
-| OpenAI client **through the local bridge** | `http://127.0.0.1:4000/v1` | `sk-ccp-litellm-local` | OpenAI |
+| :--- | :--- | :--- | :--- |
+| OpenAI client **straight to a relay** | e.g. `https://ai.qpcmqam.cn/v1` | that relay's key | OpenAI |
+| OpenAI client **through the ccp bridge** | `http://127.0.0.1:4000/v1` | `sk-ccp-litellm-local` | OpenAI |
 | Claude Code | `http://127.0.0.1:4000` | `sk-ccp-litellm-local` | Anthropic |
 
-The first row needs no local process at all. The second aggregates every
-provider ccp knows (OpenAI-native and Anthropic-native alike) behind one URL.
-The third exists only for Claude Code.
+The first row needs no local process. The second aggregates every provider ccp
+knows behind one URL. The third is what Claude Code uses.
 
-## Verified on 2026-11-03
-
-```
-POST https://ai.qpcmqam.cn/v1/chat/completions          → 200  ("ok")
-POST http://127.0.0.1:4000/v1/chat/completions          → 200  ("ok")   model=qpcmqam-gpt-6.1-sol
-POST http://127.0.0.1:4000/v1/chat/completions          → 200  ("ok")   model=deepseek-flash
-```
-
-Both an OpenAI-native provider (qpcmqam) and an Anthropic-native one
-(deepseek) answer on the OpenAI face, which is what makes the bridge usable as
-a general API rather than a Claude Code adapter.
+The omp gateway is a separate service on `127.0.0.1:4010`; it also speaks both
+protocols, but it is reserved for the omp-backed profiles and the omp fallback
+aliases (`omp-deepseek-v4.1-flash`, `omp-kimi-k3`).
 
 ## Model names
 
-- **Direct to the relay** — the upstream ids: `gpt-6.1-sol`, `gpt-6.1-terra`,
-  `gemini-4-argon`.
-- **Through the bridge** — the `model_name` entries, i.e. the names
-  `ccp models` prints: `qpcmqam-gpt-6.1-sol`, `deepseek-flash`,
-  `qianfan-deepseek-v4.1-flash-1017`, `MiniMax-M3.1-Flash`, …
-  `GET /v1/models` on the bridge lists them all.
-- `trae` has **no OpenAI face**: its adapter speaks Anthropic only, on
-  `:4100`.
+Through the ccp bridge, use the `model_name` entries, i.e. the names
+`ccp models` prints:
+
+- `deepseek-flash`
+- `MiniMax-M3` / `MiniMax-M3.1-Flash`
+- `deepseek-v4.1-flash`
+- `qianfan-deepseek-v4.1-flash-1017`
+- `opencode-deepseek-v4.1-flash` / `beam-free` / `muse-spark-1.3-contributor`
+- `trae-deepseek-v4.1-flash` (the Trae adapter itself has no OpenAI face;
+  this deployment goes through LiteLLM)
+- `qpcmqam-gpt-6.1-sol` / `qpcmqam-gpt-6.1-terra` / `qpcmqam-gemini-4-argon`
+- `omp-deepseek-v4.1-flash` / `omp-kimi-k3` (omp fallback)
+
+`GET /v1/models` on `:4000` lists the whole served set, including the `[1m]`
+spellings Claude Code may send.
 
 ## Examples
 
 ```bash
-# straight to the relay, nothing local
-curl https://ai.qpcmqam.cn/v1/chat/completions \
-  -H "authorization: Bearer $QPCMQAM_API_KEY" \
-  -H "content-type: application/json" \
-  -d '{"model":"gpt-6.1-sol","max_tokens":64,
-       "messages":[{"role":"user","content":"hi"}]}'
-
 # through the local bridge, any provider
 curl http://127.0.0.1:4000/v1/chat/completions \
   -H "authorization: Bearer sk-ccp-litellm-local" \
   -H "content-type: application/json" \
   -d '{"model":"qpcmqam-gpt-6.1-sol","max_tokens":64,
+       "messages":[{"role":"user","content":"hi"}]}'
+
+# a bridged Anthropic-native provider
+curl http://127.0.0.1:4000/v1/chat/completions \
+  -H "authorization: Bearer sk-ccp-litellm-local" \
+  -H "content-type: application/json" \
+  -d '{"model":"deepseek-flash","max_tokens":64,
        "messages":[{"role":"user","content":"hi"}]}'
 ```
 
@@ -73,23 +71,24 @@ print(client.chat.completions.create(
 ).choices[0].message.content)
 ```
 
-Any OpenAI-compatible client (opencode, Cursor, Continue, hermes, a script)
+Any OpenAI-compatible client (opencode, Cursor, Continue, Hermes, a script)
 takes the same two values: base URL and credential.
 
-## Cost note: the relay bills a floor
+## Cost note
 
-A single-word turn against `gpt-6.1-sol` was billed **13,956 prompt tokens**
-(13,947 of them cached). The relay injects a large system prompt into every
-GPT request, so budget ~14k input tokens per call even for `hi`. Put the cheap
-work on `gpt-6.1-sol`; `gpt-6.1-terra` is the deliberate tier and costs more.
+A relay that bills per token may inject a large system prompt into every
+request. On the qpcmqam relay, a single-word `gpt-6.1-sol` turn was billed
+**13,956 prompt tokens** (13,947 cached), so budget roughly 14k input tokens
+even for `hi`. Use the cheap rung for routine work; `pro` is the deliberate
+tier and costs more.
 
 ## Sharing the bridge
 
 The bridge binds loopback by design, and `bridge_auth.normalize_auth()`
 replaces whatever credential the client sends with the bridge's own. Exposing
 the port therefore exposes the account's quota. To let somebody else use it,
-put an authenticating reverse proxy (Caddy / Nginx basic auth) in front and
-give out **that** URL — do not hand out the loopback port.
+put an authenticating reverse proxy (Caddy/Nginx basic auth) in front and hand
+out **that** URL — never the loopback port.
 
 Credentials live in `~/.config/litellm/proxy.env` (`QPCMQAM_API_KEY`, …). Never
-in this file, and never in a profile template.
+in a profile template, never in a document.

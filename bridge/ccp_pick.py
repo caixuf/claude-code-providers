@@ -265,7 +265,7 @@ def cmd_resolve(args: argparse.Namespace) -> int:
 # ── verification: does the name we are about to write actually serve? ─────────
 # A catalogue is a claim, not evidence. MiniMax answers a request for
 # `MiniMax-M3.1` with HTTP 200 and a completion — from M3, which the body
-# admits in its `model` field. ClinePass does the same for the 463 ids it does
+# admits in its `model` field. Some OpenAI-compatible gateways do the same for ids they do
 # not serve. Trae at 1.25M tokens returns 200, an empty body and zero usage.
 #
 # So the only honest check is to make one real call and read what came back.

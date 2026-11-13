@@ -1,1244 +1,422 @@
-# 🚀 ccp (Claude Code Provider Switcher)
+# 🚀 ccp — Claude Code Provider & Model Switcher
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform: Linux / macOS / WSL](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20WSL-green.svg)]()
 [![Tested on: Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-purple.svg)]()
 
-> **Switch the model behind Claude Code in one command, across six providers** —
-> native Anthropic endpoints, one OpenAI-compatible gateway, and a local adapter
-> for a subscription that publishes no API at all.
+`ccp` points Claude Code at whichever model and account you want, without
+editing `~/.claude/settings.json` by hand. It keeps a committed registry of
+models and providers, emits Claude Code profiles with the right tiers and
+context window, and runs a local bridge for vendors that do not speak
+Anthropic Messages directly.
 
-Claude Code speaks one protocol (`/v1/messages`, Anthropic Messages) and expects
-one shape of model metadata. `ccp` makes every provider look like that: a
-`~/.claude/providers/<name>.json` profile pins Claude Code's tiers to real
-models, a committed registry records what each model actually is, and a local
-bridge translates where the vendor does not already speak Anthropic.
-
-```
-claude ──> ccp profile ──┬─> vendor's /anthropic endpoint         (native)
+```text
+claude ──> ccp profile ──┬─> vendor /anthropic endpoint           (native)
                          ├─> :4000 watchdog ─> :4001 LiteLLM ──> (bridged)
-                         └─> :4100 local adapter ─────────────> (subscription)
+                         ├─> :4100 Trae adapter ───────────────> (subscription)
+                         └─> :4010 omp gateway ─> :8765 omp broker (accounts)
 ```
 
-**ccp is a tool, not a product.** No business knowledge, no state, no accumulated
-history — the rules that keep it that way are in [PRINCIPLES.md](PRINCIPLES.md).
+**ccp is a tool, not a product.** It holds no business knowledge and keeps no
+conversation state. The rules that keep it that way are in
+[PRINCIPLES.md](PRINCIPLES.md).
 
 ---
 
-## 📇 What you get
+## What you get
 
-| Folder | Lands on (default) | How it is reached | Models |
-| :--- | :--- | :--- | ---: |
-| `deepseek/` | DeepSeek-Flash (1M) | native Anthropic | 1 |
-| `minimax/` | MiniMax-M3.1-Flash (1M) | native Anthropic | 2 |
-| `opendesign/` | DeepSeek-V4.1-Flash (1.05M) | native, Anthropic-native aggregator | 1 |
-| `qianfan/` | DeepSeek-V4.1-Flash (1.44M) | bridged → LiteLLM | 1 |
-| `trae/` | DeepSeek-V4.1-Flash (1M) | local adapter `:4100` | 1 |
-| `opencode/` | DeepSeek-V4.1-Flash (1M) | native, Anthropic-native gateway | 1 |
+| Folder | Default | How it is reached | Notes |
+| :--- | :--- | :--- | :--- |
+| `deepseek/` | `deepseek-flash` | native Anthropic | 1M context |
+| `minimax/` | `MiniMax-M3.1-Flash` | native Anthropic | M3 as the fast tiers |
+| `opendesign/` | `deepseek-v4.1-flash` | native Anthropic | 1.05M context |
+| `qianfan/` | `deepseek-v4.1-flash-1017` | bridged → LiteLLM | 1.44M context |
+| `opencode/` | `deepseek-v4.1-flash` | bridged → LiteLLM | OpenCode Go subscription |
+| `trae/` | `DeepSeek-V4.1-Flash` | local adapter `:4100` | text-only model |
+| `qpcmqam/` | `gpt-6.1-terra` | bridged → LiteLLM | personal relay |
+| `groups/` | `main` | bridged → LiteLLM | `main` / `pro` / `flash` routing groups |
+| `omp-opencode/` | `opencode-go/deepseek-v4.1-flash` | omp gateway `:4010` | dynamic, after `ccp omp` |
 
-Several folders start on the *same* underlying model. That is the point: same
-model, different pipe, price and quota.
-
-**Every one of them lands on a DeepSeek Flash**, except `minimax/` — MiniMax's
-own M3 is a flat subscription, so it costs nothing to keep a second family
-around. `opencode/` is a flat subscription too ($10/month), so it is kept for
-the same reason. That is the whole curation rule now: a model that bills by the token
-is only worth reaching when it is the cheap one, and every provider's
-catalogue is narrowed (`only_models`) to exactly the model it exposes. A
-GPT, a Kimi or a GLM rung that used to be one `ccp -m` away is gone — see
-[Why only DeepSeek](#why-only-deepseek).
+Several folders start on the same underlying model. That is intentional: same
+model, different pipe, price, quota and latency. The picker is organised by
+**provider**, and each provider exposes only the models this account was
+curated for.
 
 ---
 
-## 📦 Install
+## Install
 
 ```bash
 git clone https://github.com/caixuf/claude-code-providers.git ~/.claude-code-providers
 cd ~/.claude-code-providers
-bash install.sh              # add --bridge to set up the LiteLLM gateway too
+bash install.sh                 # symlink ccp, install provider templates
+bash bridge/setup_bridge.sh     # optional: LiteLLM + watchdog + Trae adapter
 ```
 
-`install.sh` **symlinks** `~/.local/bin/ccp` at `bin/ccp` rather than copying it.
-A copy is how this goes wrong invisibly: `ccp` keeps running yesterday's build
-while the checkout has moved on, so it lists a different set of providers than
-the repo defines and new subcommands quietly do nothing. The symptom is a `ccp`
-output that disagrees with this README.
+`install.sh` symlinks `~/.local/bin/ccp` at `bin/ccp`; a copy would silently go
+stale while the checkout moves on. `install.sh --bridge` does both steps.
+
+The bridge installs a Python venv at `~/.local/share/litellm-venv`, generates
+`~/.config/litellm/config.yaml`, and registers user services:
+
+- `litellm-ccp.service` — LiteLLM on `127.0.0.1:4001`
+- `ccp-sse-watchdog.service` — SSE/request-rewrite proxy on `127.0.0.1:4000`
+- `ccp-trae-bridge.service` — Trae adapter on `127.0.0.1:4100` (optional)
+
+`ccp bridge status` is the one-command health check.
+
+Optional multi-account login through **omp**:
 
 ```bash
-ls -l ~/.local/bin/ccp      # must show '-> .../claude-code-providers/bin/ccp'
-bash install.sh             # re-links it
+# install omp separately first; ccp only drives its broker/gateway
+ccp omp setup
+ccp omp login
 ```
-
-Keys and tokens live in `~/.config/litellm/proxy.env` (mode `0600`), never in the
-repo. Provider profiles are generated from `providers/*.json.example`.
 
 ---
 
-## ⚡ Quick start
+## Quick start
 
 ```bash
-ccp                                  # list providers; the active one is starred
-ccp qianfan                          # switch to a provider's default model
-ccp -m qianfan-deepseek-v4.1-flash-1017  # change model inside the current provider
-ccp minimax MiniMax-M3.1-Flash       # native Anthropic: the vendor's own id, no bridge
-ccp trae deepseek-v4.1-flash         # switch provider *and* model
-ccp trae/deepseek-v4.1-flash         # same thing, as a path
-ccp -c                               # show what is active, and where it points
-ccp ping trae -s                     # benchmark this provider's models, switch to the winner
-ccp --rollback                       # undo the last switch
-ccp restore --dry-run                # see how to get back to the pre-ccp settings
+ccp                                  # list providers; * marks the active one
+ccp qianfan                          # switch to Qianfan's default model
+ccp -m qianfan-deepseek-v4.1-flash-1017  # switch model within the current provider
+ccp groups                           # stay on main/pro/flash routing groups
+ccp groups pro                       # start on the deliberate `pro` group
+ccp omp opencode                     # omp-backed OpenCode, beside `ccp opencode`
+ccp -c                               # what is active, and where it points
+ccp ping                             # health + TTFT + token speed
+ccp models qianfan                   # context / output cap / vision
+ccp doctor                           # is the install still consistent?
+ccp restore --dry-run                # how to get back to the pre-ccp state
 ```
 
-Inside a running session, `/model` switches between Opus / Sonnet / Haiku — each
-is pinned by the active profile to a real model.
+`ccp <provider> [model]` and `ccp <provider>/<model>` are equivalent:
+`ccp trae DeepSeek-V4.1-Flash` == `ccp trae/DeepSeek-V4.1-Flash`.
 
 ---
 
-## ↩ Returning to the pre-ccp state
-
-`ccp restore` puts back the `settings.json` ccp found before its first switch and
-stops + disables the three user services (`litellm-ccp`, `ccp-sse-watchdog`,
-`ccp-trae-bridge`). It never deletes profiles, keys, or the checkout, so
-`ccp <provider>` works again immediately.
-
-- The exact source is `settings.json.ccp-original`, captured by `ccp <provider>`
-  the first time it replaces a file ccp did not render.
-- Older installs have no snapshot; restore falls back to the **oldest**
-  timestamped backup that is not ccp-rendered. A rendered profile is recognised
-  by the `ANTHROPIC_DEFAULT_FABLE_MODEL` tier key, which ccp writes into every
-  profile it emits and which no pre-ccp file contains; an early ccp profile that
-  predates that key is still recognised by its base URL pointing at one of ccp's
-  own loopback bridges (`:4000`, `:4001`, `:4100`). A gateway the user configured
-  themselves — any other URL — is correctly treated as original.
-  `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is **not** a marker: people set it by hand,
-  and treating it as one classified every original as ccp-made, which left the
-  snapshot never captured and made `restore` report "No pre-ccp settings found"
-  while holding a directory full of backups.
-- The oldest backup can predate every provider key on the machine. When the
-  chosen source carries no `ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY`, the plan
-  says so, because such a file only works if Claude Code is signed in to
-  claude.ai (OAuth). Choose a later backup with `--from`, or use `--strip`.
-- If neither exists, it refuses rather than guessing. `--strip` is the explicit
-  opt-in: it removes only ccp-injected keys (`ANTHROPIC_BASE_URL`, the tier map,
-  context window), preserving permissions, hooks and unknown keys.
-- `--dry-run` shows the plan, `--yes` skips the prompt, `--keep-services`
-  restores settings but leaves the bridges running, and `--from FILE` picks a
-  specific backup.
-
-Before replacing anything it writes another `settings.json.bak.<timestamp>`, so
-the restore itself is undoable with `ccp --rollback`.
-
----
-
-## 🧭 Concepts
+## Concepts
 
 ### A profile is a provider, not a model
 
-`ccp` lists one folder per provider; a folder's contents are its models. Model
-names match case-insensitively and are written back in the vendor's own spelling
-(`ccp trae deepseek-v4.1-flash` → `DeepSeek-V4.1-Flash`), because normalising it
-would 404 upstream.
+`ccp` lists one folder per provider; the folder's contents are its models.
+Model names match case-insensitively and are written back in the vendor's own
+spelling, because normalising an upstream id would 404.
 
-How a folder's contents are spelled depends on how it is reached, and
-`bridge/ccp_pick.py` is what keeps that honest: a **native** folder lists the
-vendor's own ids, a **bridged** one lists the LiteLLM alias with the provider
-prefix stripped. That is why `ccp trae kimi-k3` and `ccp qianfan deepseek-v4.1-flash` read
-the way they do.
+A **native** folder lists the vendor's own ids; a **bridged** folder lists the
+LiteLLM alias with the provider prefix stripped. `bridge/ccp_pick.py` is what
+keeps that distinction honest.
 
-### Staying on one profile: `groups`
+### Tiers and `[1m]`
 
-`ccp groups` is the folder whose three models are the routing groups declared
-in `registry/profiles.yaml` — `main`, `pro`, `flash`. They are not vendors;
-they are names LiteLLM owns, so a member that runs out of quota is replaced
-underneath the request:
+Every profile maps Claude Code's five slots — `default`, `opus`, `fable`,
+`sonnet`, `haiku` — to real models. Inside a running session, `/model` switches
+between those tiers without restarting Claude Code.
 
-```bash
-ccp groups            # switch to the groups profile; default tier is main
-ccp groups pro        # start a session on the deliberate group instead
+A bridged profile appends `[1m]` to a model whose context window is at least
+1,000,000. Claude Code reads that suffix to enable its 1M path; the watchdog
+strips it before LiteLLM. Native profiles never carry it.
+
+### `groups`: the profile to stay on
+
+`ccp groups` points at the local bridge and exposes three routing groups:
+
+```text
+main    opendesign → MiniMax → qianfan → omp-deepseek-v4.1-flash
+pro     qpcmqam-sol → qpcmqam-terra → opendesign → MiniMax → qianfan → omp-kimi-k3
+flash   opendesign → MiniMax → qianfan → omp-deepseek-v4.1-flash
 ```
 
-The profile maps Claude Code's slots as `default/sonnet/fable -> main`,
-`opus -> pro`, `haiku -> flash`. Inside a running session, `/model` moves
-between those tiers, so neither a quota exhaustion nor an intentional tier
-change requires quitting and losing the conversation. `main` and `flash` carry
-the `[1m]` marker (their whole chain can honour 1M); `pro` does not, because
-qpcmqam caps its chain at 272k. The context advertised is the **smallest**
-window in the group's member+fallback chain — a failover must not promise more
-than the member that ends up answering can honour.
+LiteLLM fails over inside the request. If one provider runs out of quota, the
+conversation continues on the next one; no exit and no new session. The omp
+aliases are the last-resort fallback and are reached through the omp gateway.
 
-> Switching provider with `ccp <provider>` rewrites `settings.json`, which
-> Claude Code reads at startup. That is the path that costs you a session.
-> `ccp groups` is the profile that avoids taking it.
+The group profile advertises the **smallest** context window in its whole
+member + fallback chain: a failover must not promise more than the member that
+ends up answering can honour. `main` and `flash` carry `[1m]`; `pro` does not,
+because qpcmqam caps its chain at 272k.
 
-### One registry, discovered not typed
+### Registry, discovery and render
 
-Every fact about a model — context window, output cap, whether it takes images —
-lives in `registry/models.yaml` and is **auto-discovered**:
+`registry/models.yaml` holds model facts — context, output cap, vision — and is
+refreshed from provider APIs:
 
 ```bash
-ccp discover [provider]   # pull the catalogue from each provider's own API
-ccp render                # regenerate config + profiles from the registry
+ccp discover [provider]   # pull catalogues and measured metadata
+ccp render                # regenerate config, clamp/rule maps and profiles
+ccp sync                  # copy profile templates into ~/.claude/providers/
 ```
 
-Discovery merges, in priority order:
+`registry/profiles.yaml` is the only hand-authored curation layer: tier choices,
+aliases, accounts and groups. Generated files are never hand-edited:
 
-1. **The provider's own catalogue** — OpenDesign (`metadata.context_limit` /
-   `context_budget` / `architecture.input_modalities`), DeepSeek
-   (`context_window`, `input_modalities`), Cline and MiniMax (ids only, so the
-   rules below carry what the catalogue omits), or, for Trae, the CLI the adapter
-   already drives.
-2. **LiteLLM's bundled model map** (`litellm.model_cost`, ~4500 entries) for
-   anything the vendor does not publish.
-3. A tiny defaults table for the handful of facts neither knows.
-
-`registry/profiles.yaml` is the *only* hand-authored file: it records choices —
-which model each Claude Code tier maps to, the aliases, which request rewrites
-apply. `ccp render` joins the two into:
-
-| Output | Purpose |
+| Generated | Purpose |
 | :--- | :--- |
-| `~/.config/litellm/config.yaml` | LiteLLM routing + per-model limits |
+| `~/.config/litellm/config.yaml` | LiteLLM deployments, model_info, fallbacks |
 | `bridge/clamp_map.json` | model → output cap, read by the watchdog |
-| `bridge/request_rules.json` | model → request rewrites, read by the watchdog |
-| `providers/<name>.json.example` | profile with the right `CLAUDE_CODE_MAX_CONTEXT_TOKENS` |
+| `bridge/request_rules.json` | per-model request rewrites |
+| `providers/<name>.json.example` | Claude Code profile with the right context |
 
-Three discovery rules are load-bearing, because a catalogue is a *claim* and only a
-call is evidence:
-
-- **`only_models`** narrows a provider whose catalogue is wider than the set ccp
-  curates. ClinePass advertises 469 models and serves 6 — every Google, OpenAI,
-  Anthropic and xAI id answers `model not found` when called. MiniMax lists 9 ids
-  and the M2.x ones still answer, but only 2 are on the vendor's documented
-  supported set for the Anthropic-compatible interface, so the allow-list keeps
-  those two. Every surviving id stays reachable from its own folder — as an alias
-  on the bridged path, as its own upstream id on a native one.
-- **`hints`** records a capability fact the catalogue does not carry, for a vendor
-  whose `/v1/models` returns ids only. MiniMax is pinned that way: the
-  `only_models` allow-list above for the two current ids, plus per-model `hints`
-  for context, output cap and vision. `ccp discover` therefore neither
-  re-introduces a retired id nor loses those numbers.
-- **`ctx_default`** overrides a vendor that under-reports its window; Trae's
-  catalogue says 96k–184k and the real answer is 1M (the measurement is in the
-  Trae section below).
+`python3 bridge/render_config.py --check` exits non-zero when an output is
+stale.
 
 ---
 
-## 🎛️ Commands
+## Commands
 
 | Command | What it does |
 | :--- | :--- |
 | `ccp` | List providers; the active one is starred |
 | `ccp <provider> [model]` | Switch provider, optionally to a specific model |
-| `ccp groups [main\|pro\|flash]` | Stay on the routing-group profile; failover inside the session |
-| `ccp -m <model>` | Hot-switch model inside the current provider |
-| `ccp -c` / `ccp -r [N]` | Show active state / roll back N backups |
-| `ccp restore` / `ccp reset` | Return to the pre-ccp settings and stop the bridges |
-| `ccp models [provider]` | List models with context, output cap and vision |
-| `ccp discover [provider]` | Refresh model metadata from the provider APIs |
-| `ccp render` | Regenerate config + profiles + clamp/rule maps from the registry |
-| `ccp sync` | Reconcile local profiles with the repo templates |
-| `ccp ping [provider\|model]` | Probe health, TTFT and token speed |
-| `ccp auth [copilot\|trae]` | Authenticate / import a CLI login |
-| `ccp bridge [status\|restart\|start\|stop\|deploy\|logs]` | Manage the local gateway and adapters |
-| `ccp bridge {start\|stop\|restart}-trae` | Address the local Trae adapter |
-| `ccp accounts …` | Extra logins and routing groups (see below) |
+| `ccp groups [main\|pro\|flash]` | Use the routing-group profile |
 | `ccp omp <upstream> [model]` | omp-backed provider family (e.g. `ccp omp opencode`) |
-| `ccp route` | Group chain + the quota evidence that actually exists (omp only) |
-| `ccp quota [provider]` | What is left on each plan |
-| `ccp hermes [provider]` | Point the local Hermes agent at a provider's model |
+| `ccp omp` | List omp upstreams and available accounts |
+| `ccp -m <model>` | Hot-switch model inside the current provider |
+| `ccp -c` / `ccp -r [N]` | Show active state / roll back N settings backups |
+| `ccp restore` | Return to pre-ccp settings; stops ccp services |
 | `ccp -t` / `ccp --test` | Quick round-trip through Claude Code |
+| `ccp models [provider]` | List models with context, output cap and vision |
+| `ccp discover [provider]` | Refresh model metadata from provider APIs |
+| `ccp render` / `ccp sync` | Regenerate outputs / install profile templates |
+| `ccp ping [provider\|model]` | Probe health, TTFT and token speed |
+| `ccp ping --agent` | Time to the first tool call, not the first token |
+| `ccp bridge [status\|restart\|start\|stop\|deploy\|logs]` | Manage the local bridge |
+| `ccp auth trae` / `ccp auth copilot` | Import a CLI login / Copilot device flow |
+| `ccp accounts …` | Extra credentials and manual routing groups |
+| `ccp omp …` | omp setup/login/accounts/models/status/sync-token/start/stop/restart |
+| `ccp route [--json] [--strict]` | Show each group's chain and the quota evidence |
+| `ccp quota [provider]` | What is left on each plan |
+| `ccp usage` | Tokens and latency from the bridge's ledger |
+| `ccp doctor` | Check litter, duplicate keys, proxy and live answering model |
+| `ccp hermes [provider]` | Point the local Hermes agent at a provider's model |
+| `ccp -h` / `ccp --help` | Full help |
 
-`ccp ping` rounds: default 2 rounds (~200 output tokens), `-q` 1 round (~64, for
-liveness only), `-b` 3 rounds (~1000, stricter). `--sort` picks the ranking key and
-`-s` switches to the winner. The per-round timeout follows the token budget, so a
-slow model is not reported as a dead one.
-
-`ccp ping --agent` asks a different question: it sends one prompt with an obvious
-action and times **the first tool call**, reporting `NEVER` when the model answers
-in prose instead. For agent work TTFT is the wrong metric — a model can emit a
-token instantly and still never act, which is the failure that wastes the turn.
+`ccp ping` rounds: default 2 rounds (~200 output tokens), `-q` 1 round (~64),
+`-b` 3 rounds (~1000). `-s` switches to the winner. `--agent` is the useful
+number for coding agents: a model can emit a token instantly and still never
+call a tool.
 
 ---
 
-## 🌉 The bridge
+## The bridge
 
-Two providers, `qianfan/` and `opencode/`, speak plain OpenAI
-`chat/completions` and are **bridged**: Claude Code talks to a local gateway that
-translates on the way out. Every other folder takes one of the other two paths —
-an Anthropic-native endpoint or the Trae local adapter — both covered below.
-
-```
-claude ──> :4000 sse_watchdog ──> :4001 LiteLLM ──> upstream OpenAI gateway
+```text
+claude ──> :4000 sse_watchdog ──> :4001 LiteLLM ──> provider /chat/completions
+                         │
+                         └─ request rewrites: [1m] strip, beta strip,
+                            max_tokens clamp, media downgrade, model remap
 ```
 
-```bash
-bash bridge/setup_bridge.sh      # create the venv, patch, install units; --no-watchdog for the lossy shape
-ccp bridge status                # what is running, on which port
-```
+**Watchdog mode (default) is the complete deployment.** LiteLLM sits on `4001`
+and the watchdog on `4000`; the watchdog is the only place the request-rewrite
+layer exists. `sse_watchdog.py` also closes Anthropic streams after a complete
+`message_stop` and drops trailing keepalives.
 
-`setup_bridge.sh` creates an isolated venv at `~/.local/share/litellm-venv`,
-applies the upstream patches (provider-specific model prefixes, the
-`{"data":{"choices":…}}` envelope unwrap, dropping client headers strict proxies
-reject), and registers the systemd units.
+`bridge/setup_bridge.sh --no-watchdog` puts LiteLLM on `4000` directly. It is
+one hop, but it is **lossy**: `[1m]` stripping, the 1M beta strip and the output
+clamp all disappear, and real Claude Code traffic on a 1M model can 400. Do not
+use it to "fix" a broken bridge.
 
-### Deployment modes — they are not equivalent
+The bridge also answers the **OpenAI protocol** on `/v1/chat/completions`; see
+[docs/openai-api.md](docs/openai-api.md).
 
-**With watchdog (default, complete).** `sse_watchdog.py` on `:4000`, LiteLLM
-behind it on `:4001`. The watchdog is not merely an SSE cleaner: it is the only
-place the request-rewriting layer exists.
+### Model remap
 
-| Rewrite (`bridge/sse_finalize.py`) | Why |
-| :--- | :--- |
-| `strip_1m_model` | Drops the `[1m]` suffix the registry names carry; strict gateways reject it |
-| `strip_1m_beta` | Drops the `anthropic-beta` 1M-context token that triggers `400` upstream |
-| `clamp_max_tokens` | Caps `max_tokens` at the model's discovered output limit, fixing `400 Invalid max_tokens value` |
-| `downgrade_media` | Replaces an image with a text marker for a model the registry records as text-only, fixing `400 Invalid content type. image_url is only supported by certain models` |
-| `sanitize_channel` *(no provider uses it today)* | Satisfies a gateway's *client-identity check*: it strips the `x-anthropic-billing-header` block and neutralises Claude Code's identity line wherever a gateway inspects it. Applies **only** to providers listed under `request_rules:` in `registry/profiles.yaml`, because stripping the billing header anywhere else is a silent prompt mutation. Built for WorkBuddy, which is retired |
-| `normalize_auth` (`bridge/bridge_auth.py`) | Forwards the credential LiteLLM accepts, whatever the client sent. A stale key used to be answered `400 No connected db.`, and no key at all `500` — see below |
-| `remap_model` (`bridge/model_remap.py`) | Points a retired model id at the one model its provider now serves, fixing `400 Invalid model name passed in model=…` — see below |
-
-It also closes the stream after a complete `message_stop` and drops trailing
-keepalives.
-
-**Single process (lossy).** `setup_bridge.sh --no-watchdog` puts LiteLLM on
-`:4000` directly: one hop, nothing to keep in sync, and **none** of the
-rewrites above. A real Claude Code client on a 1M model sends all three problematic
-things at once (`max_tokens: 1000000`, a `[1m]` name, the 1M beta header) and
-upstream answers `400`. This is why a `curl` smoke test looks fine and the client
-still fails — the hand-written request does not carry those three attributes.
-
-```bash
-systemctl --user status litellm-ccp ccp-sse-watchdog
-ss -ltnp | grep 4000          # sse_watchdog.py = complete; litellm = lossy
-```
-
-> **History worth keeping.** An idle-injection bug once spliced synthetic JSON
-> into a live stream; LiteLLM rejected it as `MidStreamFallbackError` and Claude
-> Code retried for ~10 minutes. That path is gone (idle injection is disabled by
-> default and the injector was removed). Do **not** "fix" anything by moving to
-> single-process — that trades an already-fixed bug for three missing rewrites.
-
-### The credential is the bridge's, not the client's
-
-LiteLLM accepts exactly one credential: the master key in the config it was
-started with. A client that carries another one is not answered "invalid key" —
-it is answered `400 {"error":{"message":"No connected db."}}`, because the
-virtual-key lookup wants a database and there is none. A client that carries
-**no** key is worse: LiteLLM's own error handler imports `prisma`, which is not
-installed, and the request dies with a `500`. Both read like the bridge is
-down, and both are the client's mistake.
-
-So the watchdog forwards the key LiteLLM actually enforces, whatever arrived —
-right, stale, mistyped or missing. The client decides *which model* to ask for;
-it does not decide whether the call happens. The key is read from the installed
-LiteLLM config (`bridge/bridge_auth.py`), because that document is what
-LiteLLM enforces — a hand-edited master key is the one that works — and the
-committed constant is only the fallback for a machine whose config cannot be
-read.
-
-The live config should still say what it means, so the tools keep it honest:
-
-* `ccp sync` rewrites the credential in the **active** `~/.claude/settings.json`
-  when that profile points at the bridge. A native profile's credential is the
-  vendor's own and is never touched.
-* `ccp doctor` reports a bridge-pointing config that carries a credential the
-  bridge will replace.
-
-### A retired model name still answers
-
-A client's model list is a **copy** of the bridge's, taken when the client was
-configured. When the curation narrows — a provider cut down to one model, an id
-renamed — the copy keeps asking for a name LiteLLM no longer has:
-
-```
-400 /chat/completions: Invalid model name passed in model=qianfan-deepseek-v4-flash.
-    Call `/v1/models` to view available models for your key.
-```
-
-That error names the model and tells a *configured* client to go look it up,
-which is the one thing it cannot do. The provider is right, the credential is
-right, and the model is simply the previous spelling of the one that is served.
-
-So the watchdog resolves the name before anything else looks at it
-(`bridge/model_remap.py`): if the requested name is not served and exactly
-**one** model of that provider is, that is the one being asked for. It follows
-that a provider serving two models is never guessed at — answering a different
-model silently is worse than failing — and a bare alias (`main`, `pro`) has no
-provider prefix to match, so it is left alone. Every remap is logged with both
-names:
-
-```
-[WATCHDOG] Model not served, resolved: qianfan-deepseek-v4-flash -> qianfan-deepseek-v4.1-flash
-```
-
-The served set comes from the upstream's own `/v1/models`, refreshed every two
-minutes and on demand after a miss (at most once per ten seconds), so a `ccp
-render` takes effect without restarting the proxy.
-
-### Local adapter (Trae)
-
-A service that publishes no API gets its own small Anthropic-speaking process,
-`native: true` in the profile with the adapter (not the vendor) as the endpoint:
-
-| Adapter | Port | Drives | Unit |
-| :--- | ---: | :--- | :--- |
-| `bridge/trae_bridge.py` | 4100 | TraeCLI's private `llm_raw_chat` RPC | `ccp-trae-bridge.service` |
-
-Nothing in the running `:4000`/`:4001` deployment changes for it.
+A client's model list is a copy of the bridge's. When curation narrows — a
+provider reduced to one model, an id renamed — the old name is resolved before
+anything else looks at it: if exactly one model of that provider is served, that
+is the model being asked for. A provider serving two models is never guessed at,
+and a bare group alias (`main`, `pro`) is left alone. Every remap is logged with
+both names.
 
 ### The loopback never goes through the HTTP proxy
 
-`:4000`, `:4001` and `:4100` are on this machine. A request to `127.0.0.1`
-that the HTTP proxy answers for leaves the box, the proxy cannot route a
-loopback destination, and it replies **`502` with an empty body** — which
-reads exactly like a dead provider while the process behind it is healthy.
-
-The trap is the spelling of `no_proxy`. Windows hands WSL a wildcard form
-(`127.*`) and *no* HTTP stack understands it: curl, urllib and httpx read
-exact hosts, domain suffixes and CIDR blocks, never `*`. So the loopback gets
-proxied anyway.
-
-`bridge/loopback.py` therefore enforces the bypass in the tool, next to the
-sockets — the env is normalised (`127.0.0.1`, `::1`, `localhost` as exact
-entries) and httpx pins the loopback to a direct transport. A tool cannot
-depend on the shell it was launched from: non-interactive shells skip
-`~/.bashrc`, a systemd service never reads it, and a shell that was already
-open when the fix landed keeps the broken value.
-
-`ccp` warns when the *shell* still has the broken spelling, because
-everything else in the shell — Claude Code itself, `curl`, `python` — reads
-`no_proxy` and would send its own loopback calls to the proxy:
-
-```
-⚠ no_proxy has no exact 127.0.0.1 entry ('127.*').
-```
-
-Fix it in the shell with:
+`127.0.0.1:4000/4001/4010` and `:8765/4100` are local. A loopback request that
+the HTTP proxy answers for leaves the box, cannot be routed, and comes back
+`502` with an empty body — exactly like a dead provider. `bridge/loopback.py`
+enforces the bypass in ccp's own tools; the shell still needs an exact entry:
 
 ```bash
 export no_proxy="127.0.0.1,::1,localhost,$no_proxy"
 ```
 
----
-
-## 🤖 The Hermes agent
-
-The local [Hermes](https://hermes-agent.nousresearch.com) agent reaches every
-provider through the same bridge, so switching provider changes exactly one
-thing for it: the model name it asks for.
-
-```bash
-ccp hermes                 # what the bot is running right now
-ccp hermes qianfan         # point it at Qianfan's DeepSeek-V4.1-Flash
-ccp hermes trae            # ...or at Trae's DeepSeek-V4.1-Flash
-ccp hermes trae deepseek-v4.1-flash
-ccp hermes qianfan --dry-run # show the change, write nothing
-```
-
-**Both Hermes layouts work.** A multi-profile install keeps one config per
-profile under `~/.hermes/profiles/<name>/config.yaml`; a single-config install
-keeps one at `~/.hermes/config.yaml` and has no `profiles/` directory at all.
-The command finds whichever is actually there — the second used to die with a
-`FileNotFoundError` traceback that said nothing — and `ccp hermes` reports
-which layout it found.
-
-The name written is the one the proxy **actually emitted** — the curated alias
-when the registry has one, otherwise the bare registry id — resolved by the same
-`litellm_key_for()` that `ccp render` used to write
-`~/.config/litellm/config.yaml`. `minimax` therefore gets `MiniMax-M3.1-Flash`
-and not a `minimax-MiniMax-M3.1-Flash` nobody serves; a name guessed rather than
-resolved comes back as a 400 that reads like the bridge is down.
-
-Two things this deliberately does not do:
-
-* **It edits the model lines, not the file.** The Hermes config is hand-written
-  and carries comments that matter — compression thresholds, the reason
-  `telegram.enabled` is spelled out, the MCP command. Re-emitting the YAML
-  through a parser would drop every one of them. Only the model lines move —
-  `model.default` and `providers.ccp.default_model`, plus `model.provider` when
-  a bot is being migrated onto ccp — and a sibling provider (`imfl`, the direct
-  MiniMax fallback) is left byte-identical. The one thing it *adds* is the
-  `providers.ccp` entry, when the bot has never been on ccp: it is appended as a
-  top-level block (`providers:` is a top-level key in Hermes's schema) with
-  every comment in the file left where it was. A bot parked on a provider ccp
-  retired — `commandcode` ran out of credits — is the case this exists for, and
-  refusing it left hand-editing as the only way across.
-* **It bounces the gateway only after a real rewrite.** Hermes caches its agent
-  at startup, so a rewritten config is inert until
-  `hermes-gateway-<profile>.service` is restarted — and a bot still answering on
-  the old model is worse than one that was never switched. `ccp hermes`,
-  `--dry-run` and `--json` write nothing and restart nothing.
-
-**Which profile, when you do not say.** `--profile` defaults to
-`$HERMES_PROFILE`; failing that, to the profile whose gateway unit is installed —
-and when more than one is installed, to the one that actually serves a messaging
-platform, since a gateway with every platform off is cron and the local API, not
-a bot. Anything still ambiguous is an error naming the profiles that exist,
-never a guess: a guess here rewrites a live bot's config and restarts it.
-
-`~/.hermes/active_profile` is deliberately **not** consulted. That file is the
-sticky default for a bare `hermes` command, and it can name a profile with no
-gateway at all — on the workstation where this was written it said `ccp` while
-the running bot was `caixuf`, so the command would have rewritten a profile that
-passes every check it makes (same `model.provider`, same block) and then bounced
-a `hermes-gateway-ccp.service` that does not exist, leaving the real bot
-untouched and no error anywhere in the output.
-
-**A bot on an older provider moves, it is not refused.** Profiles that predate
-ccp — on `commandcode`, `openrouter`, the bridged providers — are the ones with
-somewhere to go, so `ccp hermes <provider>` migrates them: it rewrites
-`model.default`, `providers.ccp.default_model` **and** `model.provider`, because
-that last key is what picks the entry point. Writing only the model name would
-read like a switch and behave like a no-op, since the bot would keep talking to
-its old provider. A migration with no `providers.ccp` block to move to is
-refused, and the message carries the block to paste.
-
-A `.bak.<timestamp>` copy of the pre-change file is written first — note that
-Hermes snapshots the profile's config into `<profile>/backups/config/` too, so
-ours is filed there beside its own `.good.<timestamp>` entries rather than left
-in the profile root. `--config` points the command at a file outside
-`~/.hermes/profiles/` when you are testing.
-
-> **One Feishu app, one gateway.** If a second host runs a gateway for the same
-> profile, both connect to the same app and the same home channel, and messages
-> are served by whichever one the platform picks — including the host you did
-> not mean. Give the leftover profile `platforms.feishu.enabled: false` before
-> pointing it anywhere else; it is otherwise a live copy of the bot.
+Windows hands WSL a wildcard spelling (`127.*`) that no HTTP stack understands;
+`ccp` warns when it sees it.
 
 ---
 
-## 🔌 Providers
+## omp: multi-account login
 
-### Native Anthropic endpoints
-
-`deepseek/` and `minimax/` point straight at the vendor's `/anthropic` endpoint —
-no bridge, no rewrites.
-
-**A native base URL has no trailing `/v1`.** Claude Code appends `/v1/messages`
-to whatever `ANTHROPIC_BASE_URL` says, verbatim, so a base that already ends in
-`/v1` asks for `/v1/v1/messages` and the vendor answers `404` with no body —
-the kind of failure that looks like a bad model id and is not. LiteLLM's
-anthropic provider appends the same suffix to the base it is handed, so the
-one convention serves both. `ccp sync` now notices a base URL that moved and
-rewrites the profile instead of leaving it on the old address. DeepSeek's `/models` is rich (`context_window`,
-`input_modalities`); MiniMax's is not, and that asymmetry is handled by discovery
-(see the `hints` rule above).
-
-MiniMax is worth a note. Its [Anthropic-compatible interface](https://platform.minimax.io/docs/api-reference/text-anthropic-api)
-officially supports exactly two models — `MiniMax-M3.1-Flash` and `MiniMax-M3` —
-and the catalogue still lists the M2.x family, which is legacy here and reachable
-through the standard MiniMax API instead. Both current models are 1M-context
-multimodal (text / image / video input), with a 524288 output cap (probed:
-`max_tokens=524288` → 200, `524289` → 400 `does not support max tokens > 524288`).
-`M3.1-Flash` takes the default and fable tiers and always thinks —
-`thinking: {"type":"disabled"}` answers 400 — exposing `output_config.effort` from
-`low` to `max` (default `max`); `M3` takes opus/sonnet/haiku, thinks off by
-default, and enables it with `adaptive`.
-
-`ccp` keeps a curated set rather than the whole catalogue, so the registry is
-pinned to those two, and the M2.x rungs are gone from it. A catalogue is a claim,
-not evidence: the endpoint does not reject a name it does not serve — asking for
-`MiniMax-M3.1` returns 200 with a completion from `M3` in the body — so
-`ccp <provider> <model>` verifies the pick by reading the `model` field the
-response carries back (`bridge/ccp_pick.py verify`) and warns instead of letting
-the session quietly run a different model. `SKIP_VERIFY=1` silences it.
-
-### OpenDesign
-
-[OpenDesign](https://amr-link.open-design.ai) is an Anthropic-native aggregator:
-it speaks `/v1/messages` already, so it needs no bridge and no rewrites — the
-profile points straight at it. It is a credit reseller, which is why its ladder
-is built from the vendor's own `cost`/`capability` metadata rather than list
-price. Its `/v1/models` is unusually complete
-(`metadata.context_limit`, `metadata.context_budget`,
-`architecture.input_modalities`), so discovery needs no cost-map cross-check.
-
-> **Native profiles send the upstream id — never an alias or a `[1m]` marker.**
-> Both exist only because the watchdog strips them on the bridged path; with no
-> watchdog in the way a strict endpoint answers `model "opendesign[1m]" not
-> found`. `render_config.py` therefore keeps aliases and the marker bridged-only.
-> DeepSeek and MiniMax only appeared to work because their tiers happened to use
-> ids with no alias — they were one rename away from the same failure.
-
-### Qianfan (百度千帆 Token Plan)
-
-[Baidu Qianfan](https://qianfan.baidubce.com) sells a Token Plan: a flat
-subscription whose key is only accepted on the plan's own prefix,
-`https://qianfan.baidubce.com/v2/tokenplan/personal`. The same key against
-plain `/v2/chat/completions` answers `token_plan_person_api_key_not_allowed`,
-so `api_base` is pinned to that prefix and the provider is bridged like
-ClinePass.
-
-Two things make it its own case rather than another OpenAI gateway:
-
-- **The catalogue is a claim, not an entitlement.** `/v2/models` lists 35 ids;
-  the plan serves nine. The other 26 answer HTTP 403
-  `token_plan_person_model_not_supported`. `only_models` in
-  `discover_models.py` keeps the registry to the verified set.
-- **The verified set belongs to the subscription, not to the provider.** The
-  2026-10-24 key serves nine ids where the previous one served six
-  (`deepseek-v4.1-flash-1017`, `deepseek-v4-pro-0813` and `glm-5.1` are new).
-  `bridge/qianfan_probe.py` walks the whole catalogue against the key in
-  `proxy.env` and prints the allow-list to paste in — run it whenever the plan
-  changes, never assume the old list still holds.
-
-Its catalogue is also the only one here that publishes the facts outright:
-`context_length`, `max_completions_tokens` and `architecture.input_modalities`
-come with every model, so `norm_qianfan` needs no cost-map cross-check. The
-DeepSeek rungs carry 1.44M context; `glm-5.3-flash` is vision-capable and
-takes the haiku tier.
-
-```bash
-ccp qianfan             # switch to the folder
-ccp models qianfan      # the nine ids this subscription serves
-python3 bridge/qianfan_probe.py --emit-only-models   # re-derive the allow-list
-```
-
-Two operational notes. The key lives in `proxy.env`, which the systemd unit
-loads as `EnvironmentFile` — a new key reaches the bridge only after
-`systemctl --user restart litellm-ccp.service`, not after a `ccp render`. And
-the catalogue endpoint answers `429 Over rate limit` when probed in a burst, so
-the probe retries instead of concluding that the plan is gone.
-
-**A text-only rung refuses the whole turn when it meets a picture.** Qianfan
-answers `400 invalid_argument "Invalid content type. image_url is only supported
-by certain models"`, and the picture is already in the conversation's durable
-history — so *every* later turn of that session carries it and 400s the same
-way. The session is not slow, it is dead. `deepseek-v4-flash-0731` is the rung
-that does this; `deepseek-v4.1-flash` and `glm-5.3-flash` read images fine.
-
-The bridge therefore rewrites the request instead of forwarding it: for a model
-the registry records as text-only, `downgrade_media` replaces every image (and
-every other media block) with a text marker naming the model, so the turn
-completes and the reader knows the pixels never arrived. Which models need it
-comes from the registry's *discovered* `vision` flag — `ccp render` derives the
-list, so a model that gains or loses image input changes it with nobody editing
-a second place.
-
-### Why only DeepSeek
-
-Every provider here exposes exactly one model, and on five of the six that
-model is a DeepSeek Flash. MiniMax keeps its two, because its M3 plan is a
-flat subscription and costs nothing to keep in the list.
-
-The rule is a money rule. A relay that bills by the token sells several
-families at very different rates, and the expensive one is one `ccp -m` away
-from the cheap one — so a provider that can serve `gpt-6-astra` *and*
-`deepseek-v4.1-flash` on the same key is a provider with a loaded gun in the
-picker. Measured on yjapi.shop on 2026-10-28: `deepseek-v4.1-flash` cost
-**$0.204 for 1.33M tokens**, `gpt-6-astra` cost **$5.42 for 1.04M tokens** —
-26x the rate for the same volume of text, plus a ~4000-token system prompt the
-relay injects into every GPT request. The account carried $2.
-
-So the narrowing happens in three places, and none of them is a list somebody
-maintains by hand:
-
-- **the discovery layer** — each provider's `only_models` in
-  `bridge/discover_models.py` names the one id the registry keeps, so the
-  catalogue the bridge serves holds nothing else;
-- **the curation layer** — `registry/profiles.yaml` pins all five Claude Code
-  tiers of a provider to that same model, so no tier can drift onto an
-  expensive one;
-- **the probe** — `ccp ping` costs a ceiling before it starts (see below).
-
-Restoring a rung is one edit in the first of those three, followed by
-`ccp discover && ccp render && ccp sync`.
-
-### The probe gives a thinking model more room
-
-A model that reasons before it answers can spend a whole round's tokens on the
-reasoning and never reach the answer: Muse Spark 1.3 Contributor used 511
-tokens of reasoning for a two-word reply, and the round was reported as a
-failure — which says the provider is down when it is merely slow to speak. The
-probe retries such a round once with a bigger output ceiling, and the extra
-spend is claimed from the guard *before* the retry is sent.
-
-The retry gives the model more room, **not a bigger job**. The probe's prompt
-scales with its budget — "count to 80" becomes "count to 1200" — and re-deriving
-it for the retry makes a model that thinks spend the whole ceiling planning a
-task that grew to match it. The task stays the size it was; only the ceiling
-moves.
-
-### The probe has a spend guard
-
-A probe is a real request against a real account, and on a per-token relay
-the bill is real. `ccp ping` therefore costs the run before it starts:
-
-```bash
-ccp ping                          # primary tiers, ~20k tokens, inside the default budget
-ccp ping --all                    # REFUSED: --all is a bill, say how much you mean
-ccp ping --all --budget-tokens 200000
-ccp ping --tokens 100000 --rounds 3   # REFUSED: the plan does not fit the budget
-```
-
-The plan is `models x rounds x tokens`, refused outright when it does not fit
-the budget — half-running it is worse than refusing, because the half that
-ran is already spent. Each round claims its share as it goes, so a run that
-turns out more expensive than planned stops instead of finishing, and the
-table ends with what it spent:
-
-```
-probe spend: ~1,536 of 150,000 tokens
-```
-
-The default budget is 150k tokens, which covers a full sweep of the primary
-tiers with room to spare. It is a *ceiling on the probe*, not on your
-sessions.
-
-### OpenCode Go (opencode.ai)
-
-[OpenCode Go](https://opencode.ai/go) is a **flat $10/month subscription**, not
-a per-token gateway: DeepSeek V4.1 Flash alone gets 34,670 requests per 5 hours
-and 69,330 per month, worth $80 of list-price usage. It is kept for the same
-reason MiniMax is — a model that costs by the token is only worth reaching when
-it is the cheap one, and this one cannot run a balance down.
-
-```bash
-ccp opencode             # switch to it
-ccp models opencode      # the one id this group serves
-curl -s https://opencode.ai/inference/go/v1/models -H "Authorization: Bearer $OPENCODE_API_KEY"
-```
-
-**It is `native: true`, and that is the whole trick.** The console serves one
-endpoint per family — `chat/completions`, `responses`, `anthropic/v1/messages`,
-`google/v1beta` — and every text model is reachable through all of them, the
-console doing the translation. But the gateway *refuses a request without a
-conversation id*: "Request is missing x-opencode-session and cannot be routed
-efficiently". The id it wants is the header Claude Code already sends
-(`x-claude-code-session-id`), and Go recognises it as the native client's own.
-
-Going through LiteLLM would drop that header: LiteLLM forwards client headers
-only globally, and turning that on would push `anthropic-beta` at every
-gateway in the fleet — a strict one answers 400. Talking to the vendor
-directly lets the client's own headers arrive untouched, which is also what the
-console asks for ("your client should send typical coding agent traffic").
-
-**The endpoints are not interchangeable.** The catalogue splits the models
-between them — GLM, Kimi, DeepSeek and MiMo on `chat/completions`; MiniMax
-and Qwen on `messages` — and a model on the wrong one is refused outright.
-Muse Spark 1.3 Contributor is a third case: it is served by `/responses` only,
-and it answers `500` on the chat path.
-
-**Three models, and the tiers are not the same for all of them.** DeepSeek
-V4.1 Flash takes `default`, `fable` and `sonnet`: TTFT 1.2s, 222 tok/s, and the
-highest monthly allowance in the plan ($80). Muse Spark 1.3 Contributor takes
-`opus`, where the wait buys something. Beam Free takes `haiku`.
-
-Muse Spark is the cheaper model by a wide margin — $0.10/$0.20 per million
-against DeepSeek's $0.15/$0.60, 226,600 requests a month against 173,330, and
-the highest request count in the plan — and it is Meta's strongest coding model
-there. It is also the one that always thinks before it speaks: **511 reasoning
-tokens before its first visible word**, on a two-word reply, which is 10.3s to
-first token against the Flash's 1.2s. The reasoning does not come back as a
-`thinking` block — it is internal, and the answer arrives with the text.
-
-Tool calls and image input both work on it, and it answers the question before
-the tool call the way a careful assistant would ("正在为你查询北京天气。"
-followed by the `tool_use` block).
-
-**Beam Free** is the free one: Reflection AI's Beam 1.0, a 501B sparse mixture
-of experts with 23B active, open weights, and the only model in the plan whose
-usage is **Unlimited** rather than a monthly dollar allowance. It is the
-fastest thing here by a wide margin — **640ms to first token, 460 tok/s** —
-and it writes correct code: given a thread-safe TTL LRU cache to implement, it
-answered with an `OrderedDict` and an `RLock` in 5.7s. Its training term is
-*Not used* and it keeps requests for 30 days, so it is the only model in this
-plan that is both free and private. It is text-only, and Meta's-free tier
-aside it is excluded from China, so it needs the US exit.
-
-**Where the free one is good, and where it is not.** Measured head to head
-against the DeepSeek Flash on the same path, with the same prompts:
-
-| | Beam Free | DeepSeek V4.1 Flash |
-|---|---|---|
-| First token | **640ms** | 1.2s |
-| Tool call, right tool and right arguments | ✓ | ✓ |
-| Fix a buggy function | ✓ | ✓ (and in half the tokens) |
-| Follow three formatting constraints at once | ✓ | ✓ |
-| Find a needle in a long log | ✓ | ✓ |
-| **Reach the fix in a multi-step agent loop** | **7 turns, re-reading the same file four times** | **4 turns, straight to the write** |
-| A real task end to end (read, edit, run, verify) | **7.3s**, first token in 0.6s | 10.6s, first token in 1.7s |
-
-That last row is the one that matters for a coding agent. The two models
-produce the same answer; the difference is how many round trips it takes to
-get there, and a round trip is where the latency compounds. So the free one
-takes `haiku` — the tier that wants speed and cannot run out — and the paying
-Flash keeps `default`, `fable` and `sonnet`, where the work that needs to
-converge happens.
-
-The free one needed rewrites to get here, and they are the kind this project
-exists for — a client that speaks the Anthropic protocol sends fields that a
-gateway built for another one does not accept, and the answer is a 400 that
-points nowhere near the cause.
-
-| What Claude Code sends | What Beam Free's upstream says | The bridge |
-|---|---|---|
-| `system` as a list of text blocks | `400 … Invalid value for 'messages[0].content'` — the same prompt as a string is 200 | flattens it (`system_array: false`) |
-| `cache_control` on a message | `400 … Unrecognized request argument supplied: messages[4].cache_control` | strips it (`unsupported_fields`) |
-
-Both are facts in the registry, measured, and both are applied to that model
-alone — the same way the media rule already strips images from a text-only
-model. That is also why this provider is `bridged` rather than `native`: a
-native profile talks to the vendor directly, and nothing can rewrite the
-request on the way.
-
-Two more things the bridge had to absorb for this provider: the gateway wants
-a conversation id on every request, and LiteLLM drops client headers it does
-not know — so the deployment carries a fixed one of its own; and LiteLLM
-recognises `thinking: {type: adaptive}` only for models it knows, and drops it
-for the rest. Measured, the drop costs nothing: the same Claude Code request
-spent 39 reasoning tokens natively, 43 with the field removed and 90 through
-the bridge — the same order of magnitude, and the answers are the same.
-
-**Two models are out of reach from here, and it is not the key.** Muse Spark
-1.3 Contributor (the cheapest model in the plan at $0.10/$0.20 per million
-tokens) and Beam Free answer `403 RegionError "This model is not available in
-your country"` — Meta's geographic use policy does not cover this region, and
-the console says as much when it lists them as "limited regions". `iceman-
-contributor-free` needs the workspace's Privacy setting flipped to allow
-endpoints that train on request data.
-
-**The region is a property of the request, not of the account.** From a
-Chinese exit the gateway answers `403 RegionError — This model is not available
-in your country` for the models Meta restricts by geography (Muse Spark, Beam
-Free); through a US exit the same key gets `200` on the same model. The models
-that train on request data are a different question again and never a
-geography one.
-
-**Both are workspace settings, in Settings › Privacy, and they are two
-switches.** The toggle fires the mutation on change — there is no Save button:
-
-| Control | Unlocks |
-|---|---|
-| Training → *Allow paid endpoints that train on request data* | `muse-spark-1.3-contributor`, `muse-spark-1.2-contributor` |
-| Training → *Allow free endpoints that train on request data* | `iceman-contributor-free` |
-| Regions → *Global* | requests that originate in China |
-
-**Check *Global* in the same breath.** Europe and the United States are always
-enabled, and *Global* is what lets a request from China through. A workspace
-that has never saved its privacy settings allows Global by default — so the
-moment you save anything there, China stops working unless *Global* is
-selected too, and DeepSeek V4.1 Flash answers `403` where it answered `200` a
-minute earlier.
-
-Measured 2026-10-28: DeepSeek V4.1 Flash TTFT 1.2s / 222 tok/s, Muse Spark
-1.3 Contributor TTFT 10.3s / 126 tok/s, tool calls and image input work on
-both, and the response carries its own accounting — `"opencode": {"billing_source": "go",
-"allowance": 0.0000117}` — so every call says what it cost against the monthly
-allowance.
-
-**Do not hammer it.** The gateway sits behind Cloudflare, and a burst of
-requests trips its bot protection: the next call answers `403 error code:
-1010` (the owner's browser-signature ban) for a minute or two, and a request
-that gets through the ban comes back `401 Invalid credential` instead of the
-real error. One probe at a time is the working rate.
-
-### Trae CLI
-
-TraeCLI (ByteDance's enterprise coding agent) publishes **no API at all**. A
-logged-in TraeCLI holds a personal access token, exchanges it for a 14-day JWT,
-and runs every turn through one private RPC:
-
-```
-POST https://api.enterprise.trae.cn/api/ide/v2/llm_raw_chat
-```
-
-`bridge/trae_bridge.py` replays that and re-shapes the SSE dialect into Anthropic
-Messages on `:4100`.
-
-```bash
-ccp auth trae            # copy the TraeCLI token into proxy.env, then verify
-ccp bridge start trae
-ccp trae                 # ccp auto-starts the adapter if it is down
-```
-
-**Three protocol details that cost real time:**
-
-1. **Tool `parameters` must be a JSON *string*.** An object makes Trae answer
-   HTTP 500 with the bare body `Internal Server Error` and nothing else.
-2. **Responses are an SSE dialect**, not OpenAI streaming: `event: output`
-   carries a `tool_calls` array, `event: done` the `finish_reason`,
-   `event: token_usage` the counts. An empty `response` with a populated
-   `reasoning_content` is normal — thinking streams first.
-3. **A turn that is only a tool call still carries `content: " "`** (one space).
-   That is what makes the follow-up `tool_result` turn valid.
-
-**Images work, but the tier has to be a vision model.** The adapter emits
-OpenAI-style `image_url` data URLs correctly; the catch is that *TraeCLI* decides
-whether pixels reach the model and substitutes
-`[image/png content is not supported by current model]` on a text-only one.
-
-**The tiers are not uniform, so this depends on the tier you are on.** `opus` and
-`fable` are Doubao-Seed-2.1-pro and `haiku` is glm-5.3-flash, all three
-vision-capable; `default` and `sonnet` are DeepSeek-V4.1-Flash, which is
-text-only. Because `default` and `sonnet` are what this profile starts on, image
-work needs a vision tier selected explicitly: switch to `/model opus`, or name
-`trae-doubao-seed-2.1-pro` directly. `glm-5.3`, the strongest tool-caller on the
-subscription, is text-only and reachable through the `trae-glm-5.3` alias. With a
-vision tier selected, this was verified end to end: Claude Code's `Read` on a PNG
-travels through the adapter and the model names the colours correctly.
-
-> **Trae's catalogue reports 96k–184k; the real window is 1M.** `prompt_max_tokens`
-> is what *its own CLI* will put in one request, not the model's context. Taking
-> it at face value cost 5/6 of the window. A needle at the very end of the
-> context is retrieved at 333k, 555k and 888k input tokens; 1.25M returns HTTP
-> 200 with empty content and zero usage — a silent failure, not an error.
-> `ctx_default` overrides it, verified across four families. A request that
-> returns 200 is not proof; only retrieving something from the far end is.
-
-## 🔑 Credentials
-
-Everything lives in `~/.config/litellm/proxy.env` (mode `0600`), which the
-generated config references as `os.environ/…` and the systemd units load via
-`EnvironmentFile`. The handling rules come from magpie's provider-accounts design
-and are restricted to what applies to a tool that does **not** own the account:
-
-| Rule | Why |
-| :--- | :--- |
-| **Read, never refresh** | A tool that owns the rotating refresh token must stay its only refresher — a second one rotates the token out from under the first and signs it out. That was CodeBuddy's shape (archived); the rule outlives it |
-| **An unreadable store is an error, never empty** | `proxy.env` holds every provider's key; rewriting it from a failed read would drop the rest |
-| **Durable, atomic writes** | Temp file in the same directory, `flush` + `fsync`, then `os.replace`, mode `0600` — a crash must not leave a zeroed secrets file |
-| **Secrets are never resurrected from a backup** | `proxy.env` keeps no `.bak`; a key revoked in the last write must not come back. Config backups are safe — they hold no key |
-| **Say when a credential cannot renew itself** | A session with no `refreshToken` is reported, not silently used |
-
-Deliberately **not** adopted: account pools that switch the agent's own login,
-and quota-driven routing. ccp never takes ownership of a credential it does not
-own, and lets LiteLLM's cooldown decide which account is out. `ccp omp` is the
-one exception in shape, not in ownership: it delegates the pool to omp's broker
-and only receives a gateway token.
-
-```bash
-ccp auth copilot            # GitHub Copilot device flow
-ccp auth trae               # import the TraeCLI personal access token
-```
-
----
-
-## 🔐 omp accounts (multi-account login)
-
-`ccp` does not implement provider logins. If you want the “log in once, use
-several accounts” experience, ccp adapts **omp**, whose auth-broker owns the
-OAuth refresh and whose auth-gateway exposes the account pool as one Anthropic
-endpoint:
+`ccp` itself reads keys; it does not own provider logins. For the “log in once,
+use several accounts” workflow, ccp adapts **omp**:
 
 ```bash
 ccp omp setup              # install + start omp auth-broker (:8765) and auth-gateway (:4010)
-ccp omp login              # run `omp auth-broker login`; pick a provider once
-ccp omp accounts           # `omp usage`: per-account quota
+ccp omp login              # `omp auth-broker login`; pick a provider once
+ccp omp accounts           # `omp usage`: per-account plan windows
 ccp omp                    # list omp upstreams (opencode, anthropic, ...)
 ccp omp models opencode    # what that upstream serves
-ccp omp opencode           # switch to omp-backed OpenCode
+ccp omp opencode           # omp-backed OpenCode, beside `ccp opencode`
 ccp omp opencode kimi-k3   # ...or a model inside it
 ```
 
 **The layer is the provider, not one gateway-wide profile.** `ccp opencode`
-(direct ccp provider) and `ccp omp opencode` (omp account pool) are siblings:
-both are provider folders, and either can be active. The generated profile is
-`~/.claude/providers/omp-opencode.json`; an omp login for `anthropic` would
-produce `omp-anthropic.json` the same way.
+(direct ccp provider) and `ccp omp opencode` (omp account pool) are siblings.
+The generated profile is `~/.claude/providers/omp-opencode.json`; an omp login
+for `anthropic` produces `omp-anthropic.json` the same way.
 
-The generated profile carries **only the gateway bearer token**, never a
-provider credential. OAuth refresh, account rotation and quota stay in omp. Its
-sidecar `omp-*.json.ccp-dynamic` tells `ccp sync` and `ccp doctor` not to
-reconcile or archive the profile against the ccp bridge.
+The omp profile carries only the **gateway bearer token**, never a provider
+credential. omp owns OAuth refresh, account rotation and quota. Its sidecar
+`omp-*.json.ccp-dynamic` tells `ccp sync` and `ccp doctor` not to reconcile or
+archive the profile against the ccp bridge.
 
-Use exact omp ids such as `opencode-go/deepseek-v4.1-flash`; the HTTP gateway
-does not accept omp CLI role selectors like `@smol` (verified 404). `pi` is not
-used for this: it supports one credential per provider, while omp supports
-indexed OAuth accounts (`omp token <provider> --list` / `--account N`).
+Use exact omp ids (`opencode-go/deepseek-v4.1-flash`); the HTTP gateway does not
+accept omp CLI role selectors such as `@smol` (verified 404). `pi` is not used
+here: it supports one credential per provider, while omp indexes multiple OAuth
+accounts.
 
-`ccp groups` also uses omp as the **last fallback** in every group:
-`omp-deepseek-v4.1-flash` after the main/flash chains and `omp-kimi-k3` after
-`pro`. The deployments use omp's OpenAI chat face with
+### omp in the groups
+
+The same gateway is the final fallback in every group:
+
+```text
+main/flash  → ... → omp-deepseek-v4.1-flash
+pro         → ... → omp-kimi-k3
+```
+
+The omp deployments use the gateway's OpenAI chat face with
 `Authorization: Bearer`; its Anthropic face rejects LiteLLM's `x-api-key`
-(verified 401). `ccp omp setup` mirrors the gateway token into `proxy.env` as
-`OMP_AUTH_GATEWAY_TOKEN`; run `ccp bridge restart` once after that. If the
-gateway token is rotated later, run `ccp omp sync-token && ccp bridge restart`.
-
-`ccp route` prints each group's actual member → fallback order and the quota
-evidence. Only omp publishes a usage API here; OpenDesign, MiniMax and Qianfan
-do not. The command therefore marks those as unknown instead of inventing a
-ranking. `ccp route --strict` exits 1 when omp is in a group but is unreachable
-or below `--threshold` (default 10% remaining), which is suitable for a timer.
-
-Ports are `127.0.0.1:8765` (broker) and `127.0.0.1:4010` (gateway), deliberately
-outside ccp's own `4000/4001/4100` loopback range.
+(verified 401). `ccp omp setup` / `ccp omp sync-token` mirror the gateway token
+into `proxy.env` as `OMP_AUTH_GATEWAY_TOKEN`; run `ccp bridge restart` once to
+load it.
 
 ---
 
-## 🔀 Accounts, pools, routing groups and quota
+## Accounts and manual pools
 
-All **native LiteLLM** — ccp only writes the config that turns it on.
-
-An **account** is another deployment of the *same* model name, differing only in
-which credential it uses. LiteLLM load-balances across them and cools one down
-when it answers 401/429, so an exhausted login stops being used without the
-client knowing it exists.
+An **account** is another deployment of the same model name, differing only in
+which credential it uses. LiteLLM load-balances across accounts and cools one
+down when it answers 401/429.
 
 ```bash
-ccp accounts add <provider> a2 --token <key>   # a second credential, same model name
+ccp accounts add <provider> a2 --token <key>
 ccp accounts list
 ccp accounts remove <provider> a2
+ccp accounts group add daily <member> <member> --fallback <name>
 ccp render && ccp bridge restart
 ```
 
-Credentials go to `proxy.env` as `<PROVIDER>_API_KEY_<SUFFIX>`; only the *name*
-of that variable is recorded in `registry/profiles.yaml`, which is committed.
+Credentials go to `~/.config/litellm/proxy.env` as
+`<PROVIDER>_API_KEY_<SUFFIX>`; only the variable *name* is recorded in
+`registry/profiles.yaml`, which is committed.
 
-A **routing group** is one model name with a deployment per `(member, account)`
-pair, so a group is also a pool. Use it as the model and failover happens
-underneath. Claude Code reaches the curated groups through `ccp groups`
-(see [Staying on one profile](#staying-on-one-profile-groups)), or through
-`ccp -m group/<name>` when already on a bridged profile.
+A **routing group** is one LiteLLM model name with one deployment per
+`(member, account)` pair. Claude Code reaches the curated groups through
+`ccp groups`, or a custom one through `ccp -m group/<name>`.
 
-```bash
-ccp accounts group add daily qianfan-deepseek-v4.1-flash \
-    opendesign-deepseek-v4.1-flash --strategy usage-based-routing-v2 \
-    --fallback opendesign-deepseek-v4-flash
-ccp -m group/daily
-```
+---
 
-| `--strategy` | Behaviour |
-| :--- | :--- |
-| `simple-shuffle` (default) | random, weighted |
-| `usage-based-routing-v2` | whoever has used least of its limit |
-| `least-busy` | fewest in-flight requests |
-| `latency-based-routing` | fastest responding member |
-| `cost-based-routing` | cheapest member |
-
-Members may be aliases, registry ids, or `provider/model`.
+## Quota, usage and route checks
 
 ```bash
-ccp quota              # every provider that publishes a usage API
+ccp quota              # providers that publish a usage API
 ccp quota omp          # omp broker: per-account plan windows
-```
-
-*(No provider in the kept set publishes a usage API, so this prints nothing
-today. CodeBuddy's reader went with it.)*
-Readings are cached for two minutes because these endpoints are rate limited.
-
-> No provider in the current set uses accounts yet — that part was built for a
-> second CodeBuddy or CommandCode login, both archived. The three groups in
-> `registry/profiles.yaml` (`main`/`pro`/`flash`) are curation, not usage.
-> `main` and `pro` keep their existing DeepSeek routes. `flash` is
-> pinned to the text-only `beam-free` route, including during the scheduled
-> Qianfan window; it has no automatic fallback to a different model. A caller
-> needing image understanding must use a vision-capable route instead.
->
-> **Qianfan is the one member whose price depends on the clock** — full rate by
-> day, 20% after 21:00 — so it is deliberately absent from the committed
-> defaults: a failover that fires at midday bills five times what the same turn
-> costs after dark. `bridge/qianfan_window.py` rewrites the marked block in
-> `registry/profiles.yaml` and re-renders; the `ccp-qianfan-on` / `ccp-qianfan-off`
-> timers run it at 21:00 and 08:00. Both are `Persistent`, so a machine asleep at
-> 08:00 catches up instead of billing the night rate all day. `setup_bridge.sh`
-> installs the units.
-
----
-
-## 🩺 `ccp doctor`
-
-Three things drift silently on a machine, and each one fails late and
-confusingly:
-
-* a **profile** left installed for a provider that was retired — a valid file,
-  a live bridge, and the request only fails when somebody selects it, with a
-  400 that reads like the bridge is down;
-* the **active** profile naming a model the bridge no longer serves;
-* the **Hermes bot** left on a retired model, which fails only when somebody
-  messages it;
-* a **credential** that is not the bridge's key — the calls still work, because
-  the bridge forwards its own, but the config no longer says what it means;
-* **litter** left in `~/.config/litellm/` — more than one backup per file, or a
-  `proxy.env` backup, which makes a revoked key restorable;
-* a **proxy** that is configured but not listening — every call then hangs for
-  the connect timeout instead of failing at once;
-* **two names for one secret** in `proxy.env` — one provider, one variable, or
-  a rotation lands in one place and not the other.
-
-```bash
-ccp doctor          # what is installed, and what it points at
-ccp doctor --json   # the same, machine-readable
-ccp doctor --probe  # also send one request and name the model that answered
-```
-
-`--probe` is the only check that spends a token: it asks for one short answer
-and reports the `model` that LiteLLM says served it. When a fallback answers,
-the doctor says which model did — a retired primary is otherwise invisible,
-because the request still succeeds and the answer still looks plausible.
-
-A bridge that is still loading answers 5xx for a while — a cold start was
-measured at ~90s on this machine. The doctor retries (3 attempts, 2s apart,
-`--bridge-attempts` / `--bridge-delay`) and, if it never answers, names the
-bridge instead of declaring every bridged model dead. A 4xx is not retried:
-a wrong key is not a slow start.
-
-The served set is **derived**, not a list anyone maintains: the repository's
-rendered templates name the models the native providers answer to (they never
-reach LiteLLM, so the proxy's own model list does not have them), and the
-running bridge's `/v1/models` names every bridged deployment. A profile is
-dead when none of the models it names is in that union.
-
-`ccp sync` acts on the same judgement and archives the dead profiles into
-`~/.claude/providers_disabled/`. It used to archive a hand-written list, which
-was wrong in both directions: it did not know about a provider retired
-yesterday, and it listed a provider that had come back.
-
-## 📈 Token usage
-
-The bridge sees every Anthropic-shaped `usage` block that reaches ccp, whichever
-path the provider takes — native, LiteLLM, or a local adapter. That is the only
-vantage point with a cross-provider view: providers reached natively never touch
-LiteLLM, so LiteLLM's own spend table can never answer "what have I used this
-week".
-
-```bash
-ccp usage                 # last 7 days
-ccp usage --today
-ccp usage --days 30 --by-model
+ccp usage              # tokens + latency from the watchdog ledger
 ccp usage --by-provider
-ccp usage --all --json
+ccp usage --json
+ccp route              # group chain + the quota evidence that exists
+ccp route --strict     # exit 1 when omp is unreachable or below 10%
 ```
 
-The ledger is `~/.local/state/ccp/usage.jsonl`, one line per finished request,
-mode `0600`. Appending rather than rewriting a running total is deliberate: a
-crash mid-write loses at most the last line, and any window can be re-aggregated
-later without the writer having anticipated it. A rewritten total is the shape
-that goes to zero when the process dies during the write.
+Only omp publishes quota here; OpenDesign, MiniMax and Qianfan do not. `ccp
+route` therefore marks those as unknown instead of inventing a ranking. `ccp
+usage` records the four clocks separately — provider wait, first token,
+generation tail, end-to-end — so a sum of generation time cannot be mistaken
+for total model time.
 
-**Four numbers, not one.** Anthropic reports fresh input, cache reads and cache
-writes separately because they are priced differently, and `ccp usage` keeps
-them apart:
-
-```
-  fresh input        470
-  cache read       54.0k  (cheap tier)
-  cache write       1200
-  input total      55.7k
-  output            1230
-  grand total      56.9k
-
-  97.0% of input was served from cache
-```
-
-Note how far the last line moves: a total counting only `input_tokens` would
-report this session as 470 tokens instead of 55.7k of input. The cache is the
-difference between a long session looking nearly free and looking like what it
-costs.
-
-**No prices are applied.** Every plan here prices fresh input, cache reads and
-cache writes differently, and a stale multiplier is worse than no number — so
-the counts are shown and you multiply. `--json` gives the raw figures for
-whatever you bill against.
-
-`--no-usage` on `sse_watchdog.py` turns recording off; the proxy is otherwise
-unchanged.
+The Qianfan Token Plan is metered by wall-clock time (full price by day, 20%
+after 21:00). `bridge/qianfan_window.py`, driven by the `ccp-qianfan-on/off`
+timers, writes a git-ignored overlay for `main` at 21:00 and 08:00; the
+committed default stays the cheap daytime arrangement.
 
 ---
 
-## 📊 Benchmarks
+## Hermes
 
-`ccp ping <provider>` on this machine, identical prompt and settings for every
-row (2 rounds, ~200 output tokens per round):
+The local Hermes agent reaches providers through the same bridge:
 
-| Provider | Model | TTFT | tok/s | Total | Context |
-| :--- | :--- | ---: | ---: | ---: | :---: |
-| **opendesign** | `deepseek-v4-flash` | 1.4 s | **309.6** | **2.0 s** | 1M |
-| opendesign | `deepseek-v4.1-flash` | 1.7 s | 279.3 | 2.4 s | 1M |
-| minimax | `MiniMax-M3` | 2.4 s | 92.4 | 4.4 s | 1M |
-| minimax | `MiniMax-M3.1-Flash` | 4.7 s | 42.5² | 5.7 s | 1M |
-| trae | `DeepSeek-V4.1-Flash` | 3.4 s | 63.8² | 3.5 s | 1M |
-| trae | `DeepSeek-V4-Flash-Official` | 3.9 s | 166.5 | 5.0 s | 1M |
-| trae | `DeepSeek-V4-Pro-Official` | 6.4 s | 45.5² | 6.6 s | 1M |
-
-² **No decode window to measure**: the model thinks for seconds and then
-releases the whole answer at once, so the speed is scored against the whole
-request. Those figures are not comparable with the streaming rows, and the
-probe says so under the table. The same model once read **591 tok/s** under a
-formula that divided by a decode window that never existed — a figure its own
-11 s total cannot support.
-
-**This is one run, and the reasoning models swing.** `MiniMax-M3.1-Flash`
-read 838 ms / 148.7 tok/s in a run minutes after the 4.7 s / 42.5 tok/s
-above: how long a model thinks before it answers is erratic — the same
-prompt produced 24, 422 or 494 reasoning tokens in three attempts. Rank on
-the total, and read the `Think` column as part of the answer: it is the
-wait paid on every turn, before the first useful token exists.
-
-OpenDesign finishes a turn fastest here — `deepseek-v4-flash` in 2.0 s at
-309.6 tok/s, and `deepseek-v4.1-flash` half a second behind it. Trae is the
-slowest to start — 3.4–6.4 s before the first token — and fast only once it
-is decoding: `DeepSeek-V4-Flash-Official` moves 166.5 tok/s. Total time is
-the column an agent feels.
-
-### How the speed number is computed
-
-`ccp ping` follows the harness's own readout, short enough to copy exactly:
-
-```js
-tps = stats.decodeTokens / (stats.decodeMs / 1e3)
+```bash
+ccp hermes                 # what the bot is running now
+ccp hermes qianfan         # point it at Qianfan's default model
+ccp hermes trae deepseek-v4.1-flash
+ccp hermes qianfan --dry-run
 ```
 
-Both counters accumulate across steps, `decodeMs` runs from the first token to
-the last, and tool execution time never enters the denominator. `ccp ping` sums
-across rounds instead of averaging per-round rates — averaging lets one
-unrepresentative round pull the figure as hard as a long one, which is how the
-same provider read 501 tok/s on one run and 194 on the next, minutes apart.
-
-**Three traps this section exists to prevent:**
-
-1. **A short sample measures nothing.** At ~20 output tokens the fixed cost
-   dominates, and a real gap of under 10× looked like 35×. `-q` is for liveness
-   only; never rank on it.
-2. **Buffering inflates the rate.** A server that stalls and then dumps gives a
-   decode window of nearly zero. Such rounds use the whole request instead, and
-   the probe names them under the table, so the figure errs low rather than
-   high.
-3. **A ceiling is not a target.** `max_tokens` does not make a model produce that
-   many tokens; the probe's prompt length scales with `max_tokens` so it does not
-   stop at 30 regardless of the budget.
-
-**The answer has to fit inside the budget.** The probe asks for a numbered list
-sized at 40% of `max_tokens`, not 80%. Each number costs two or three tokens
-once the separators are counted, and a model that reasons before it answers
-spends part of the same budget on the reasoning. At 160 items and 200 tokens
-the answer itself did not fit: the model was cut off mid-thought and produced
-nothing — and the probe, which was counting the reasoning deltas as an answer,
-reported a healthy 183 tok/s for a round in which the model had not said a
-word. ClinePass returned `500 empty response content` about 65% of the time on
-that shape. Half the budget for the answer leaves room to reason; the answer
-is still long enough to time.
-
-**A round that produced no answer is a failed round.** The stream was well
-formed and the upstream was happy, so nothing in the transport said "error" —
-but the user gets nothing, and a speed measured on a round without an answer
-describes the reasoning, not the answer. Such a round is now reported as
-`No Answer`, and the summary names it:
-
-```
-  ⚠ rounds that failed: group/pro (1/2 — no answer within the budget)
-```
-
-The quick check needed the same treatment: 20 tokens is less than the
-reasoning alone costs on this fleet (19–45 tokens), so `-q` could never
-succeed against a reasoning model and reported it as down. It now asks for 64.
-
-**The deadline follows the budget.** The per-round timeout scales with
-`--tokens` (five seconds of headroom per token, 15 s floor, 240 s ceiling) instead
-of a flat 10 s. Trae's first byte alone ran past 17 s on the 200-token probe,
-and 100 s at 1000 tokens; a flat 10 s cut it off mid-answer — so the row read
-as a failure when the model was merely slow, and "trae is down" is a
-conclusion a user acts on. `--timeout` still overrides it.
-
-**A failed row says what failed.** The status keeps the whole code (`HTTP 502`,
-not `HTTP 50` — the old seven-character cut turned a gateway error into a code
-that does not exist), and an empty body is named rather than left blank: a
-gateway error on a loopback endpoint is the proxy answering for it.
+Both layouts work: one config per profile under
+`~/.hermes/profiles/<name>/config.yaml`, or a single
+`~/.hermes/config.yaml`. The command edits only the model keys, preserves
+comments, snapshots the profile, and restarts the gateway unit. `--profile`,
+`--config`, `--json` and `--dry-run` are available.
 
 ---
 
+## Doctor, restore and troubleshooting
+
+```bash
+ccp doctor              # backups, duplicate secrets, proxy port, served models
+ccp doctor --probe      # send a minimal request; print the model that answered
+ccp restore --dry-run   # show the plan
+ccp restore --yes       # restore pre-ccp settings; stop ccp services
+```
+
+`ccp doctor` fails on:
+- more than one `*.bak*` per config directory, or any backup of `proxy.env`
+- two environment variables holding the same secret
+- an `http_proxy` port that is configured but not listening
+- an installed profile whose model the bridge no longer serves
+
+`ccp restore` returns to `settings.json.ccp-original` (or the oldest non-ccp
+backup), stops `litellm-ccp`, `ccp-sse-watchdog` and `ccp-trae-bridge`, and
+never deletes profiles or keys. Use `--strip` to remove only ccp-injected keys.
+
 ---
 
-## 📄 License
+## Speed
 
-MIT License. Feel free to use, modify, and distribute!
+`ccp ping` reports TTFT, decode speed and total time; `--agent` reports the
+time to the first tool call. Recent measurements on this machine:
+
+| Provider | Model | TTFT | tok/s | Total |
+| :--- | :--- | ---: | ---: | ---: |
+| main group | `main` | 1.4 s | 300.5 | 2.0 s |
+| trae | `DeepSeek-V4.1-Flash` | 1.9 s | 125.3 | 2.1 s |
+| trae (`--agent`) | `DeepSeek-V4.1-Flash` | — | — | 1.0 s to tool call |
+
+A model that thinks before it answers reports its reasoning time separately;
+`ccp ping` says when a speed number has no decode window and is therefore not
+comparable with the streaming rows.
+
+---
+
+## Credentials and principles
+
+All credentials live in `~/.config/litellm/proxy.env` (mode `0600`), loaded by
+the systemd units. `ccp` reads credentials; it does not refresh or rotate a
+provider's login unless that provider explicitly delegates to omp. A secrets
+file is never rewritten from a failed read and never restored from a backup.
+
+The short version of [PRINCIPLES.md](PRINCIPLES.md):
+
+- one fact, one landing place — model facts in `registry/models.yaml`, choices
+  in `registry/profiles.yaml`, secrets in `proxy.env`;
+- generated files are never hand-edited;
+- failures say which layer, address and key failed;
+- fallback is explicit and visible in `ccp doctor` / `ccp route`;
+- ccp knows protocols, models and credentials — not business history.
+
+---
+
+## License
+
+MIT. See [LICENSE](LICENSE).

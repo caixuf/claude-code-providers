@@ -362,11 +362,8 @@ def test_each_candidate_carries_its_own_endpoint_and_credential():
         assert minimax[0]["endpoint"].startswith("https://api.minimax"), minimax[0]
         assert not minimax[0]["endpoint"].startswith("http://127.0.0.1"), minimax[0]
 
-    # Trae is archived (its profile sits in ~/.claude/providers_disabled), so a
-    # local install legitimately has no endpoint for it and the candidate falls
-    # back to the bridge. Assert the adapter's contract only when the profile is
-    # actually installed — otherwise this test fails for a machine that is
-    # configured exactly as intended.
+    # Trae is a local adapter. Assert its contract only when the profile and
+    # process are actually present — a machine may intentionally not run it.
     trae = get_configured_models(target="trae")
     if trae and _installed_endpoint("trae")[0]:
         assert trae[0]["endpoint"].startswith("http://127.0.0.1:4100")
@@ -623,7 +620,7 @@ def test_timeout_follows_the_token_budget():
 # The stream was well formed and the upstream was happy, so the probe counted
 # the reasoning deltas as an answer and reported "✔ 2/2" with a healthy
 # tok/s for a model that had not said a word. 18 of 20 probe rounds against
-# ClinePass ended that way: the answer did not fit the budget, the model was
+# An OpenAI-compatible gateway ended that way: the answer did not fit the budget, the model was
 # cut off mid-thought, and the row claimed a speed anyway.
 
 

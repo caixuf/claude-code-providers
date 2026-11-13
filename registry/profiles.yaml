@@ -132,14 +132,10 @@ profiles:
   # the "near-unlimited cheap model" case: nothing about reaching for it can
   # run a balance down.
   #
-  # `native: true`: the console also serves an Anthropic Messages surface at
-  # /inference/go/anthropic/v1, and that is the one to use. The gateway
-  # refuses a request without a conversation id, and the id it wants is the
-  # header Claude Code already sends (`x-claude-code-session-id`) — talking
-  # to the vendor directly lets the client's own headers arrive untouched.
-  # Through LiteLLM that header would be dropped, and forwarding client
-  # headers globally would push `anthropic-beta` at every gateway in the
-  # fleet. The key lives in proxy.env; there is no `ccp auth` step.
+  # Bridged (`native: false`): LiteLLM carries the deployment-level
+  # `x-opencode-session` header from registry/models.yaml, and the watchdog
+  # owns the `[1m]`/beta strip and max_tokens clamp. The key lives in
+  # proxy.env; there is no `ccp auth` step.
   opencode:
     provider: opencode
     native: false
@@ -352,11 +348,10 @@ accounts: {}
 # NOTE: LiteLLM allows a model in at most one group, so keep membership
 # disjoint. A member that is also an alias keeps its own entry.
 #
-# `main` and `pro` retain their current DeepSeek route. `flash` is the
-# text-only Beam fast route; keep it stable in the Qianfan window override too.
-#
-# The members are OpenDesign, with Cline as the stand-in. Qianfan is NOT in this
-# block: its Token Plan is metered by wall-clock time — full price by day, 20%
+# The members are OpenDesign; MiniMax, qianfan and an omp alias are the
+# fallbacks. `flash` is a normal vision-capable route now, not the old
+# Beam-only fast route. Qianfan is NOT in this block: its Token Plan is
+# metered by wall-clock time — full price by day, 20%
 # after 21:00 — so a failover that fires at midday bills five times what the
 # same turn costs after dark. A fallback has to be safe to hit at any hour, and
 # this one is not.

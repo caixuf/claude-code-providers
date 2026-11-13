@@ -36,7 +36,7 @@ anthropic-version: 2023-06-01
 `observed`: a bare call returns `{"type":"message","role":"assistant",...}` and a
 streamed one emits the standard Anthropic SSE event sequence.
 
-That matters because it removes the whole LiteLLM hop. `cline/` is bridged
+That matters because it removes the whole LiteLLM hop. `qianfan/` is bridged
 *because* its gateway only speaks OpenAI; this one does not have that problem. By
 this repo's own logic (`native: true` when the vendor already speaks Anthropic),
 Grok Build would be a native provider exactly like `deepseek/` and `minimax/`.
@@ -194,7 +194,7 @@ weight:
    product are a Grok Build subscription, not API usage. A gateway that starts
    checking a signature, binding a device, or requiring a fresh session breaks
    this overnight, and no amount of code here would help. That is a different
-   risk class from `cline/` or `trae/`, which are official (if under-documented)
+   risk class from `qianfan/` or `trae/`, which are official (if under-documented)
    API surfaces.
 2. **The credential model fights the repo's rules.** The design notes in
    `README.md` says **read, never refresh** for a

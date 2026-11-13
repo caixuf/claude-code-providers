@@ -5,7 +5,6 @@ Instead of hand-filling context window / vision / output caps for every model,
 this pulls them from, in priority order:
 
   1. The provider's own ``GET .../models`` endpoint (authoritative when present):
-       - Cline       : id/name only
        - DeepSeek    : standard OpenAI /v1/models shape
        - MiniMax     : ids only, still listing the legacy M2 rungs — the
                        allow-list and per-model ``hints`` carry the facts
@@ -744,7 +743,7 @@ def build(only: str | None) -> dict:
         # ids the gateway routes but this account's catalogue omits
         raw = list(raw) + list(pdef.get("extra_models") or [])
         # Some providers publish a catalogue wider than what is current or
-        # reachable: ClinePass advertises 469 ids and serves 6, and MiniMax's
+        # reachable: MiniMax's
         # /v1/models still lists the whole legacy M2 family. ``only_models``
         # narrows the registry to the curated set, so an unusable or retired id
         # never reaches a profile where it would fail at request time. It is

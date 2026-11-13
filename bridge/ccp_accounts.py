@@ -236,7 +236,7 @@ def cmd_add(args) -> int:
     if not args.token:
         raise AccountsError(
             "an account needs --token: ccp no longer imports a login itself "
-            "(that was CodeBuddy's, and its provider is archived)"
+            "(the retired CodeBuddy provider used this shape)"
         )
     token, label = args.token, (args.label or "")
 

@@ -60,7 +60,7 @@ def _bulk_prompt(max_tokens: int) -> str:
     or three tokens once the separators are counted, and a model that reasons
     before it answers spends part of the same budget on the reasoning: at
     160 items and 200 tokens the answer alone did not fit, the model was cut
-    off mid-thought, and ClinePass answered `500 empty response content`
+    off mid-thought, and one gateway answered `500 empty response content`
     about 65% of the time. The probe then reported a healthy speed for a
     model that had produced no answer at all. Half the budget for the answer
     leaves room for the reasoning, and the answer is still long enough to
@@ -733,7 +733,7 @@ async def _probe_single_round(
             # said anything, and the user gets nothing. Counting the
             # thinking deltas as an answer reported a healthy speed for a
             # model that had not answered: 18 of 20 probe rounds against
-            # ClinePass ended this way, and the row said "✔ 2/2". The
+            # A gateway ended this way, and the row said "✔ 2/2". The
             # budget is the usual reason (the model reasoned until it was
             # cut off), so the round is reported as what it is rather than
             # folded into the success rate.

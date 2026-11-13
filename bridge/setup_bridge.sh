@@ -79,7 +79,7 @@ else
 fi
 
 echo "=== 3. Applying Compatibility Patches ==="
-# Patch A: Support wrapped data.choices (e.g. Cline Pass non-streaming returns)
+# Patch A: Support wrapped data.choices (some OpenAI-compatible gateways return them)
 CONVERT_FILE=$("$VENV_DIR/bin/python" -c "import litellm.litellm_core_utils.llm_response_utils.convert_dict_to_response as m; print(m.__file__)")
 if [ -f "$CONVERT_FILE" ]; then
   if ! grep -q 'response_object = response_object\["data"\]' "$CONVERT_FILE"; then
