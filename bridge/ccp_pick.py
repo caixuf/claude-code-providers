@@ -10,7 +10,7 @@ exist and they must not be confused:
 * **bridged** — the request goes through LiteLLM, which only accepts
   ``model_name`` entries. Those come from the alias table, so the selectable
   name is the alias with its ``<provider>-`` prefix removed
-  (``qianfan-deepseek-v4.1-flash`` -> ``deepseek-v4.1-flash``).
+  (``opencode-deepseek-v4.1-flash`` -> ``deepseek-v4.1-flash``).
 
 Why this is its own file: bin/ccp is bash, and deriving the candidate list needs
 the registry, the alias table and the native/bridged distinction. Doing it once
@@ -169,8 +169,8 @@ class Provider:
         for name, upstream in self._choices.items():
             if name.lower() == lowered:
                 return name, upstream
-        # tolerate the upstream id and the full alias too, so `ccp trae qwen3.8-max`
-        # and `ccp qianfan qianfan-deepseek-v4.1-flash` both work
+        # tolerate the upstream id and the full alias too, so `ccp trae glm-5.3-flashx`
+        # and `ccp opencode opencode-deepseek-v4.1-flash` both work
         for name, upstream in self._choices.items():
             if upstream.lower() == lowered:
                 return name, upstream
@@ -433,7 +433,7 @@ def _same_model(served: str, asked: str) -> bool:
     a, b = norm(asked), norm(served)
     if a == b:
         return True
-    # LiteLLM prefixes entries (`openai/qianfan/deepseek-v4.1-flash-1017`) and
+    # LiteLLM prefixes entries (`openai/qpcmqam/gpt-6.1-sol`) and
     # the registry may prefix them too (`deepseek/deepseek-v4.1-flash`), while
     # the other side answers with the bare upstream id. Compare the last
     # segment of each, but only when one side actually has a prefix — otherwise

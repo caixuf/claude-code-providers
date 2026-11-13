@@ -97,17 +97,17 @@ AGENT_PROMPT = ("Read the file /etc/hostname so I can see the machine name. "
 
 DEFAULT_ROUNDS = 2
 # A model that thinks before it answers can spend a whole round's tokens on
-# reasoning and never reach the answer: Muse Spark 1.3 Contributor used 256
-# tokens of reasoning for a two-word reply, and the round was reported as a
-# failure — which says the provider is down when it is merely slow to speak.
+# reasoning and never reach the answer: a thinking model used 256 tokens of
+# reasoning for a two-word reply, and the round was reported as a failure —
+# which says the provider is down when it is merely slow to speak.
 # One retry with more room tells the two apart. The extra spend is claimed
 # from the guard before the retry is sent, so it cannot cost what the guard
 # does not allow.
 THINKING_RETRY_MULTIPLIER = 4
 # The retry has to clear the model's own preamble, not just double the
-# budget: Muse Spark 1.3 Contributor spent 511 output tokens before its first
-# visible word, so a 200-token round (and even a 800-token one) only ever
-# buys thinking. 3000 leaves room for the reasoning and the answer.
+# budget: a thinking model spent 511 output tokens before its first visible
+# word, so a 200-token round (and even a 800-token one) only ever buys
+# thinking. 3000 leaves room for the reasoning and the answer.
 THINKING_RETRY_MIN_TOKENS = 3000
 THINKING_RETRY_MAX_TOKENS = 6000
 # A short generation makes the tok/s column mostly noise: at ~20-60 output
@@ -272,9 +272,9 @@ def _installed_endpoint(provider: str) -> Tuple[str, str]:
     only place the real credential lives (the template ships a placeholder).
 
     The file is not necessarily named after the provider. Profiles are named
-    after the model they run (`opendesign-deepseek-v4.1-flash.json`,
-    `qianfan-deepseek-v4.1-flash.json`), and a rename in the registry renames
-    the installed file with it. Looking for `opendesign.json`, finding nothing
+    after the model they run (`opencode-deepseek-v4.1-flash.json`,
+    `trae-deepseek-v4.1-flash.json`), and a rename in the registry renames
+    the installed file with it. Looking for `opencode.json`, finding nothing
     and returning "" demoted every renamed provider to the LiteLLM bridge —
     and LiteLLM carries only the aliases, not the bare upstream ids, so the
     probe answered `Invalid model name passed in model=deepseek-v4.1-flash`

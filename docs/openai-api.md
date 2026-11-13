@@ -30,8 +30,7 @@ Through the ccp bridge, use the `model_name` entries, i.e. the names
 - `deepseek-flash`
 - `MiniMax-M3` / `MiniMax-M3.1-Flash`
 - `deepseek-v4.1-flash`
-- `qianfan-deepseek-v4.1-flash-1017`
-- `opencode-deepseek-v4.1-flash` / `beam-free` / `muse-spark-1.3-contributor`
+- `opencode-deepseek-v4.1-flash` / `beam-free`
 - `trae-deepseek-v4.1-flash` (the Trae adapter itself has no OpenAI face;
   this deployment goes through LiteLLM)
 - `qpcmqam-gpt-6.1-sol` / `qpcmqam-gpt-6.1-terra` / `qpcmqam-gemini-4-argon`

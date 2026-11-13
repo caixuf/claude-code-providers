@@ -70,7 +70,7 @@ def test_every_profile_is_a_provider_folder(providers):
     expected = set(yaml.safe_load(PROFILES.read_text())["profiles"])
     assert names == expected
     for name in names:
-        assert "-" not in name or name in {"opendesign"}, f"{name} is not a provider name"
+        assert "-" not in name, f"{name} is not a provider name"
 
 
 def test_each_folder_exposes_every_model_of_that_provider(docs, providers):
@@ -106,9 +106,9 @@ def test_native_folders_expose_upstream_ids(providers):
     # alias, so there is nothing to strip.
     assert dict(t.models)["DeepSeek-V4.1-Flash"] == "DeepSeek-V4.1-Flash"
 
-    o = providers["opendesign"]
-    assert o.native
-    assert "deepseek-v4.1-flash" in [n for n, _ in o.models]
+    m = providers["minimax"]
+    assert m.native
+    assert "MiniMax-M3.1-Flash" in [n for n, _ in m.models]
 
 
 # ── resolution ───────────────────────────────────────────────────────────
@@ -264,12 +264,12 @@ def test_group_context_is_the_smallest_window_in_the_chain(providers):
     """A group must not promise more context than its weakest member.
 
     The failover is part of what the name means: advertising the primary
-    member's 1.44M window would let a session fill a conversation the fallback
+    member's 1M window would let a session fill a conversation the fallback
     cannot accept, turning a quota failover into a context error.
     """
     group = providers["groups"]
     assert group.ctx("main") == 1_000_000
-    assert group.ctx("pro") == 272_000
+    assert group.ctx("pro") == 570_000
     assert group.ctx("flash") == 1_000_000
 
 # ── verification: the catalogue is a claim, the response is the evidence ──────

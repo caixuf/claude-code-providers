@@ -8,9 +8,6 @@ this pulls them from, in priority order:
        - DeepSeek    : standard OpenAI /v1/models shape
        - MiniMax     : ids only, still listing the legacy M2 rungs — the
                        allow-list and per-model ``hints`` carry the facts
-       - OpenDesign  : metadata.context_limit / context_budget
-       - Qianfan     : context_length / max_completions_tokens /
-                       architecture.input_modalities (the richest of the lot)
        - Trae        : no /models at all — trae_bridge.py's own catalogue RPC
    2. LiteLLM's bundled cost map (``litellm.model_cost``, ~4500 entries) for
       max_input_tokens / max_output_tokens / supports_vision.
@@ -24,7 +21,7 @@ still hand-edit; re-running merges (never clobbers manual ``aliases``/``tiers``)
 
 Usage:
   python3 discover_models.py                  # refresh all providers into registry
-  python3 discover_models.py --provider qianfan # just one
+  python3 discover_models.py --provider opencode # just one
   python3 discover_models.py --dry-run        # print, don't write
   python3 discover_models.py --diff           # show what changed vs current file
 """
@@ -123,62 +120,6 @@ PROVIDERS = {
         },
         "max_output_default": None,
     },
-    # OpenDesign (amr-link.open-design.ai) — an Anthropic-native aggregator, so
-    # it needs no bridge at all. Its /v1/models is unusually good: every entry
-    # carries metadata.context_limit (input window), metadata.context_budget
-    # (output cap) and architecture.input_modalities, so nothing has to be
-    # guessed or cross-checked against LiteLLM's cost map.
-    "opendesign": {
-        "models_url": "https://amr-link.open-design.ai/v1/models",
-        "api_base": "https://amr-link.open-design.ai",
-        "endpoint_kind": "anthropic",
-        "auth_env": "OPENDESIGN_API_KEY",
-
-        # One model on purpose: the DeepSeek Flash. The catalogue
-        # still lists the other families this provider sells, and a
-        # per-token account should not be able to reach them by accident.
-        "only_models": [
-            "deepseek-v4.1-flash",
-        ],
-        "profile_file": "~/.claude/providers/opendesign.json",
-        "max_output_default": None,
-    },
-    # Baidu Qianfan (文心 / 千帆) Token Plan, personal tier. Standard
-    # OpenAI-compatible Chat Completions, so it goes through the normal bridge
-    # with no adapter. Two quirks, both verified against the live endpoint:
-    #   * the Token Plan key is only accepted on the `/v2/tokenplan/personal/`
-    #     prefix — the same key gets `token_plan_person_api_key_not_allowed`
-    #     on plain `/v2/chat/completions`;
-    #   * the catalogue is not a capability list: it advertises ~30 ids, but the
-    #     plan serves a subscription-specific subset and which families are in
-    #     it changes with the key. Re-probed against the 2026-11-12 key:
-    #     `ernie-5.5-flash-preview` and `ernie-light-dt-1.0` answer 200, while
-    #     `ernie-5.1` — the "文心 5.1" the owner asked for — is refused with
-    #     `token_plan_person_model_not_supported`; that same key gets 401
-    #     `token_plan_person_api_key_not_allowed` on plain `/v2/chat/completions`.
-    #     ``only_models`` narrows the registry to the verified set so no profile
-    #     advertises a model this key cannot call.
-    #
-    # The verified set is re-derived per subscription, not inherited: the
-    # 2026-10-24 key answers for nine ids where the previous one answered for
-    # six — `deepseek-v4.1-flash-1017`, `deepseek-v4-pro-0813` and `glm-5.1`
-    # are new. `bridge/qianfan_probe.py` walks the whole catalogue against a
-    # key and prints the allow-list to paste here.
-    "qianfan": {
-        "models_url": "https://qianfan.baidubce.com/v2/models",
-        "api_base": "https://qianfan.baidubce.com/v2/tokenplan/personal",
-        "endpoint_kind": "openai",
-        "litellm_prefix": "openai/",
-        "auth_env": "QIANFAN_API_KEY",
-        "auth_file": "~/.config/litellm/config.yaml",
-        "auth_grep": "qianfan.baidubce.com",
-        # Verified to answer on the Token Plan Person endpoint.
-        "only_models": [
-                "deepseek-v4.1-flash",
-                "ernie-5.5-flash-preview",
-            ],
-        "max_output_default": 32000,
-    },
     # ── OpenCode Go (opencode.ai) ───────────────────────────────────────
     # A flat $10/month subscription with per-model request limits, not a
     # per-token gateway: DeepSeek V4.1 Flash alone gets 34,670 requests per
@@ -216,9 +157,9 @@ PROVIDERS = {
         # No trailing /v1: Claude Code appends "/v1/messages" to the base
         # verbatim, so a base that already ends in /v1 asks for
         # /v1/v1/messages and the gateway answers 404. Every other native
-        # provider here is written the same way (deepseek, minimax,
-        # opendesign), and LiteLLM's anthropic provider appends the same
-        # suffix to the base it is given.
+        # provider here is written the same way (deepseek, minimax), and
+        # LiteLLM's anthropic provider appends the same suffix to the base it
+        # is given.
         "api_base": "https://opencode.ai/inference/go/anthropic",
         # Go asks a client to identify itself rather than arrive as a generic
         # HTTP library: "Your client should send typical coding agent traffic"
@@ -238,23 +179,14 @@ PROVIDERS = {
         },
         "endpoint_kind": "anthropic",
         "auth_env": "OPENCODE_API_KEY",
-        # Two models, both inside the subscription, so neither can run a
+        # Both models are inside the subscription, so neither can run a
         # balance down.
         #
-        # The DeepSeek Flash is the default tier: it is the faster of the two.
-        # Muse Spark 1.3 Contributor is the cheaper one ($0.10/$0.20 against
-        # $0.15/$0.60) and Meta's strongest coding model in the plan, and it
-        # reads images, audio and video — but it always thinks before it
-        # answers, so its first visible token comes later.
-        #
-        # Muse Spark is not reachable from everywhere: Meta's geographic use
-        # policy does not cover China, so the gateway answers 403 RegionError
-        # for a Chinese exit and 200 through a US one. It also needs the
-        # workspace's privacy setting "Allow paid endpoints that train on
-        # request data" turned on, and it trains on the prompts it sees.
+        # The DeepSeek Flash is the primary model: it is the faster one and
+        # is used for every tier. Beam Free is kept as the free-and-unlimited
+        # option.
         "only_models": [
             "deepseek-v4.1-flash",
-            "muse-spark-1.3-contributor",
             "beam-free",
         ],
         "hints": {
@@ -264,15 +196,6 @@ PROVIDERS = {
             # id is lower-case here — the capitalised `DeepSeek-V4.1-Flash`
             # belongs to the Zen catalogue, a different endpoint.
             "deepseek-v4.1-flash": {"ctx": 1000000, "max_output": 384000, "vision": True},
-            # Muse Spark 1.3 Contributor: 1048576 context, 131072 output, and
-            # it reads images, audio and video as well as text. The limits and
-            # the modality list come from the catalogue, which publishes them
-            # without a key.
-            "muse-spark-1.3-contributor": {
-                "ctx": 1048576,
-                "max_output": 131072,
-                "vision": True,
-            },
             # Beam Free: Reflection AI's Beam 1.0, a 501B sparse mixture of
             # experts with 23B active, open weights, 1M context. Free for a
             # limited time, and Meta's-free tier aside it is the one model in
@@ -298,24 +221,63 @@ PROVIDERS = {
         },
         "max_output_default": None,
     },
+    # ── qpcmqam relay (ai.qpcmqam.cn) ────────────────────────────────────
+    # A personal OpenAI-compatible relay. Its catalogue is OpenAI-shaped but
+    # the published context is not the billable one for the 6.1 family, so the
+    # measured 272k ceiling and the relay-only gemini values are pinned as
+    # hints. Keeping it here means a full `ccp discover` does not drop the
+    # provider the `pro` group still reaches through.
+    "qpcmqam": {
+        "models_url": "https://ai.qpcmqam.cn/v1/models",
+        "api_base": "https://ai.qpcmqam.cn/v1",
+        "endpoint_kind": "openai",
+        "litellm_prefix": "openai/",
+        "auth_env": "QPCMQAM_API_KEY",
+        "auth_file": "~/.config/litellm/proxy.env",
+        "only_models": [
+            "gemini-4-argon",
+            "gpt-6.1-terra",
+            "gpt-6.1-sol",
+        ],
+        "hints": {
+            "gemini-4-argon": {"ctx": 1048576, "max_output": 65536, "vision": True},
+            "gpt-6.1-terra": {"ctx": 272000, "max_output": 65536, "vision": True},
+            "gpt-6.1-sol": {"ctx": 272000, "max_output": 65536, "vision": True},
+        },
+        "max_output_default": None,
+    },
     "trae": {
         "models_url": None,
         "api_base": "http://127.0.0.1:4100",
         "endpoint_kind": "anthropic",
         "auth_env": "TRAECLI_PERSONAL_ACCESS_TOKEN",
 
-        # One model on purpose: the DeepSeek Flash. The catalogue
-        # still lists the other families this provider sells, and a
-        # per-token account should not be able to reach them by accident.
+        # DeepSeek-V4.1-Flash stays the default tier; Doubao-Seed-2.1-pro,
+        # Doubao-Seed-Evolving and GLM-5.3-FlashX are the extras we keep
+        # selectable. Every other family the catalogue lists is still
+        # excluded, so a slot cannot drift onto a model this account was not
+        # meant to spend on.
         "only_models": [
             "DeepSeek-V4.1-Flash",
+            "Doubao-Seed-2.1-pro",
+            "Doubao-Seed-Evolving",
+            "glm-5.3-flashx",
         ],
         "catalogue_command": ["trae_bridge.py", "--list-models-json"],
-        # Verified by needle-in-a-haystack probe through :4100 (2026-10-15):
-        # 333k / 555k / 888k all retrieve a code placed at the very end of the
-        # context; 1.25M returns 200 with empty content. Real window is 1M —
-        # the same as every other provider here — not the 96k–184k Trae reports.
-        "ctx_default": 1000000,
+        # Everything the Trae catalogue publishes (ctx / max_output / vision)
+        # is taken automatically. The one exception is the model that was
+        # needle-probed: 333k / 555k / 888k all retrieved a code placed at the
+        # very end of the context, while 1.25M returned an empty 200. That
+        # measured 1M wins over the catalogue's 168k for this model only;
+        # every other model keeps the catalogue value until it is probed.
+        "ctx_measured": {
+            "DeepSeek-V4.1-Flash": 1000000,
+            # 570k passed, 580k failed (needle-in-a-haystack, 2026-11-13).
+            "Doubao-Seed-2.1-pro": 570000,
+            # 1.05M passed; the catalogue's 184k is prompt_max_tokens, not
+            # the window.
+            "glm-5.3-flashx": 1050000,
+        },
         "max_output_default": None,
     },
 }
@@ -510,51 +472,6 @@ def norm_generic(entry: dict, provider: dict, cmap: dict, idx: dict | None = Non
     }
 
 
-def norm_qianfan(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
-    """Qianfan's /v2/models carries real capability metadata per model.
-
-    Unlike most OpenAI-shaped catalogues this one publishes
-    ``context_length`` / ``max_completions_tokens`` and
-    ``architecture.input_modalities``, so nothing has to be guessed or
-    cross-checked against LiteLLM's cost map. ``type: multimodal`` plus an
-    ``image`` input modality is the vision signal.
-    """
-    arch = entry.get("architecture") or {}
-    mods = arch.get("input_modalities") or []
-    vision = "image" in mods if mods else None
-    return {
-        "name": entry.get("id", ""),
-        "ctx": entry.get("context_length") or entry.get("prompt_tokens"),
-        "max_output": (entry.get("max_completions_tokens")
-                       or entry.get("max_tokens")
-                       or provider.get("max_output_default")),
-        "vision": vision,
-        "endpoint_kind": provider["endpoint_kind"],
-    }
-
-
-def norm_opendesign(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
-    """OpenDesign exposes everything the registry needs inside the model entry.
-
-    ``metadata.context_limit`` is the input window, ``metadata.context_budget``
-    the output cap (verified by probe: asking for more than the budget is
-    rejected), and ``architecture.input_modalities`` lists image/audio/video.
-    Because the vendor states these itself there is no cost-map fallback here —
-    an absent field stays absent instead of being filled with someone else's
-    number.
-    """
-    meta = entry.get("metadata") or {}
-    arch = entry.get("architecture") or {}
-    mods = arch.get("input_modalities") or []
-    return {
-        "name": entry.get("id", ""),
-        "ctx": meta.get("context_limit"),
-        "max_output": meta.get("context_budget"),
-        "vision": "image" in mods if mods else None,
-        "endpoint_kind": "anthropic",
-    }
-
-
 def _guess_vision(mid: str) -> bool | None:
     m = mid.lower()
     if any(w in m for w in ("vision", "-vl", "omni", "gemini", "gpt-4o", "gpt-5", "claude-", "grok")):
@@ -577,50 +494,29 @@ def norm_trae(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) 
     its very end, and still answers at 888k tokens, while 1.25M returns HTTP 200
     with empty content and zero usage — a silent failure, not an error.
 
-    So ctx comes from ``ctx_default`` below, and ``prompt_max_tokens`` is kept
-    out of the registry entirely. Re-probe by moving the needle: a request that
-    succeeds is not proof, only one that answers correctly from the far end of
-    the context is.
+    So ``ctx`` follows the catalogue for every model unless that model has a
+    needle-probed value in ``ctx_measured`` (the DeepSeek Flash, currently 1M).
+    Re-probe by moving the needle: a request that succeeds is not proof, only
+    one that answers correctly from the far end of the context is.
     """
+    name = entry.get("config_name") or entry.get("id")
+    measured = (provider.get("ctx_measured") or {}).get(name)
     return {
-        "name": entry.get("config_name") or entry.get("id"),
-        "ctx": provider.get("ctx_default") or entry.get("ctx"),
+        "name": name,
+        # Catalogue values by default; a needle-probed measurement wins where
+        # one exists, because Trae reports prompt_max_tokens, not the window.
+        "ctx": measured or entry.get("ctx") or provider.get("ctx_default"),
         "max_output": entry.get("max_output"),
         "vision": entry.get("vision"),
         "endpoint_kind": "anthropic",
     }
 
 
-def norm_qianfan(entry: dict, provider: dict, cmap: dict, idx: dict | None = None) -> dict:
-    """Qianfan's /v2/models carries real capability metadata per model.
-
-    Unlike most OpenAI-shaped catalogues this one publishes
-    ``context_length`` / ``max_completions_tokens`` and
-    ``architecture.input_modalities``, so nothing has to be guessed or
-    cross-checked against LiteLLM's cost map. ``type: multimodal`` plus an
-    ``image`` input modality is the vision signal.
-    """
-    arch = entry.get("architecture") or {}
-    mods = arch.get("input_modalities") or []
-    vision = "image" in mods if mods else None
-    return {
-        "name": entry.get("id", ""),
-        "ctx": entry.get("context_length") or entry.get("prompt_tokens"),
-        "max_output": (entry.get("max_completions_tokens")
-                       or entry.get("max_tokens")
-                       or provider.get("max_output_default")),
-        "vision": vision,
-        "endpoint_kind": provider["endpoint_kind"],
-    }
-
-
 NORMALIZERS = {
     "deepseek": norm_deepseek,
     "minimax": norm_generic,
-    "opendesign": norm_opendesign,
-    "qianfan": norm_qianfan,
-    # 壹佳API publishes ids only, so the generic normalizer finds nothing and
-    # the measured facts come from the provider's `hints` instead.
+    # The OpenCode catalogue publishes ids only, so the generic normalizer
+    # finds nothing and the measured facts come from its `hints` instead.
     "opencode": norm_generic,
     "trae": norm_trae,
 }

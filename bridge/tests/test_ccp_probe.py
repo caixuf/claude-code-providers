@@ -71,8 +71,6 @@ def test_get_configured_models_specific_target():
     # every row is the model that was asked for, at the provider that serves it
     assert all("deepseek" in c["wire_name"].lower() for c in found)
     assert {c["provider"] for c in found} <= {
-        "opendesign",
-        "qianfan",
         "trae",
         "opencode",
     }
@@ -306,7 +304,7 @@ def test_print_table(capsys):
 
 def test_every_provider_has_candidates():
     """A provider that cannot be probed is the bug this guards."""
-    for name in ("opencode", "deepseek", "minimax", "opendesign", "qianfan", "trae"):
+    for name in ("opencode", "deepseek", "minimax", "trae"):
         found = get_configured_models(target=name)
         assert found, f"{name} yielded no probe candidates"
 
@@ -314,10 +312,10 @@ def test_every_provider_has_candidates():
 def test_native_providers_are_probed_not_skipped():
     """The native providers are addressed by upstream id.
 
-    MiniMax and DeepSeek have no alias at all, and the ones that do (Trae,
-    OpenDesign) are native — so for all of them the upstream id is what goes
-    on the wire. A candidate that went through LiteLLM instead would be
-    probing a name the vendor does not know.
+    MiniMax and DeepSeek have no alias at all, and the one that does (Trae)
+    is native — so for all of them the upstream id is what goes on the wire.
+    A candidate that went through LiteLLM instead would be probing a name the
+    vendor does not know.
     """
     deepseek = get_configured_models(target="deepseek")
     assert [c["wire_name"] for c in deepseek] == ["deepseek-flash"]
@@ -331,12 +329,10 @@ def test_native_providers_are_probed_not_skipped():
     # the ids MiniMax's own Anthropic-compatibility docs support.
     assert names == ["MiniMax-M3", "MiniMax-M3.1-Flash"], names
 
-    opendesign = get_configured_models(target="opendesign")
-    assert [c["wire_name"] for c in opendesign] == ["deepseek-v4.1-flash"]
-    assert all(c["native"] for c in opendesign)
-
     trae = get_configured_models(target="trae")
-    assert [c["wire_name"] for c in trae] == ["DeepSeek-V4.1-Flash"]
+    assert {c["wire_name"] for c in trae} == {
+        "DeepSeek-V4.1-Flash", "Doubao-Seed-2.1-pro",
+        "Doubao-Seed-Evolving", "glm-5.3-flashx"}
     assert all(c["native"] for c in trae)
 
 
@@ -726,7 +722,7 @@ def test_a_buffered_round_is_flagged_to_the_reader(capsys):
     from ccp_probe import print_table
 
     results = [{
-        "provider": "opendesign",
+        "provider": "opencode",
         "display_name": "deepseek-v4-flash",
         "available": True,
         "status": "2/2",

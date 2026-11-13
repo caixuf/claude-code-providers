@@ -31,11 +31,10 @@ from bridge_auth import MASTER_KEY  # noqa: E402
 REGISTRY = REPO_DIR / "registry"
 MODELS_YAML = REGISTRY / "models.yaml"
 PROFILES_YAML = REGISTRY / "profiles.yaml"
-# Local, git-ignored state that overrides parts of profiles.yaml. The group
-# membership `bridge/qianfan_window.py` toggles lives here rather than in the
-# committed file: the timer rewrites it several times a day, and a tracked file
-# that changes on a schedule makes every `git status` a lie and every commit a
-# chance to ship "it happened to be 21:00" as the default.
+# Local, git-ignored state that overrides parts of profiles.yaml. Keeping
+# experimental group membership here means the committed file stays the
+# default every fresh clone gets, and `git status` does not go dirty when a
+# local override is in effect.
 PROFILES_LOCAL = REGISTRY / "profiles.local.yaml"
 CONFIG_OUT = BRIDGE_DIR / "config.generated.yaml"
 CLAMP_OUT = BRIDGE_DIR / "clamp_map.json"
@@ -546,8 +545,8 @@ def render_media_rules(
     Derived, never hand-written: ``vision`` is a *discovered* fact in
     ``registry/models.yaml``, so a model that gains or loses image input changes
     this list on the next ``ccp render`` with nobody editing a second place. A
-    hand-kept list is the failure this replaces — it would have named the Qianfan
-    flash id that broke, and missed whichever id the next key serves.
+    hand-kept list is the failure this replaces — it would have named one
+    provider's text-only flash id and missed whichever id the next key serves.
 
     Only an explicit ``vision: false`` qualifies. ``vision: null`` means the
     probe never established the capability, and downgrading on a guess would
@@ -753,9 +752,8 @@ def render_profile(
     # A native profile talks to the provider directly: there is no bridge to
     # translate the name it sends, so it must send the UPSTREAM model id and
     # never the alias or the `[1m]` suffix. Both are ccp inventions that exist
-    # only because the watchdog strips them on the bridged path — a native
-    # endpoint answers `model "opendesign[1m]" not found` (verified against
-    # OpenDesign and the same for any strict Anthropic endpoint).
+    # only because the watchdog strips them on the bridged path — a strict
+    # native endpoint answers `model "<id>[1m]" not found`.
     # deepseek/minimax only appeared to work because their tiers happen to use
     # ids with no alias; those profiles were silently one rename away from
     # breaking.

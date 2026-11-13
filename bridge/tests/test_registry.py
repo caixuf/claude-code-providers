@@ -248,33 +248,33 @@ def test_the_chatgpt_endpoint_kind_keeps_its_native_prefix():
 def test_account_becomes_a_second_deployment_under_the_same_name():
     """An account must NOT fork the model name.
 
-    `qianfan-deepseek-v4.1-flash-a2` as its own name would give no failover at all: the
-    client sends `qianfan-deepseek-v4.1-flash`, gets the primary, and never learns the second
-    account exists. Both accounts are deployments of `qianfan-deepseek-v4.1-flash`, which is
+    `opencode-deepseek-v4.1-flash-a2` as its own name would give no failover at all: the
+    client sends `opencode-deepseek-v4.1-flash`, gets the primary, and never learns the second
+    account exists. Both accounts are deployments of `opencode-deepseek-v4.1-flash`, which is
     what lets LiteLLM move to the second when the first answers 401/429.
     """
     doc, profiles = _load()
-    profiles["accounts"] = {"qianfan": {"a2": {"auth_env": "QIANFAN_API_KEY_2"}}}
+    profiles["accounts"] = {"opencode": {"a2": {"auth_env": "OPENCODE_API_KEY_2"}}}
     deps = _deployments(_render_with(profiles))
-    pool = [(m, k) for n, m, k in deps if n == "qianfan-deepseek-v4.1-flash"]
+    pool = [(m, k) for n, m, k in deps if n == "opencode-deepseek-v4.1-flash"]
     assert len(pool) == 2, "one deployment per account"
-    assert {k for _, k in pool} == {"QIANFAN_API_KEY", "QIANFAN_API_KEY_2"}
+    assert {k for _, k in pool} == {"OPENCODE_API_KEY", "OPENCODE_API_KEY_2"}
     assert len({m for m, _ in pool}) == 1, "same upstream model"
     # no suffixed name is invented anywhere
     assert not [n for n, _, _ in deps
-                if n.startswith("qianfan-deepseek-v4.1-flash-") and n.endswith("a2")]
+                if n.startswith("opencode-deepseek-v4.1-flash-") and n.endswith("a2")]
 
 
 def test_account_pool_also_covers_the_1m_bracket_spelling():
-    """Claude Code sends `qianfan-deepseek-v4.1-flash[1m]`, so the pool must exist under that
+    """Claude Code sends `opencode-deepseek-v4.1-flash[1m]`, so the pool must exist under that
     name too — otherwise a 1M session gets no failover."""
     doc, profiles = _load()
-    profiles["accounts"] = {"qianfan": {"a2": {"auth_env": "QIANFAN_API_KEY_2"}}}
+    profiles["accounts"] = {"opencode": {"a2": {"auth_env": "OPENCODE_API_KEY_2"}}}
     text = _render_with(profiles)
     deps = _deployments(text)
-    bracketed = [(m, k) for n, m, k in deps if n == "qianfan-deepseek-v4.1-flash[1m]"]
+    bracketed = [(m, k) for n, m, k in deps if n == "opencode-deepseek-v4.1-flash[1m]"]
     assert len(bracketed) == 2
-    assert {k for _, k in bracketed} == {"QIANFAN_API_KEY", "QIANFAN_API_KEY_2"}
+    assert {k for _, k in bracketed} == {"OPENCODE_API_KEY", "OPENCODE_API_KEY_2"}
     # and the file is still valid YAML (quoting must wrap the whole name)
     parsed = yaml.safe_load(text)
     assert len(parsed["model_list"]) == len(deps)
@@ -287,10 +287,10 @@ def test_group_is_one_model_name_with_several_deployments():
     doc, profiles = _load()
     profiles["groups"] = {
         "daily": {
-            "members": ["qianfan-deepseek-v4.1-flash", "opendesign-deepseek-v4.1-flash",
+            "members": ["opencode-deepseek-v4.1-flash", "qpcmqam-gpt-6.1-sol",
                         "MiniMax-M3"],
             "routing_strategy": "usage-based-routing-v2",
-            "fallback": ["qianfan-deepseek-v4.1-flash"],
+            "fallback": ["opencode-deepseek-v4.1-flash"],
         }
     }
     deps = _deployments(_render_with(profiles))
@@ -299,7 +299,7 @@ def test_group_is_one_model_name_with_several_deployments():
     # three *different* upstreams, each keeping its provider's key
     assert len({m for _, m, _ in group}) == 3
     assert {k for _, _, k in group} == {
-        "QIANFAN_API_KEY", "OPENDESIGN_API_KEY", "MINIMAX_PLAN_API_KEY"}
+        "OPENCODE_API_KEY", "QPCMQAM_API_KEY", "MINIMAX_PLAN_API_KEY"}
 
 
 def test_group_members_join_their_account_pools():
@@ -309,30 +309,30 @@ def test_group_members_join_their_account_pools():
     account to try, defeating the point of the pool.
     """
     doc, profiles = _load()
-    profiles["accounts"] = {"qianfan": {"a2": {"auth_env": "QIANFAN_API_KEY_2"}}}
-    profiles["groups"] = {"daily": {"members": ["qianfan-deepseek-v4.1-flash",
-                                                "opendesign-deepseek-v4.1-flash"]}}
+    profiles["accounts"] = {"opencode": {"a2": {"auth_env": "OPENCODE_API_KEY_2"}}}
+    profiles["groups"] = {"daily": {"members": ["opencode-deepseek-v4.1-flash",
+                                                "qpcmqam-gpt-6.1-sol"]}}
     deps = _deployments(_render_with(profiles))
     names = [n for n, _, _ in deps]
     # 2 members, one of which has 2 accounts = 3 deployments, all one name
     assert names.count("daily") == 3
     assert not [n for n in names if n.startswith("daily-")], "accounts must not fork the name"
     keys = sorted(k for n, _, k in deps if n == "daily")
-    assert keys == ["OPENDESIGN_API_KEY", "QIANFAN_API_KEY", "QIANFAN_API_KEY_2"]
+    assert keys == ["OPENCODE_API_KEY", "OPENCODE_API_KEY_2", "QPCMQAM_API_KEY"]
 
 
 def test_group_emits_router_settings_that_litellm_accepts():
     doc, profiles = _load()
     profiles["groups"] = {
         "daily": {
-            "members": ["qianfan-deepseek-v4.1-flash", "opendesign-deepseek-v4.1-flash"],
+            "members": ["opencode-deepseek-v4.1-flash", "qpcmqam-gpt-6.1-sol"],
             "routing_strategy": "usage-based-routing-v2",
-            "fallback": ["qianfan-deepseek-v4.1-flash"],
+            "fallback": ["opencode-deepseek-v4.1-flash"],
         }
     }
     parsed = yaml.safe_load(_render_with(profiles))
     rs = parsed["router_settings"]
-    assert rs["fallbacks"] == [{"daily": ["qianfan-deepseek-v4.1-flash"]}]
+    assert rs["fallbacks"] == [{"daily": ["opencode-deepseek-v4.1-flash"]}]
     rg = rs["routing_groups"][0]
     assert rg["group_name"] == "daily"
     # the group claims exactly the one model_name its deployments share
@@ -355,14 +355,14 @@ def test_group_fallback_chain_is_one_ordered_list():
     doc, profiles = _load()
     profiles["groups"] = {
         "daily": {
-            "members": ["opendesign-deepseek-v4.1-flash"],
-            "fallback": ["qianfan-deepseek-v4.1-flash", "qianfan-deepseek-v4.1-flash"],
+            "members": ["opencode-deepseek-v4.1-flash"],
+            "fallback": ["opencode-deepseek-v4.1-flash", "opencode-deepseek-v4.1-flash"],
         }
     }
     parsed = yaml.safe_load(_render_with(profiles))
     fb = parsed["router_settings"]["fallbacks"]
     assert fb == [
-        {"daily": ["qianfan-deepseek-v4.1-flash", "qianfan-deepseek-v4.1-flash"]}
+        {"daily": ["opencode-deepseek-v4.1-flash", "opencode-deepseek-v4.1-flash"]}
     ], f"the chain must stay one entry in order, got {fb}"
 
 
@@ -374,9 +374,9 @@ def test_group_member_may_be_an_alias_a_registry_id_or_provider_slash_model():
     profiles["groups"] = {
         "g": {
             "members": [
-                "qianfan-deepseek-v4.1-flash",           # alias
+                "opencode-deepseek-v4.1-flash",        # alias
                 "MiniMax-M3",                          # bare registry id (minimax)
-                "opendesign/deepseek-v4.1-flash",      # provider/model
+                "qpcmqam/gpt-6.1-sol",                 # provider/model
             ]
         }
     }
@@ -384,26 +384,25 @@ def test_group_member_may_be_an_alias_a_registry_id_or_provider_slash_model():
     group = [m for n, m, _ in deps if n == "g"]
     assert len(group) == 3
     assert "anthropic/MiniMax-M3" in group                 # minimax (native)
-    assert "anthropic/deepseek-v4.1-flash" in group        # opendesign (native)
-    # qianfan uses LiteLLM's OpenAI-compatible builder; its Token-Plan
-    # namespace is part of the deployment. See
+    assert "anthropic/deepseek-v4.1-flash" in group        # opencode (bridged)
+    # qpcmqam uses LiteLLM's OpenAI-compatible builder. See
     # render_config.litellm_model_string_override.
-    assert "openai/deepseek-v4.1-flash-1017" in group
+    assert "openai/gpt-6.1-sol" in group
 
 
 def test_group_dedupes_only_identical_deployments():
     """A bare id and an alias that resolve to the same provider+model are one
     deployment; the group must not emit the same target twice."""
     doc, profiles = _load()
-    profiles["groups"] = {"g": {"members": ["qianfan-deepseek-v4.1-flash",
-                                            "qianfan/deepseek-v4.1-flash-1017"]}}
+    profiles["groups"] = {"g": {"members": ["opencode-deepseek-v4.1-flash",
+                                            "opencode/deepseek-v4.1-flash"]}}
     deps = _deployments(_render_with(profiles))
     assert [n for n, _, _ in deps if n == "g"] == ["g"]
 
 
 def test_unresolvable_group_member_is_reported_not_emitted(capsys):
     doc, profiles = _load()
-    profiles["groups"] = {"g": {"members": ["qianfan-deepseek-v4.1-flash", "no-such-model-xyz"]}}
+    profiles["groups"] = {"g": {"members": ["opencode-deepseek-v4.1-flash", "no-such-model-xyz"]}}
     deps = _deployments(_render_with(profiles))
     assert [n for n, _, _ in deps if n == "g"] == ["g"]  # only the resolvable one
     assert "no-such-model-xyz" in capsys.readouterr().err
@@ -412,20 +411,20 @@ def test_unresolvable_group_member_is_reported_not_emitted(capsys):
 def test_native_profile_sends_the_upstream_model_id_not_the_alias():
     doc, profiles = _load()
     models, providers = render_config.index_models(doc)
-    # opendesign has an alias whose name differs from the upstream id
-    assert profiles["aliases"]["opendesign-deepseek-v4.1-flash"]["model"] == "deepseek-v4.1-flash"
+    # trae has an alias whose name differs from the upstream id
+    assert profiles["aliases"]["trae-deepseek-v4.1-flash"]["model"] == "DeepSeek-V4.1-Flash"
     rendered = render_config.render_profile(
-        "opendesign",
-        profiles["profiles"]["opendesign"],
+        "trae",
+        profiles["profiles"]["trae"],
         models,
         providers,
         render_config._alias_index(profiles),
         profiles,
     )
     env = json.loads(rendered)["env"]
-    assert env["ANTHROPIC_BASE_URL"] == "https://amr-link.open-design.ai"
+    assert env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:4100"
     for key in ("ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"):
-        assert "opendesign" not in env[key], f"{key} leaks the ccp alias upstream: {env[key]}"
+        assert "trae-deepseek" not in env[key], f"{key} leaks the ccp alias upstream: {env[key]}"
 
 
 def test_native_profile_never_carries_the_1m_marker():
@@ -454,11 +453,11 @@ def test_bridged_profiles_still_use_alias_and_1m_marker():
     alias_idx = render_config._alias_index(profiles)
     env = json.loads(
         render_config.render_profile(
-            "qianfan", profiles["profiles"]["qianfan"], models, providers,
+            "opencode", profiles["profiles"]["opencode"], models, providers,
             alias_idx, profiles
         )
     )["env"]
-    assert env["ANTHROPIC_MODEL"] == "qianfan-deepseek-v4.1-flash-1017[1m]"
+    assert env["ANTHROPIC_MODEL"] == "opencode-deepseek-v4.1-flash[1m]"
     assert env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:4000"
 
 
@@ -513,7 +512,7 @@ def test_group_clamp_is_the_lowest_cap_in_the_whole_chain():
     doc, profiles = _load()
     profiles = {**profiles, "groups": {
         "g": {
-            "members": ["opendesign-deepseek-v4.1-flash"],
+            "members": ["opencode-deepseek-v4.1-flash"],
             "fallback": ["qpcmqam-gpt-6.1-sol"],
         }
     }}
@@ -527,8 +526,8 @@ def test_omp_is_the_last_fallback_without_lowering_the_group_clamp():
     """omp joins the groups as a last resort, via its chat-completions face.
 
     The Anthropic face of the gateway rejects LiteLLM's x-api-key (401), so the
-    deployments use `openai/` + Bearer. `omp-kimi-k3` caps output at 131072 and
-    must not be put in `main`/`flash`, or their 328k clamp would collapse.
+    deployments use `openai/` + Bearer. `omp-kimi-k3` stays out of the groups;
+    the omp last resort is `omp-deepseek-v4.1-flash`.
     """
     doc, profiles = _load()
     models, providers = render_config.index_models(doc)
@@ -541,13 +540,16 @@ def test_omp_is_the_last_fallback_without_lowering_the_group_clamp():
     groups = profiles["groups"]
     assert "omp-deepseek-v4.1-flash" in groups["main"]["fallback"]
     assert "omp-deepseek-v4.1-flash" in groups["flash"]["fallback"]
-    assert "omp-kimi-k3" in groups["pro"]["fallback"]
+    assert "omp-deepseek-v4.1-flash" in groups["pro"]["fallback"]
     assert "omp-kimi-k3" not in groups["main"]["fallback"]
 
     clamp = render_config.render_clamp(models, providers, profiles)
-    assert clamp["main"] == 328000
-    assert clamp["pro"] == 65536
-    assert clamp["flash"] == 328000
+    # Only `pro` holds the 16k Trae models. `main` keeps OpenCode's 384k and
+    # `flash` keeps Beam's 131k, so the low-cap models do not tax the groups
+    # used for everyday work.
+    assert clamp["main"] == 384000
+    assert clamp["pro"] == 16000
+    assert clamp["flash"] == 131072
 
 
 def test_trae_is_native_and_answers_on_the_loopback():
@@ -580,15 +582,15 @@ def test_trae_is_native_and_answers_on_the_loopback():
         assert "[1m]" not in str(val), f"{key} carries the bridged marker: {val}"
 
 
-def test_opendesign_is_registered_and_discovered():
-    """The provider must declare itself discoverable and native, and its tiers
-    must resolve to ids the catalogue actually lists."""
+def test_opencode_is_registered_and_discovered():
+    """The provider must declare itself bridged, and its tiers must resolve to
+    ids the catalogue actually lists."""
     doc, profiles = _load()
     models, _ = render_config.index_models(doc)
-    assert profiles["profiles"]["opendesign"]["native"] is True
-    known = {m for (p, m) in models if p == "opendesign"}
-    assert known, "opendesign models missing from registry/models.yaml"
-    for tier, tspec in profiles["profiles"]["opendesign"]["tiers"].items():
+    assert profiles["profiles"]["opencode"]["native"] is False
+    known = {m for (p, m) in models if p == "opencode"}
+    assert known, "opencode models missing from registry/models.yaml"
+    for tier, tspec in profiles["profiles"]["opencode"]["tiers"].items():
         assert tspec["model"] in known, f"tier {tier} -> {tspec['model']} not in the catalogue"
 
 
@@ -662,10 +664,8 @@ def test_media_rules_name_the_model_that_actually_failed():
     This is the id that answered 400 "image_url is only supported by certain
     models" and killed a session whose history carried a screenshot — Trae's
     adapter substitutes "[image/png content is not supported by current model]"
-    instead. The Qianfan id that failed the same way
-    (`qianfan-deepseek-v4-flash`) is no longer exposed: the Token Plan only
-    serves deepseek-v4.1-flash, which reads images, so the rule follows the
-    registry to the one model that is still text-only.
+    instead. The registry still records that model as text-only; the two extra
+    Trae models added for vision work are not downgraded.
     """
     doc, profiles = _load()
     models, providers = render_config.index_models(doc)
@@ -695,10 +695,9 @@ def test_media_rules_spare_the_models_that_can_read_images():
     """A vision model must keep its pixels — downgrading it would be a silent
     loss of what the user attached."""
     _models, _profiles, text_only = _media_rules()
-    assert "qianfan-deepseek-v4.1-flash" not in text_only
-    assert "opendesign-deepseek-v4.1-flash" not in text_only
+    assert "opencode-deepseek-v4.1-flash" not in text_only
     assert "deepseek-flash" not in text_only
-    assert "qianfan-deepseek-v4.1-flash" not in text_only
+    assert "MiniMax-M3" not in text_only
 
 
 def test_media_rules_follow_the_registry_not_a_second_list():
@@ -716,18 +715,17 @@ def test_media_rules_follow_the_registry_not_a_second_list():
         return render_config.render_media_rules(index, profiles, emitted)
 
     before = rules_for(doc)
-    assert "qianfan-deepseek-v4.1-flash" not in before
+    assert "opencode-deepseek-v4.1-flash" not in before
 
     flipped = json.loads(json.dumps(doc))
     for provider in flipped["providers"]:
-        if provider["name"] != "qianfan":
+        if provider["name"] != "opencode":
             continue
         for model in provider["models"]:
-            if model["name"] in {"deepseek-v4.1-flash", "deepseek-v4.1-flash-1017"}:
+            if model["name"] == "deepseek-v4.1-flash":
                 model["vision"] = False
     after = rules_for(flipped)
-    assert "qianfan-deepseek-v4.1-flash" in after
-    assert "qianfan-deepseek-v4.1-flash" not in before
+    assert "opencode-deepseek-v4.1-flash" in after
 
 
 def test_media_rules_never_name_a_model_the_registry_does_not_call_text_only():
@@ -770,10 +768,10 @@ def test_rendered_request_rules_carry_the_media_rule():
 def test_local_overlay_is_gitignored_and_absent_by_default():
     """Wall-clock state must not live in a tracked file.
 
-    The qianfan window used to rewrite registry/profiles.yaml, so a commit
-    taken at 23:00 shipped "Qianfan first" as what a fresh clone starts with,
-    and every `git status` was dirty. The override is now a git-ignored file
-    that render merges last.
+    A local override used to rewrite registry/profiles.yaml, so a commit
+    taken mid-experiment shipped those values as what a fresh clone starts
+    with, and every `git status` was dirty. The override is now a git-ignored
+    file that render merges last.
     """
     import subprocess
 
@@ -782,28 +780,22 @@ def test_local_overlay_is_gitignored_and_absent_by_default():
         cwd=REPO, capture_output=True, text=True,
     )
     assert ignored.returncode == 0, "registry/profiles.local.yaml must be git-ignored"
-    # The committed profiles.yaml describes the daytime arrangement: no group
-    # names Qianfan, so a clone that never runs a timer is on the cheap one.
-    doc, profiles = _load()
-    for gname, gspec in (profiles.get("groups") or {}).items():
-        for member in gspec.get("members") or []:
-            assert "qianfan" not in member, f"{gname} ships Qianfan as a member: {member}"
 
 
 def test_local_overlay_replaces_a_whole_top_level_key():
     """A shallow merge, so naming a group replaces it rather than appending.
 
     Deep-merging would make it impossible to *remove* a member by writing a
-    shorter list, which is the one thing the window switch needs to do.
+    shorter list, which is the one thing a local override needs to do.
     """
-    doc, profiles = _load()
-    overlay = {"groups": {"main": {"members": ["qianfan-deepseek-v4.1-flash"]}}}
+    _doc, profiles = _load()
+    overlay = {"groups": {"main": {"members": ["opencode-deepseek-v4.1-flash"]}}}
     merged = {**profiles, **overlay}
-    assert merged["groups"]["main"]["members"] == ["qianfan-deepseek-v4.1-flash"]
+    assert merged["groups"]["main"]["members"] == ["opencode-deepseek-v4.1-flash"]
     assert merged["groups"]["main"].get("fallback") is None
     # The overlay owns the whole `groups` key, so it must name every group it
     # wants kept — replacing is the point, and a merge that silently preserved
-    # unnamed members would make "remove Qianfan from pro" impossible to say.
+    # unnamed members would make "remove OpenCode from pro" impossible to say.
     assert set(merged["groups"]) == {"main"}
     # Keys it does not name at all are untouched.
     assert merged["aliases"] is profiles["aliases"]
@@ -827,7 +819,6 @@ def test_field_rules_name_beam_and_nothing_else():
 
     assert stripped.get("beam-free") == ["cache_control"]
     assert "opencode-deepseek-v4.1-flash" not in stripped
-    assert "muse-spark-1.3-contributor" not in stripped
 
     expected = {
         render_config.litellm_key_for(profiles, pname, mname)

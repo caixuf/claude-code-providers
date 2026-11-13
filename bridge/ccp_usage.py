@@ -3,8 +3,8 @@
 
 Only the bridge sees Anthropic-shaped `usage` for every provider, so the ledger
 written by sse_watchdog is the one place a cross-provider total can come from.
-Providers behind a native endpoint (deepseek, minimax, opendesign, codex) do
-not traverse LiteLLM at all, so LiteLLM's own spend table can never answer this.
+Providers behind a native endpoint (deepseek, minimax) do not traverse LiteLLM
+at all, so LiteLLM's own spend table can never answer this.
 
 No prices are baked in here. Every plan on this machine prices cache reads,
 cache writes and fresh input differently, and a wrong multiplier is worse than

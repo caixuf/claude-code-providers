@@ -29,10 +29,8 @@ conversation state. The rules that keep it that way are in
 | :--- | :--- | :--- | :--- |
 | `deepseek/` | `deepseek-flash` | native Anthropic | 1M context |
 | `minimax/` | `MiniMax-M3.1-Flash` | native Anthropic | M3 as the fast tiers |
-| `opendesign/` | `deepseek-v4.1-flash` | native Anthropic | 1.05M context |
-| `qianfan/` | `deepseek-v4.1-flash-1017` | bridged → LiteLLM | 1.44M context |
 | `opencode/` | `deepseek-v4.1-flash` | bridged → LiteLLM | OpenCode Go subscription |
-| `trae/` | `DeepSeek-V4.1-Flash` | local adapter `:4100` | text-only model |
+| `trae/` | `DeepSeek-V4.1-Flash` | local adapter `:4100` | text-only default; GLM/豆包 extras |
 | `qpcmqam/` | `gpt-6.1-terra` | bridged → LiteLLM | personal relay |
 | `groups/` | `main` | bridged → LiteLLM | `main` / `pro` / `flash` routing groups |
 | `omp-opencode/` | `opencode-go/deepseek-v4.1-flash` | omp gateway `:4010` | dynamic, after `ccp omp` |
@@ -79,14 +77,14 @@ ccp omp login
 
 ```bash
 ccp                                  # list providers; * marks the active one
-ccp qianfan                          # switch to Qianfan's default model
-ccp -m qianfan-deepseek-v4.1-flash-1017  # switch model within the current provider
+ccp opencode                         # switch to the OpenCode Go subscription
+ccp -m opencode-deepseek-v4.1-flash  # switch model within the current provider
 ccp groups                           # stay on main/pro/flash routing groups
 ccp groups pro                       # start on the deliberate `pro` group
 ccp omp opencode                     # omp-backed OpenCode, beside `ccp opencode`
 ccp -c                               # what is active, and where it points
 ccp ping                             # health + TTFT + token speed
-ccp models qianfan                   # context / output cap / vision
+ccp models opencode                  # context / output cap / vision
 ccp doctor                           # is the install still consistent?
 ccp restore --dry-run                # how to get back to the pre-ccp state
 ```
@@ -123,9 +121,10 @@ strips it before LiteLLM. Native profiles never carry it.
 `ccp groups` points at the local bridge and exposes three routing groups:
 
 ```text
-main    opendesign → MiniMax → qianfan → omp-deepseek-v4.1-flash
-pro     qpcmqam-sol → qpcmqam-terra → opendesign → MiniMax → qianfan → omp-kimi-k3
-flash   opendesign → MiniMax → qianfan → omp-deepseek-v4.1-flash
+main    opencode-deepseek → MiniMax-M3.1-Flash → omp-deepseek
+pro     glm-5.3-flashx → Doubao-Seed-2.1-pro → opencode-deepseek
+        → MiniMax-M3.1-Flash → omp-deepseek
+flash   beam-free → MiniMax-M3.1-Flash → opencode-deepseek → omp-deepseek
 ```
 
 LiteLLM fails over inside the request. If one provider runs out of quota, the
@@ -329,16 +328,11 @@ ccp route              # group chain + the quota evidence that exists
 ccp route --strict     # exit 1 when omp is unreachable or below 10%
 ```
 
-Only omp publishes quota here; OpenDesign, MiniMax and Qianfan do not. `ccp
-route` therefore marks those as unknown instead of inventing a ranking. `ccp
-usage` records the four clocks separately — provider wait, first token,
-generation tail, end-to-end — so a sum of generation time cannot be mistaken
-for total model time.
-
-The Qianfan Token Plan is metered by wall-clock time (full price by day, 20%
-after 21:00). `bridge/qianfan_window.py`, driven by the `ccp-qianfan-on/off`
-timers, writes a git-ignored overlay for `main` at 21:00 and 08:00; the
-committed default stays the cheap daytime arrangement.
+Only omp publishes quota here; MiniMax does not. `ccp route` therefore marks
+the rest as unknown instead of inventing a ranking. `ccp usage` records the
+four clocks separately — provider wait, first token, generation tail,
+end-to-end — so a sum of generation time cannot be mistaken for total model
+time.
 
 ---
 
@@ -348,9 +342,9 @@ The local Hermes agent reaches providers through the same bridge:
 
 ```bash
 ccp hermes                 # what the bot is running now
-ccp hermes qianfan         # point it at Qianfan's default model
+ccp hermes opencode        # point it at OpenCode's default model
 ccp hermes trae deepseek-v4.1-flash
-ccp hermes qianfan --dry-run
+ccp hermes opencode --dry-run
 ```
 
 Both layouts work: one config per profile under
