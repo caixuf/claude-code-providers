@@ -564,6 +564,95 @@ class TraeStream:
 
 # ── HTTP server ───────────────────────────────────────────────────────────
 
+def _json_args_closed(parts: list[str], state: tuple[int, int, bool, bool, bool]) -> tuple[bool, tuple[int, int, bool, bool, bool]]:
+    """Incrementally check whether accumulated JSON arguments are structurally closed."""
+    done, depth, in_string, escaped, started = state
+    if done < len(parts):
+        for ch in "".join(parts[done:]):
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_string = False
+            elif ch == '"':
+                in_string = True
+            elif ch in "{[":
+                depth += 1
+                started = True
+            elif ch in "}]":
+                depth -= 1
+        state = (len(parts), depth, in_string, escaped, started)
+    return (started and depth == 0 and not in_string), state
+
+
+class _ToolCallSlots:
+    """Resolve Trae tool-call chunks into independent Anthropic tool_use slots.
+
+    Trae backends frequently reuse raw ``index=0`` (or omit ``index``) across
+    parallel tool calls in a single turn. Re-keying a reused raw index onto a
+    new slot when a new call starts keeps distinct tool IDs and arguments
+    separated instead of splicing them into one invalid JSON object.
+    """
+
+    def __init__(self) -> None:
+        self.slots: list[dict] = []
+        self._active_by_raw: dict[int, int] = {}
+        self._last_id_by_raw: dict[int, str] = {}
+
+    def feed(self, call: dict) -> tuple[dict, dict | None, bool, str]:
+        raw_idx = 0 if call.get("index") is None else call.get("index")
+        raw_id = call.get("id")
+        call_id = str(raw_id) if isinstance(raw_id, int) else (raw_id or "")
+        fn = call.get("function_call") or {}
+        fn_name = fn.get("name") or ""
+        arg_delta = fn.get("arguments") or ""
+
+        superseded: dict | None = None
+        if raw_idx not in self._active_by_raw:
+            open_new = True
+        else:
+            cur = self.slots[self._active_by_raw[raw_idx]]
+            args_closed, cur["scan"] = _json_args_closed(cur["parts"], cur["scan"])
+            last_id = self._last_id_by_raw.get(raw_idx, "")
+            if call_id and last_id and call_id != last_id:
+                open_new = bool(fn_name) and (
+                    (fn_name != cur["name"]) or args_closed or (not cur["parts"])
+                )
+            else:
+                open_new = bool(fn_name) and (
+                    (bool(cur["name"]) and fn_name != cur["name"]) or args_closed
+                )
+            if open_new:
+                superseded = cur
+
+        if open_new:
+            slot_idx = len(self.slots)
+            slot = {
+                "id": call_id or "toolu_trae_%d_%s" % (slot_idx, uuid.uuid4().hex[:12]),
+                "name": fn_name,
+                "parts": [],
+                "scan": (0, 0, False, False, False),
+                "closed": False,
+                "content_index": None,
+            }
+            self.slots.append(slot)
+            self._active_by_raw[raw_idx] = slot_idx
+        else:
+            slot = self.slots[self._active_by_raw[raw_idx]]
+            if call_id and slot["id"].startswith("toolu_trae_"):
+                slot["id"] = call_id
+            if fn_name and not slot["name"]:
+                slot["name"] = fn_name
+
+        if call_id:
+            self._last_id_by_raw[raw_idx] = call_id
+        if arg_delta:
+            slot["parts"].append(arg_delta)
+        return slot, superseded, open_new, arg_delta
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "trae-bridge"
@@ -692,6 +781,50 @@ class Handler(BaseHTTPRequestHandler):
                 except (json.JSONDecodeError, TypeError):
                     continue
 
+    @staticmethod
+    def _json_arguments_closed(args_str: str) -> bool:
+        """Return True when args_str has a structurally balanced JSON container."""
+        depth = 0
+        in_string = False
+        escaped = False
+        started = False
+        for ch in args_str:
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_string = False
+            elif ch == '"':
+                in_string = True
+            elif ch in "{[":
+                depth += 1
+                started = True
+            elif ch in "}]":
+                depth -= 1
+        return started and depth == 0 and not in_string
+
+    @classmethod
+    def _starts_new_tool_slot(
+        cls,
+        cur_slot: dict,
+        call_id: str,
+        last_id_at_raw_idx: str,
+        fn_name: str,
+    ) -> bool:
+        """Detect when Trae reuses raw index (typically 0) for another parallel tool call."""
+        if not fn_name:
+            return False
+        if call_id:
+            if last_id_at_raw_idx and call_id != last_id_at_raw_idx:
+                return bool(fn_name != cur_slot["name"] or cls._json_arguments_closed(cur_slot["args"]))
+            return False
+        return bool(
+            (cur_slot["name"] and fn_name != cur_slot["name"])
+            or cls._json_arguments_closed(cur_slot["args"])
+        )
+
     def _streaming(self, q, first, model) -> None:
         msg_id = "msg_trae_" + uuid.uuid4().hex[:24]
         self.send_response(200)
@@ -708,7 +841,9 @@ class Handler(BaseHTTPRequestHandler):
 
         next_index = 0
         text_index: int | None = None
-        tools: dict[int, dict] = {}
+        slots: list[dict] = []
+        active_slot_by_raw_idx: dict[int, dict] = {}
+        last_id_by_raw_idx: dict[int, str] = {}
         usage = {"input_tokens": 0, "output_tokens": 0}
         finish = ""
 
@@ -761,37 +896,64 @@ class Handler(BaseHTTPRequestHandler):
                         "delta": {"type": "text_delta", "text": data["response"]}})
 
                 for call in data.get("tool_calls") or []:
-                    idx = call.get("index", 0)
+                    raw_idx = call.get("index")
+                    if raw_idx is None:
+                        raw_idx = 0
+                    raw_id = call.get("id")
+                    call_id = str(raw_id) if raw_id is not None and raw_id != "" else ""
                     fn = call.get("function_call") or {}
-                    if idx not in tools:
+                    fn_name = fn.get("name") or ""
+                    fn_args = fn.get("arguments") or ""
+                    cur = active_slot_by_raw_idx.get(raw_idx)
+                    need_new = (cur is None) or self._starts_new_tool_slot(
+                        cur, call_id, last_id_by_raw_idx.get(raw_idx, ""), fn_name)
+                    if call_id:
+                        last_id_by_raw_idx[raw_idx] = call_id
+                    if need_new:
                         close_text()
+                        if cur is not None and not cur["closed"]:
+                            self._sse("content_block_stop", {
+                                "type": "content_block_stop", "index": cur["index"]})
+                            cur["closed"] = True
                         slot = {
                             "index": next_index,
-                            "id": call.get("id") or "toolu_trae_%d_%s"
-                                  % (idx, uuid.uuid4().hex[:12]),
-                            "name": fn.get("name") or "",
+                            "id": call_id or "toolu_trae_%d_%s"
+                                  % (len(slots), uuid.uuid4().hex[:12]),
+                            "name": fn_name,
+                            "args": "",
+                            "closed": False,
                         }
                         next_index += 1
-                        tools[idx] = slot
+                        slots.append(slot)
+                        active_slot_by_raw_idx[raw_idx] = slot
+                        cur = slot
                         self._sse("content_block_start", {
-                            "type": "content_block_start", "index": slot["index"],
-                            "content_block": {"type": "tool_use", "id": slot["id"],
-                                              "name": slot["name"] or "tool",
+                            "type": "content_block_start", "index": cur["index"],
+                            "content_block": {"type": "tool_use", "id": cur["id"],
+                                              "name": cur["name"] or "tool",
                                               "input": {}}})
-                    if fn.get("arguments"):
+                    else:
+                        if call_id and cur["id"].startswith("toolu_trae_"):
+                            cur["id"] = call_id
+                        if fn_name and not cur["name"]:
+                            cur["name"] = fn_name
+                    if fn_args:
+                        cur["args"] += fn_args
                         self._sse("content_block_delta", {
                             "type": "content_block_delta",
-                            "index": tools[idx]["index"],
+                            "index": cur["index"],
                             "delta": {"type": "input_json_delta",
-                                      "partial_json": fn["arguments"]}})
+                                      "partial_json": fn_args}})
 
             close_text()
-            for idx in sorted(tools):
-                self._sse("content_block_stop", {"type": "content_block_stop",
-                                                 "index": tools[idx]["index"]})
+            for slot in slots:
+                if not slot["closed"]:
+                    self._sse("content_block_stop", {"type": "content_block_stop",
+                                                     "index": slot["index"]})
+                    slot["closed"] = True
             self._sse("message_delta", {
                 "type": "message_delta",
-                "delta": {"stop_reason": _stop_reason(finish, bool(tools)),
+                "delta": {"stop_reason": _stop_reason(finish, bool(slots)),
                           "stop_sequence": None},
                 "usage": usage})
             self._sse("message_stop", {"type": "message_stop"})
@@ -803,7 +965,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _non_streaming(self, q, first, model) -> None:
         text = ""
-        calls: dict[int, dict] = {}
+        slots: list[dict] = []
+        active_slot_by_raw_idx: dict[int, dict] = {}
+        last_id_by_raw_idx: dict[int, str] = {}
         usage = {"input_tokens": 0, "output_tokens": 0}
         finish = ""
         for kind, data in self._drain(q, first):
@@ -823,20 +987,39 @@ class Handler(BaseHTTPRequestHandler):
             elif kind == "output":
                 text += data.get("response") or ""
                 for call in data.get("tool_calls") or []:
-                    idx = call.get("index", 0)
+                    raw_idx = call.get("index")
+                    if raw_idx is None:
+                        raw_idx = 0
+                    raw_id = call.get("id")
+                    call_id = str(raw_id) if raw_id is not None and raw_id != "" else ""
                     fn = call.get("function_call") or {}
-                    slot = calls.setdefault(idx, {
-                        "id": call.get("id") or "toolu_trae_%d" % idx,
-                        "name": "", "args": ""})
-                    if fn.get("name"):
-                        slot["name"] = fn["name"]
-                    slot["args"] += fn.get("arguments") or ""
+                    fn_name = fn.get("name") or ""
+                    fn_args = fn.get("arguments") or ""
+                    cur = active_slot_by_raw_idx.get(raw_idx)
+                    need_new = (cur is None) or self._starts_new_tool_slot(
+                        cur, call_id, last_id_by_raw_idx.get(raw_idx, ""), fn_name)
+                    if call_id:
+                        last_id_by_raw_idx[raw_idx] = call_id
+                    if need_new:
+                        slot = {
+                            "id": call_id or "toolu_trae_%d" % len(slots),
+                            "name": fn_name,
+                            "args": "",
+                        }
+                        slots.append(slot)
+                        active_slot_by_raw_idx[raw_idx] = slot
+                        cur = slot
+                    else:
+                        if call_id and cur["id"].startswith("toolu_trae_"):
+                            cur["id"] = call_id
+                        if fn_name and not cur["name"]:
+                            cur["name"] = fn_name
+                    cur["args"] += fn_args
 
         blocks = []
         if text:
             blocks.append({"type": "text", "text": text})
-        for idx in sorted(calls):
-            slot = calls[idx]
+        for slot in slots:
             try:
                 parsed = json.loads(slot["args"] or "{}")
             except json.JSONDecodeError:
@@ -850,7 +1033,7 @@ class Handler(BaseHTTPRequestHandler):
             "id": "msg_trae_" + uuid.uuid4().hex[:24],
             "type": "message", "role": "assistant", "model": model,
             "content": blocks,
-            "stop_reason": _stop_reason(finish, bool(calls)),
+            "stop_reason": _stop_reason(finish, bool(slots)),
             "stop_sequence": None, "usage": usage})
 
 

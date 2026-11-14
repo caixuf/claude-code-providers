@@ -349,6 +349,17 @@ class _FakeHandler(tb.Handler):
     def __init__(self):
         self.wfile = self._W()
         self._chunked = False
+        self.status_code = None
+        self.headers_sent = []
+
+    def send_response(self, code, message=None):
+        self.status_code = code
+
+    def send_header(self, keyword, value):
+        self.headers_sent.append((keyword, value))
+
+    def end_headers(self):
+        pass
 
     @property
     def written(self):
@@ -356,6 +367,129 @@ class _FakeHandler(tb.Handler):
 
     def log_message(self, *a):
         pass
+
+
+def _parse_chunked_sse(raw: bytes) -> list[tuple[str, dict]]:
+    """Decode Transfer-Encoding: chunked SSE bytes written by _FakeHandler."""
+    pos = 0
+    buf = bytearray()
+    while pos < len(raw):
+        end_len = raw.index(b"\r\n", pos)
+        size = int(raw[pos:end_len], 16)
+        pos = end_len + 2
+        if size == 0:
+            break
+        buf.extend(raw[pos:pos + size])
+        pos += size + 2
+    events = []
+    for frame in buf.decode().strip().split("\n\n"):
+        if not frame:
+            continue
+        ev, data = "", {}
+        for line in frame.splitlines():
+            if line.startswith("event: "):
+                ev = line[7:]
+            elif line.startswith("data: "):
+                data = json.loads(line[6:])
+        events.append((ev, data))
+    return events
+
+
+def test_streaming_splits_parallel_tool_calls_reusing_index_zero_different_tools():
+    events = [
+        ("output", {"tool_calls": [
+            {"index": 0, "id": "call_1", "function_call": {"name": "durable_roster", "arguments": "{}"}},
+            {"index": 0, "id": "call_2", "function_call": {"name": "terminal", "arguments": '{"command":"ping -c 1 127.0.0.1"}'}},
+        ]}),
+        ("done", json.dumps({"finish_reason": "tool_calls"})),
+        ("eof", None),
+    ]
+    h = _FakeHandler()
+    q, first = _Queue(events).take()
+    h._streaming(q, first, "trae-glm-5.3-flashx")
+    parsed = _parse_chunked_sse(h.written)
+    starts = [d for ev, d in parsed if ev == "content_block_start"]
+    stops = [d for ev, d in parsed if ev == "content_block_stop"]
+    assert [(s["index"], s["content_block"]["id"], s["content_block"]["name"]) for s in starts] == [
+        (0, "call_1", "durable_roster"),
+        (1, "call_2", "terminal"),
+    ]
+    assert [s["index"] for s in stops] == [0, 1]
+    args_by_idx = {0: "", 1: ""}
+    for ev, d in parsed:
+        if ev == "content_block_delta" and d["delta"]["type"] == "input_json_delta":
+            args_by_idx[d["index"]] += d["delta"]["partial_json"]
+    assert json.loads(args_by_idx[0]) == {}
+    assert json.loads(args_by_idx[1]) == {"command": "ping -c 1 127.0.0.1"}
+    delta_stop = [d["delta"]["stop_reason"] for ev, d in parsed if ev == "message_delta"]
+    assert delta_stop == ["tool_use"]
+
+
+def test_streaming_splits_parallel_same_tool_calls_reusing_index_zero_once_json_closes():
+    events = [
+        ("output", {"tool_calls": [{"index": 0, "id": "call_a", "function_call": {"name": "durable_submit", "arguments": '{"role":"ops",'}}]}),
+        ("output", {"tool_calls": [{"index": 0, "id": "", "function_call": {"arguments": '"goal":"check {a}"}'}}]}),
+        ("output", {"tool_calls": [{"index": 0, "id": "call_b", "function_call": {"name": "durable_submit", "arguments": '{"role":"test","goal":"check b"}'}}]}),
+        ("done", json.dumps({"finish_reason": ""})),
+        ("eof", None),
+    ]
+    h = _FakeHandler()
+    q, first = _Queue(events).take()
+    h._streaming(q, first, "trae-glm-5.3-flashx")
+    parsed = _parse_chunked_sse(h.written)
+    starts = [d for ev, d in parsed if ev == "content_block_start"]
+    assert [(s["index"], s["content_block"]["id"], s["content_block"]["name"]) for s in starts] == [
+        (0, "call_a", "durable_submit"),
+        (1, "call_b", "durable_submit"),
+    ]
+    args_by_idx = {0: "", 1: ""}
+    for ev, d in parsed:
+        if ev == "content_block_delta" and d["delta"]["type"] == "input_json_delta":
+            args_by_idx[d["index"]] += d["delta"]["partial_json"]
+    assert json.loads(args_by_idx[0]) == {"role": "ops", "goal": "check {a}"}
+    assert json.loads(args_by_idx[1]) == {"role": "test", "goal": "check b"}
+
+
+def test_streaming_keeps_single_tool_call_fragments_together_even_if_name_repeated():
+    events = [
+        ("output", {"tool_calls": [{"index": 0, "id": "call_1", "function_call": {"name": "durable_roster", "arguments": '{"a":'}}]}),
+        ("output", {"tool_calls": [{"index": 0, "id": "call_1", "function_call": {"name": "durable_roster", "arguments": "1}"}}]}),
+        ("done", json.dumps({"finish_reason": "tool_calls"})),
+        ("eof", None),
+    ]
+    h = _FakeHandler()
+    q, first = _Queue(events).take()
+    h._streaming(q, first, "trae-glm-5.3-flashx")
+    parsed = _parse_chunked_sse(h.written)
+    starts = [d for ev, d in parsed if ev == "content_block_start"]
+    assert len(starts) == 1
+    assert starts[0]["content_block"]["id"] == "call_1"
+    assembled = "".join(
+        d["delta"]["partial_json"]
+        for ev, d in parsed
+        if ev == "content_block_delta" and d["delta"]["type"] == "input_json_delta"
+    )
+    assert json.loads(assembled) == {"a": 1}
+
+
+def test_non_streaming_splits_parallel_tool_calls_reusing_index_zero():
+    events = [
+        ("output", {"tool_calls": [
+            {"index": 0, "id": "call_1", "function_call": {"name": "durable_roster", "arguments": "{}"}},
+            {"index": 0, "id": "call_2", "function_call": {"name": "terminal", "arguments": '{"command":"uptime"}'}},
+        ]}),
+        ("done", json.dumps({"finish_reason": "stop"})),
+        ("eof", None),
+    ]
+    h = _FakeHandler()
+    q, first = _Queue(events).take()
+    h._non_streaming(q, first, "trae-glm-5.3-flashx")
+    body = json.loads(h.written.decode())
+    assert body["stop_reason"] == "tool_use"
+    assert body["content"] == [
+        {"type": "tool_use", "id": "call_1", "name": "durable_roster", "input": {}},
+        {"type": "tool_use", "id": "call_2", "name": "terminal", "input": {"command": "uptime"}},
+    ]
 
 
 # ── catalogue ──────────────────────────────────────────────────────────────
