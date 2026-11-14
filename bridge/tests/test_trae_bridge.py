@@ -472,6 +472,48 @@ def test_streaming_keeps_single_tool_call_fragments_together_even_if_name_repeat
     assert json.loads(assembled) == {"a": 1}
 
 
+def test_streaming_keeps_fresh_id_fragment_with_empty_name_on_same_slot():
+    """Providers that rotate id on empty-name continuation chunks must not split."""
+    events = [
+        ("output", {"tool_calls": [{"index": 0, "id": "call_1", "function_call": {"name": "terminal", "arguments": '{"command":'}}]}),
+        ("output", {"tool_calls": [{"index": 0, "id": "call_frag_2", "function_call": {"arguments": '"ls"}'}}]}),
+        ("done", json.dumps({"finish_reason": "tool_calls"})),
+        ("eof", None),
+    ]
+    h = _FakeHandler()
+    q, first = _Queue(events).take()
+    h._streaming(q, first, "trae-glm-5.3-flashx")
+    parsed = _parse_chunked_sse(h.written)
+    starts = [d for ev, d in parsed if ev == "content_block_start"]
+    assert len(starts) == 1
+    assembled = "".join(
+        d["delta"]["partial_json"]
+        for ev, d in parsed
+        if ev == "content_block_delta" and d["delta"]["type"] == "input_json_delta"
+    )
+    assert json.loads(assembled) == {"command": "ls"}
+
+
+def test_streaming_splits_zero_arg_calls_with_distinct_ids_on_index_zero():
+    events = [
+        ("output", {"tool_calls": [
+            {"index": 0, "id": "call_1", "function_call": {"name": "durable_roster"}},
+            {"index": 0, "id": "call_2", "function_call": {"name": "durable_roster", "arguments": "{}"}},
+        ]}),
+        ("done", json.dumps({"finish_reason": "tool_calls"})),
+        ("eof", None),
+    ]
+    h = _FakeHandler()
+    q, first = _Queue(events).take()
+    h._streaming(q, first, "trae-glm-5.3-flashx")
+    parsed = _parse_chunked_sse(h.written)
+    starts = [d for ev, d in parsed if ev == "content_block_start"]
+    assert [(s["index"], s["content_block"]["id"], s["content_block"]["name"]) for s in starts] == [
+        (0, "call_1", "durable_roster"),
+        (1, "call_2", "durable_roster"),
+    ]
+
+
 def test_non_streaming_splits_parallel_tool_calls_reusing_index_zero():
     events = [
         ("output", {"tool_calls": [
