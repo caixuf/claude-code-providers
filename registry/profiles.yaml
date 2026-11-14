@@ -309,11 +309,11 @@ groups:
     - MiniMax-M3.1-Flash
     - omp-deepseek-v4.1-flash
   pro:
-    # Doubao-Seed-2.1-pro leads (570k ctx, vision, clean parallel tool calls;
-    # trae-glm-5.3-flashx llm_raw_chat splices parallel tool JSON upstream).
+    # Fast and 1.05M-context: the front-end/architecture slot.
     members:
-    - trae-doubao-seed-2.1-pro
+    - trae-glm-5.3-flashx
     fallback:
+    - trae-doubao-seed-2.1-pro
     - opencode-deepseek-v4.1-flash
     - MiniMax-M3.1-Flash
     - omp-deepseek-v4.1-flash

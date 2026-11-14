@@ -829,3 +829,11 @@ def test_field_rules_name_beam_and_nothing_else():
     groups = {name for name, metas in render_config._group_metadata(models, profiles).items()
               if any(meta.get("unsupported_fields") for meta in metas)}
     assert {n.split("[", 1)[0] for n in stripped} == expected | groups
+
+
+def test_pro_group_keeps_glm_flashx_as_primary_member():
+    """Keep `pro` routed primarily to `trae-glm-5.3-flashx` with Doubao first in fallback."""
+    _doc, profiles = _load()
+    pro = profiles["groups"]["pro"]
+    assert pro["members"] == ["trae-glm-5.3-flashx"]
+    assert pro["fallback"][0] == "trae-doubao-seed-2.1-pro"

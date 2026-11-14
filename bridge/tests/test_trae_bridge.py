@@ -534,6 +534,125 @@ def test_non_streaming_splits_parallel_tool_calls_reusing_index_zero():
     ]
 
 
+_SPLICE_TEST_TOOLS = [
+    {"name": "durable_roster", "input_schema": {"type": "object", "properties": {}}},
+    {"name": "lan_node_probe", "input_schema": {
+        "type": "object",
+        "properties": {"host": {"type": "string"}},
+        "required": ["host"],
+    }},
+    {"name": "durable_submit", "input_schema": {
+        "type": "object",
+        "properties": {"role": {"type": "string"}, "goal": {"type": "string"}},
+        "required": ["role", "goal"],
+    }},
+]
+
+
+def test_streaming_and_non_streaming_split_glm_spliced_calls_and_drop_phantom():
+    events = [
+        ("output", {"tool_calls": [
+            {"index": 1, "id": "call_r1", "type": "function",
+             "function_call": {"name": "durable_roster", "arguments": '{"host":"guanguan"}{}'}},
+            {"index": 0, "id": "", "type": "",
+             "function_call": {"name": "", "arguments": ""}},
+            {"index": 2, "id": "call_p2", "type": "function",
+             "function_call": {"name": "lan_node_probe", "arguments": '{"host":"emily"}'}},
+        ]}),
+        ("done", json.dumps({"finish_reason": "tool_calls"})),
+        ("eof", None),
+    ]
+    # Streaming path
+    h_stream = _FakeHandler()
+    q_s, first_s = _Queue(events).take()
+    h_stream._streaming(q_s, first_s, "trae-glm-5.3-flashx", _SPLICE_TEST_TOOLS)
+    parsed = _parse_chunked_sse(h_stream.written)
+    starts = [d for ev, d in parsed if ev == "content_block_start"]
+    stops = [d for ev, d in parsed if ev == "content_block_stop"]
+    assert len(starts) == 3
+    assert [s["index"] for s in stops] == [0, 1, 2]
+    assert [s["content_block"]["name"] for s in starts] == [
+        "lan_node_probe", "durable_roster", "lan_node_probe",
+    ]
+    assert "tool" not in [s["content_block"]["name"] for s in starts]
+    ids = [s["content_block"]["id"] for s in starts]
+    assert len(set(ids)) == 3
+    args_by_idx = {0: "", 1: "", 2: ""}
+    for ev, d in parsed:
+        if ev == "content_block_delta" and d["delta"]["type"] == "input_json_delta":
+            args_by_idx[d["index"]] += d["delta"]["partial_json"]
+    assert [json.loads(args_by_idx[i]) for i in range(3)] == [
+        {"host": "guanguan"}, {}, {"host": "emily"},
+    ]
+
+    # Non-streaming path
+    h_json = _FakeHandler()
+    q_n, first_n = _Queue(events).take()
+    h_json._non_streaming(q_n, first_n, "trae-glm-5.3-flashx", _SPLICE_TEST_TOOLS)
+    body = json.loads(h_json.written.decode())
+    assert body["stop_reason"] == "tool_use"
+    assert [(b["name"], b["input"]) for b in body["content"]] == [
+        ("lan_node_probe", {"host": "guanguan"}),
+        ("durable_roster", {}),
+        ("lan_node_probe", {"host": "emily"}),
+    ]
+    assert len({b["id"] for b in body["content"]}) == 3
+
+
+def test_streaming_splits_concatenated_same_tool_json_objects():
+    events = [
+        ("output", {"tool_calls": [
+            {"index": 0, "id": "call_sub", "type": "function",
+             "function_call": {
+                 "name": "durable_submit",
+                 "arguments": '{"role":"ops","goal":"a"}{"role":"test","goal":"b"}',
+             }},
+        ]}),
+        ("done", json.dumps({"finish_reason": "tool_calls"})),
+        ("eof", None),
+    ]
+    h = _FakeHandler()
+    q, first = _Queue(events).take()
+    h._streaming(q, first, "trae-glm-5.3-flashx", _SPLICE_TEST_TOOLS)
+    parsed = _parse_chunked_sse(h.written)
+    starts = [d for ev, d in parsed if ev == "content_block_start"]
+    assert [s["content_block"]["name"] for s in starts] == ["durable_submit", "durable_submit"]
+    assert len({s["content_block"]["id"] for s in starts}) == 2
+    args_by_idx = {0: "", 1: ""}
+    for ev, d in parsed:
+        if ev == "content_block_delta" and d["delta"]["type"] == "input_json_delta":
+            args_by_idx[d["index"]] += d["delta"]["partial_json"]
+    assert json.loads(args_by_idx[0]) == {"role": "ops", "goal": "a"}
+    assert json.loads(args_by_idx[1]) == {"role": "test", "goal": "b"}
+
+
+def test_ambiguous_spliced_fragment_is_dropped_without_breaking_valid_piece():
+    conflicting_tools = [
+        {"name": "durable_roster", "input_schema": {"type": "object", "properties": {}}},
+        {"name": "probe_a", "input_schema": {
+            "type": "object", "properties": {"host": {"type": "string"}}, "required": ["host"],
+        }},
+        {"name": "probe_b", "input_schema": {
+            "type": "object", "properties": {"host": {"type": "string"}}, "required": ["host"],
+        }},
+    ]
+    events = [
+        ("output", {"tool_calls": [
+            {"index": 0, "id": "call_keep", "type": "function",
+             "function_call": {"name": "durable_roster", "arguments": '{"host":"guanguan"}{}'}},
+        ]}),
+        ("done", json.dumps({"finish_reason": "tool_calls"})),
+        ("eof", None),
+    ]
+    h = _FakeHandler()
+    q, first = _Queue(events).take()
+    h._non_streaming(q, first, "trae-glm-5.3-flashx", conflicting_tools)
+    body = json.loads(h.written.decode())
+    assert body["content"] == [
+        {"type": "tool_use", "id": "call_keep", "name": "durable_roster", "input": {}},
+    ]
+
+
 # ── catalogue ──────────────────────────────────────────────────────────────
 
 def test_placeholder_rows_are_not_offered_as_models():

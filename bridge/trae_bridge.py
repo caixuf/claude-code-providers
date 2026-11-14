@@ -587,6 +587,73 @@ def _json_args_closed(parts: list[str], state: tuple[int, int, bool, bool, bool]
     return (started and depth == 0 and not in_string), state
 
 
+def _split_json_objects(raw: str) -> list[tuple[str, dict]] | None:
+    """Split concatenated top-level JSON objects into (slice, parsed_dict) pairs."""
+    s = raw.strip()
+    if not s or not s.startswith("{"):
+        return None
+    decoder = json.JSONDecoder()
+    items: list[tuple[str, dict]] = []
+    pos = 0
+    n = len(s)
+    while pos < n:
+        while pos < n and s[pos].isspace():
+            pos += 1
+        if pos >= n:
+            break
+        try:
+            obj, end = decoder.raw_decode(s, pos)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(obj, dict):
+            return None
+        items.append((s[pos:end], obj))
+        pos = end
+    return items if len(items) >= 2 and pos == n else None
+
+
+def _matches_tool_schema(obj: dict, schema: dict) -> bool:
+    """Return True when obj satisfies schema's required and known property keys."""
+    props = set((schema.get("properties") or {}).keys())
+    req = set(schema.get("required") or [])
+    keys = set(obj.keys())
+    if not req.issubset(keys):
+        return False
+    if not keys:
+        return True
+    if props:
+        return keys.issubset(props)
+    return schema.get("additionalProperties") is True or isinstance(
+        schema.get("additionalProperties"), dict
+    )
+
+
+def _infer_tool_for_args(
+    default_name: str,
+    obj: dict,
+    tools: list[dict] | None,
+    sibling_names: set[str],
+) -> str | None:
+    """Resolve which declared tool owns obj without guessing across ambiguous schemas."""
+    schemas = {
+        t.get("name"): (t.get("input_schema") or {})
+        for t in (tools or [])
+        if isinstance(t, dict) and t.get("name")
+    }
+    if not schemas:
+        return default_name or None
+    if default_name in schemas and _matches_tool_schema(obj, schemas[default_name]):
+        return default_name
+    candidates = [name for name, sch in schemas.items() if _matches_tool_schema(obj, sch)]
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        narrowed = [c for c in candidates if c in sibling_names]
+        if len(narrowed) == 1:
+            return narrowed[0]
+    return None
+
+
 class _ToolCallSlots:
     """Resolve Trae tool-call chunks into independent Anthropic tool_use slots.
 
@@ -596,18 +663,22 @@ class _ToolCallSlots:
     separated instead of splicing them into one invalid JSON object.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, tools: list[dict] | None = None) -> None:
         self.slots: list[dict] = []
         self._active_by_raw: dict[int, int] = {}
         self._last_id_by_raw: dict[int, str] = {}
+        self._tools = tools
 
-    def feed(self, call: dict) -> tuple[dict, dict | None, bool, str]:
+    def feed(self, call: dict) -> tuple[dict | None, dict | None, bool, str]:
         raw_idx = 0 if call.get("index") is None else call.get("index")
         raw_id = call.get("id")
         call_id = str(raw_id) if isinstance(raw_id, int) else (raw_id or "")
         fn = call.get("function_call") or {}
         fn_name = fn.get("name") or ""
         arg_delta = fn.get("arguments") or ""
+
+        if raw_idx not in self._active_by_raw and not call_id and not fn_name and not arg_delta.strip():
+            return None, None, False, ""
 
         superseded: dict | None = None
         if raw_idx not in self._active_by_raw:
@@ -624,6 +695,10 @@ class _ToolCallSlots:
                 open_new = bool(fn_name) and (
                     (bool(cur["name"]) and fn_name != cur["name"]) or args_closed
                 )
+            if not open_new and args_closed and arg_delta.lstrip().startswith("{"):
+                open_new = True
+                fn_name = fn_name or cur["name"]
+                call_id = ""
             if open_new:
                 superseded = cur
 
@@ -651,6 +726,55 @@ class _ToolCallSlots:
         if arg_delta:
             slot["parts"].append(arg_delta)
         return slot, superseded, open_new, arg_delta
+
+    def feed_batch(self, tool_calls: list[dict]) -> list[tuple[dict, dict | None, bool, str]]:
+        """Normalize a batch of raw Trae tool_calls, splitting upstream-spliced JSON."""
+        sibling_names = {
+            ((c.get("function_call") or {}).get("name") or "")
+            for c in (tool_calls or [])
+        } - {""}
+        out: list[tuple[dict, dict | None, bool, str]] = []
+        for call in tool_calls or []:
+            raw_idx = 0 if call.get("index") is None else call.get("index")
+            unclosed = False
+            if raw_idx in self._active_by_raw:
+                cur = self.slots[self._active_by_raw[raw_idx]]
+                args_closed, cur["scan"] = _json_args_closed(cur["parts"], cur["scan"])
+                unclosed = bool(cur["parts"]) and (not args_closed)
+
+            fn = call.get("function_call") or {}
+            fn_name = fn.get("name") or ""
+            arg_delta = fn.get("arguments") or ""
+            raw_id = call.get("id")
+            orig_id = str(raw_id) if isinstance(raw_id, int) else (raw_id or "")
+
+            if not unclosed:
+                pieces = _split_json_objects(arg_delta)
+                if pieces is not None:
+                    resolved = [
+                        (seg, _infer_tool_for_args(fn_name, obj, self._tools, sibling_names))
+                        for seg, obj in pieces
+                    ]
+                    kept = [(seg, name) for seg, name in resolved if name]
+                    keep_idx = next(
+                        (i for i, (_seg, name) in enumerate(kept) if name == fn_name),
+                        0,
+                    )
+                    for i, (seg, name) in enumerate(kept):
+                        piece_id = orig_id if i == keep_idx else (f"{orig_id}_s{i}" if orig_id else "")
+                        res = self.feed({
+                            "index": raw_idx,
+                            "id": piece_id,
+                            "function_call": {"name": name, "arguments": seg},
+                        })
+                        if res[0] is not None:
+                            out.append((res[0], res[1], res[2], res[3]))
+                    continue
+
+            res = self.feed(call)
+            if res[0] is not None:
+                out.append((res[0], res[1], res[2], res[3]))
+        return out
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -750,9 +874,9 @@ class Handler(BaseHTTPRequestHandler):
                              "error": {"type": "api_error", "message": first[1]}})
             return
         if payload.get("stream"):
-            self._streaming(q, first, payload.get("model") or "")
+            self._streaming(q, first, payload.get("model") or "", payload.get("tools"))
         else:
-            self._non_streaming(q, first, payload.get("model") or "")
+            self._non_streaming(q, first, payload.get("model") or "", payload.get("tools"))
 
     @staticmethod
     def _drain(q, first):
@@ -781,7 +905,7 @@ class Handler(BaseHTTPRequestHandler):
                 except (json.JSONDecodeError, TypeError):
                     continue
 
-    def _streaming(self, q, first, model) -> None:
+    def _streaming(self, q, first, model, tools: list[dict] | None = None) -> None:
         msg_id = "msg_trae_" + uuid.uuid4().hex[:24]
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -797,7 +921,7 @@ class Handler(BaseHTTPRequestHandler):
 
         next_index = 0
         text_index: int | None = None
-        tool_slots = _ToolCallSlots()
+        tool_slots = _ToolCallSlots(tools=tools)
         usage = {"input_tokens": 0, "output_tokens": 0}
         finish = ""
 
@@ -849,8 +973,7 @@ class Handler(BaseHTTPRequestHandler):
                         "type": "content_block_delta", "index": text_index,
                         "delta": {"type": "text_delta", "text": data["response"]}})
 
-                for call in data.get("tool_calls") or []:
-                    slot, superseded, is_new, arg_delta = tool_slots.feed(call)
+                for slot, superseded, is_new, arg_delta in tool_slots.feed_batch(data.get("tool_calls") or []):
                     if is_new:
                         close_text()
                         if (superseded is not None and not superseded["closed"]
@@ -891,9 +1014,9 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             self._chunked = False
 
-    def _non_streaming(self, q, first, model) -> None:
+    def _non_streaming(self, q, first, model, tools: list[dict] | None = None) -> None:
         text = ""
-        tool_slots = _ToolCallSlots()
+        tool_slots = _ToolCallSlots(tools=tools)
         usage = {"input_tokens": 0, "output_tokens": 0}
         finish = ""
         for kind, data in self._drain(q, first):
@@ -912,8 +1035,7 @@ class Handler(BaseHTTPRequestHandler):
                 finish = data.get("finish_reason") or ""
             elif kind == "output":
                 text += data.get("response") or ""
-                for call in data.get("tool_calls") or []:
-                    tool_slots.feed(call)
+                tool_slots.feed_batch(data.get("tool_calls") or [])
 
         blocks = []
         if text:
