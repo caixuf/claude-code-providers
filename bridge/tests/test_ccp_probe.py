@@ -803,10 +803,10 @@ def test_auto_route_promotes_fastest_member_when_primary_below_min_tps(tmp_path)
     }), encoding="utf-8")
 
     results = [
-        {"wire_name": "opencode-deepseek-v4.1-flash", "display_name": "deepseek-v4.1-flash", "available": True, "avg_tps": 8.0},
-        {"wire_name": "MiniMax-M3.1-Flash", "display_name": "MiniMax-M3.1-Flash", "available": True, "avg_tps": 125.8},
-        {"wire_name": "omp-deepseek-v4.1-flash", "display_name": "omp-deepseek-v4.1-flash", "available": False, "avg_tps": 0.0},
-        {"wire_name": "trae-glm-5.3-flashx", "display_name": "glm-5.3-flashx", "available": True, "avg_tps": 110.0},
+        {"provider": "opencode", "wire_name": "opencode-deepseek-v4.1-flash[1m]", "display_name": "deepseek-v4.1-flash", "available": True, "avg_tps": 8.0},
+        {"provider": "minimax", "wire_name": "MiniMax-M3.1-Flash", "display_name": "MiniMax-M3.1-Flash", "available": True, "avg_tps": 125.8},
+        {"provider": "omp", "wire_name": "omp-deepseek-v4.1-flash", "display_name": "omp-deepseek-v4.1-flash", "available": False, "avg_tps": 0.0},
+        {"provider": "trae", "wire_name": "glm-5.3-flashx", "display_name": "glm-5.3-flashx", "available": True, "avg_tps": 110.0},
     ]
 
     changes = apply_speed_route(results, min_tps=100.0, profiles_path=profiles, local_profiles_path=local)

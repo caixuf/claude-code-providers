@@ -1505,9 +1505,12 @@ def apply_speed_route(
 
     by_name: dict[str, dict] = {}
     for r in results:
-        for key in (r.get("wire_name"), r.get("display_name")):
+        wn = str(r.get("wire_name") or "").strip().lower()
+        dn = str(r.get("display_name") or "").strip().lower()
+        prov = str(r.get("provider") or "").strip().lower()
+        for key in (wn, wn.removesuffix("[1m]"), dn, f"{prov}-{dn}" if prov and dn else ""):
             if key:
-                by_name[str(key).strip().lower()] = r
+                by_name[key] = r
 
     changes: list[str] = []
     new_local_groups = dict(local_doc.get("groups") or {})
