@@ -1528,12 +1528,12 @@ def apply_speed_route(
         if p_res is None:
             continue
         p_ok = bool(p_res.get("available"))
-        p_tps = float(p_res.get("avg_tps") or 0.0)
+        p_tps = float(p_res.get("tps") if p_res.get("tps") is not None else (p_res.get("avg_tps") or 0.0))
         if p_ok and p_tps >= min_tps:
             continue
 
         healthy = [
-            (m, float((by_name.get(m.lower()) or {}).get("avg_tps") or 0.0))
+            (m, float((by_name.get(m.lower()) or {}).get("tps") if (by_name.get(m.lower()) or {}).get("tps") is not None else ((by_name.get(m.lower()) or {}).get("avg_tps") or 0.0)))
             for m in candidates
             if (by_name.get(m.lower()) or {}).get("available")
         ]
