@@ -544,12 +544,11 @@ def test_omp_is_the_last_fallback_without_lowering_the_group_clamp():
     assert "omp-kimi-k3" not in groups["main"]["fallback"]
 
     clamp = render_config.render_clamp(models, providers, profiles)
-    # Only `pro` holds the 16k Trae models. `main` keeps OpenCode's 384k and
-    # `flash` keeps Beam's 131k, so the low-cap models do not tax the groups
-    # used for everyday work.
+    # Only `pro` holds the 16k Trae models. `main` and `flash` both lead
+    # with OpenCode's 384k, so the low-cap models do not tax them.
     assert clamp["main"] == 384000
     assert clamp["pro"] == 16000
-    assert clamp["flash"] == 131072
+    assert clamp["flash"] == 384000
 
 
 def test_trae_is_native_and_answers_on_the_loopback():

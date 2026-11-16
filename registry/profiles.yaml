@@ -319,10 +319,9 @@ groups:
     - omp-deepseek-v4.1-flash
   flash:
     members:
-    - beam-free
+    - opencode-deepseek-v4.1-flash
     fallback:
     - MiniMax-M3.1-Flash
-    - opencode-deepseek-v4.1-flash
     - omp-deepseek-v4.1-flash
 # Example — cheap-first, escalating to a different vendor when both are out:
 #   groups:

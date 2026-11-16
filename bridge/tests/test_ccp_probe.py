@@ -780,3 +780,42 @@ async def test_the_messages_url_respects_a_base_that_already_ends_in_v1(base, ex
     )
 
     assert client.stream.call_args[0][1] == expected
+
+
+def test_auto_route_promotes_fastest_member_when_primary_below_min_tps(tmp_path):
+    """Groups whose primary drops below min_tps promote their fastest healthy candidate."""
+    import yaml
+    from ccp_probe import apply_speed_route
+
+    profiles = tmp_path / "profiles.yaml"
+    local = tmp_path / "profiles.local.yaml"
+    profiles.write_text(yaml.safe_dump({
+        "groups": {
+            "flash": {
+                "members": ["opencode-deepseek-v4.1-flash"],
+                "fallback": ["MiniMax-M3.1-Flash", "omp-deepseek-v4.1-flash"],
+            },
+            "pro": {
+                "members": ["trae-glm-5.3-flashx"],
+                "fallback": ["MiniMax-M3.1-Flash"],
+            },
+        }
+    }), encoding="utf-8")
+
+    results = [
+        {"wire_name": "opencode-deepseek-v4.1-flash", "display_name": "deepseek-v4.1-flash", "available": True, "avg_tps": 8.0},
+        {"wire_name": "MiniMax-M3.1-Flash", "display_name": "MiniMax-M3.1-Flash", "available": True, "avg_tps": 125.8},
+        {"wire_name": "omp-deepseek-v4.1-flash", "display_name": "omp-deepseek-v4.1-flash", "available": False, "avg_tps": 0.0},
+        {"wire_name": "trae-glm-5.3-flashx", "display_name": "glm-5.3-flashx", "available": True, "avg_tps": 110.0},
+    ]
+
+    changes = apply_speed_route(results, min_tps=100.0, profiles_path=profiles, local_profiles_path=local)
+    assert len(changes) == 1
+    assert "flash" in changes[0]
+    assert "MiniMax-M3.1-Flash" in changes[0]
+
+    written = yaml.safe_load(local.read_text(encoding="utf-8"))
+    assert written["groups"]["flash"]["members"] == ["MiniMax-M3.1-Flash"]
+    assert written["groups"]["flash"]["fallback"][0] == "opencode-deepseek-v4.1-flash"
+    assert "pro" not in written["groups"]
+

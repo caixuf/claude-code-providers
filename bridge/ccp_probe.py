@@ -1351,6 +1351,10 @@ def main() -> int:
     ap.add_argument("--concurrency", type=int, default=8, help="Max concurrent model probes (default: 8)")
     ap.add_argument("--base-url", default=DEFAULT_BRIDGE_URL, help=f"Universal bridge base URL (default: {DEFAULT_BRIDGE_URL})")
     ap.add_argument("-s", "--switch", action="store_true", help="Automatically switch active provider/model to recommended winner")
+    ap.add_argument("--auto-route", action="store_true",
+                    help="Rewrite registry/profiles.local.yaml so each group leads with its fastest healthy member >= --min-tps")
+    ap.add_argument("--min-tps", type=float, default=100.0,
+                    help="Minimum acceptable tokens/sec when --auto-route evaluates a group's primary member (default: 100.0)")
     ap.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     ap.add_argument("--agent", action="store_true",
                     help="Agent readiness: time to first tool call, and whether one comes at all")
@@ -1459,7 +1463,102 @@ def main() -> int:
         else:
             print(f"SWITCH_TO={prov} {model}")
 
+    if args.auto_route:
+        changes = apply_speed_route(
+            results,
+            min_tps=args.min_tps,
+            profiles_path=PROFILES_PATH,
+            local_profiles_path=REPO_DIR / "registry" / "profiles.local.yaml",
+        )
+        if changes:
+            for line in changes:
+                print(line)
+            render_py = pathlib.Path(__file__).resolve().parent / "render_config.py"
+            if render_py.is_file():
+                subprocess.run([sys.executable, str(render_py)], check=False)
+        else:
+            print(f"Auto-route: all group primaries already meet >= {args.min_tps:.0f} tok/s (no change).")
+
     return 0 if any(r.get("available") for r in results) else 2
+
+
+def apply_speed_route(
+    results: list[dict],
+    *,
+    min_tps: float = 100.0,
+    profiles_path: pathlib.Path = PROFILES_PATH,
+    local_profiles_path: pathlib.Path | None = None,
+) -> list[str]:
+    """Update ``profiles.local.yaml`` groups when a group's primary is dead or < ``min_tps``."""
+    if not profiles_path.is_file():
+        return []
+    base_doc = yaml.safe_load(profiles_path.read_text(encoding="utf-8")) or {}
+    local_doc: dict = {}
+    if local_profiles_path and local_profiles_path.is_file():
+        local_doc = yaml.safe_load(local_profiles_path.read_text(encoding="utf-8")) or {}
+
+    base_groups = dict(base_doc.get("groups") or {})
+    merged_groups = dict(base_groups)
+    for gname, gspec in (local_doc.get("groups") or {}).items():
+        if isinstance(gspec, dict):
+            merged_groups[gname] = dict(gspec)
+
+    by_name: dict[str, dict] = {}
+    for r in results:
+        for key in (r.get("wire_name"), r.get("display_name")):
+            if key:
+                by_name[str(key).strip().lower()] = r
+
+    changes: list[str] = []
+    new_local_groups = dict(local_doc.get("groups") or {})
+    for gname, gspec in merged_groups.items():
+        if not isinstance(gspec, dict):
+            continue
+        members = [str(m) for m in (gspec.get("members") or []) if m]
+        fallback = [str(m) for m in (gspec.get("fallback") or []) if m]
+        candidates = members + [m for m in fallback if m not in members]
+        if not candidates:
+            continue
+
+        primary = candidates[0]
+        p_res = by_name.get(primary.lower())
+        if p_res is None:
+            continue
+        p_ok = bool(p_res.get("available"))
+        p_tps = float(p_res.get("avg_tps") or 0.0)
+        if p_ok and p_tps >= min_tps:
+            continue
+
+        healthy = [
+            (m, float((by_name.get(m.lower()) or {}).get("avg_tps") or 0.0))
+            for m in candidates
+            if (by_name.get(m.lower()) or {}).get("available")
+        ]
+        if not healthy:
+            continue
+        healthy.sort(key=lambda item: item[1], reverse=True)
+        winner, w_tps = healthy[0]
+        if winner == primary:
+            continue
+
+        rest_healthy = [m for m, _ in healthy[1:]]
+        rest_other = [m for m in candidates if m != winner and m not in rest_healthy]
+        new_spec = dict(gspec)
+        new_spec["members"] = [winner]
+        new_spec["fallback"] = rest_healthy + rest_other
+        new_local_groups[gname] = new_spec
+        reason = f"{p_tps:.1f} tok/s < {min_tps:.0f}" if p_ok else "unavailable"
+        warn = "" if w_tps >= min_tps else f" (warning: fastest {w_tps:.1f} < {min_tps:.0f})"
+        changes.append(f"Auto-route [{gname}]: {primary} ({reason}) -> {winner} ({w_tps:.1f} tok/s){warn}")
+
+    if changes and local_profiles_path is not None:
+        local_doc["groups"] = new_local_groups
+        local_profiles_path.parent.mkdir(parents=True, exist_ok=True)
+        local_profiles_path.write_text(
+            yaml.safe_dump(local_doc, sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
+    return changes
 
 
 if __name__ == "__main__":
