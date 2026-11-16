@@ -1366,7 +1366,7 @@ def main() -> int:
     args = ap.parse_args()
 
     # Resolve mode presets
-    if args.quick:
+    if args.quick and not args.auto_route:
         rounds = 1
         tokens = QUICK_TOKENS
         prompt = QUICK_PROMPT
@@ -1375,8 +1375,8 @@ def main() -> int:
         tokens = BENCH_TOKENS
         prompt = DEFAULT_PROMPT
     else:
-        rounds = args.rounds if args.rounds is not None else DEFAULT_ROUNDS
-        tokens = args.tokens if args.tokens is not None else DEFAULT_TOKENS
+        rounds = args.rounds if args.rounds is not None else (2 if args.auto_route else DEFAULT_ROUNDS)
+        tokens = args.tokens if args.tokens is not None else (300 if args.auto_route else DEFAULT_TOKENS)
         prompt = DEFAULT_PROMPT
 
     # Agent mode asks a different question, so it brings its own prompt and a
@@ -1529,8 +1529,10 @@ def apply_speed_route(
         if p_res is None:
             continue
         p_ok = bool(p_res.get("available"))
+        p_buffered = bool(p_res.get("buffered"))
         p_tps = float(p_res.get("tps") if p_res.get("tps") is not None else (p_res.get("avg_tps") or 0.0))
-        if p_ok and p_tps >= min_tps:
+        # Buffered short probes measure TTFT+decode together and can falsely read < min_tps.
+        if p_ok and (p_tps >= min_tps or p_buffered):
             continue
 
         healthy = [
