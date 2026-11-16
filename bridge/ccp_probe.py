@@ -1354,8 +1354,8 @@ def main() -> int:
     ap.add_argument("-s", "--switch", action="store_true", help="Automatically switch active provider/model to recommended winner")
     ap.add_argument("--auto-route", action="store_true",
                     help="Rewrite registry/profiles.local.yaml so each group leads with its fastest healthy member >= --min-tps")
-    ap.add_argument("--min-tps", type=float, default=100.0,
-                    help="Minimum acceptable tokens/sec when --auto-route evaluates a group's primary member (default: 100.0)")
+    ap.add_argument("--min-tps", type=float, default=20.0,
+                    help="Minimum acceptable tokens/sec when --auto-route evaluates a group's primary member (default: 20.0)")
     ap.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     ap.add_argument("--agent", action="store_true",
                     help="Agent readiness: time to first tool call, and whether one comes at all")
@@ -1486,7 +1486,7 @@ def main() -> int:
 def apply_speed_route(
     results: list[dict],
     *,
-    min_tps: float = 100.0,
+    min_tps: float = 20.0,
     profiles_path: pathlib.Path = PROFILES_PATH,
     local_profiles_path: pathlib.Path | None = None,
 ) -> list[str]:
@@ -1544,7 +1544,7 @@ def apply_speed_route(
             continue
         healthy.sort(key=lambda item: item[1], reverse=True)
         winner, w_tps = healthy[0]
-        if winner == primary:
+        if winner == primary or (p_ok and w_tps <= p_tps):
             continue
 
         rest_healthy = [m for m, _ in healthy[1:]]

@@ -806,10 +806,10 @@ def test_auto_route_promotes_fastest_member_when_primary_below_min_tps(tmp_path)
         {"provider": "opencode", "wire_name": "opencode-deepseek-v4.1-flash[1m]", "display_name": "deepseek-v4.1-flash", "available": True, "tps": 8.0},
         {"provider": "minimax", "wire_name": "MiniMax-M3.1-Flash", "display_name": "MiniMax-M3.1-Flash", "available": True, "tps": 125.8},
         {"provider": "omp", "wire_name": "omp-deepseek-v4.1-flash", "display_name": "omp-deepseek-v4.1-flash", "available": False, "tps": 0.0},
-        {"provider": "trae", "wire_name": "glm-5.3-flashx", "display_name": "glm-5.3-flashx", "available": True, "tps": 110.0},
+        {"provider": "trae", "wire_name": "glm-5.3-flashx", "display_name": "glm-5.3-flashx", "available": True, "tps": 25.0},
     ]
 
-    changes = apply_speed_route(results, min_tps=100.0, profiles_path=profiles, local_profiles_path=local)
+    changes = apply_speed_route(results, profiles_path=profiles, local_profiles_path=local)
     assert len(changes) == 1
     assert "flash" in changes[0]
     assert "MiniMax-M3.1-Flash" in changes[0]
