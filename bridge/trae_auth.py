@@ -117,31 +117,46 @@ def write_token(token: str) -> None:
         raise
 
 
-def verify(token: str) -> bool:
-    """Prove the subscription actually answers — an unexpired PAT can still be
-    rejected, and a 200 from the token exchange alone does not mean the models
-    are reachable."""
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import json
-    import urllib.request
+def _split_tokens(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for part in re.split(r"[\s,]+", raw.strip()):
+        tok = part.strip().strip('"').strip("'")
+        if tok and tok not in seen:
+            seen.add(tok)
+            out.append(tok)
+    return out
 
+
+def verify(token: str) -> bool:
+    """Prove every PAT in ``token`` actually answers."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
     try:
         import trae_bridge
     except Exception as e:
         print(f"! cannot import trae_bridge: {e}", file=sys.stderr)
         return False
-    try:
-        auth = trae_bridge.TraeAuth(pat=token)
-        auth.jwt()
-        cat = auth.catalogue()
-    except SystemExit as e:
-        print("\033[31m! %s\033[0m" % e, file=sys.stderr)
+    tokens = _split_tokens(token)
+    if not tokens:
         return False
-    except Exception as e:
-        print(f"\033[31m! subscription check failed: {e}\033[0m", file=sys.stderr)
-        return False
-    print("\033[32m✔ subscription verified\033[0m — %d models available" % len(cat))
-    return bool(cat)
+    ok_all = True
+    for i, pat in enumerate(tokens, 1):
+        suffix = pat[-6:] if len(pat) >= 6 else pat
+        try:
+            auth = trae_bridge.TraeAuth(pat=pat)
+            auth.jwt()
+            cat = auth.catalogue()
+            print("\033[32m✔ #%d (...%s) verified\033[0m — %d models available"
+                  % (i, suffix, len(cat)))
+        except SystemExit as e:
+            print("\033[31m! #%d (...%s): %s\033[0m" % (i, suffix, e), file=sys.stderr)
+            ok_all = False
+        except Exception as e:
+            print(f"\033[31m! #{i} (...{suffix}) check failed: {e}\033[0m", file=sys.stderr)
+            ok_all = False
+    return ok_all
 
 
 def main() -> None:
@@ -149,9 +164,46 @@ def main() -> None:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--status", action="store_true",
                     help="report whether proxy.env matches the shell rc file")
+    ap.add_argument("--list", action="store_true",
+                    help="list masked tokens currently in proxy.env")
+    ap.add_argument("--add", nargs="+", metavar="TOKEN",
+                    help="append one or more PATs to the Trae account pool in proxy.env")
     ap.add_argument("--no-verify", action="store_true", help="import without network")
     ap.add_argument("--print-token", action="store_true")
     args = ap.parse_args()
+
+    if args.list:
+        tokens = _split_tokens(stored_token())
+        if not tokens:
+            print("proxy.env has no %s" % TOKEN_ENV)
+            return
+        print("Trae pool in %s: %d account(s)" % (PROXY_ENV, len(tokens)))
+        for i, tok in enumerate(tokens, 1):
+            suffix = tok[-6:] if len(tok) >= 6 else tok
+            print("  #%d: ...%s" % (i, suffix))
+        return
+
+    if args.add:
+        new_tokens = _split_tokens(",".join(args.add))
+        if not new_tokens:
+            sys.exit("no valid tokens provided to --add")
+        if not args.no_verify and not verify(",".join(new_tokens)):
+            sys.exit(1)
+        existing = _split_tokens(stored_token())
+        merged = list(existing)
+        added = 0
+        for tok in new_tokens:
+            if tok not in merged:
+                merged.append(tok)
+                added += 1
+        if added == 0:
+            print("all %d token(s) already in %s (pool size: %d)"
+                  % (len(new_tokens), PROXY_ENV, len(merged)))
+        else:
+            write_token(",".join(merged))
+            print("added %d token(s) to %s (pool size: %d)"
+                  % (added, PROXY_ENV, len(merged)))
+        return
 
     if args.print_token:
         t = env_token() or read_token_from_rc() or stored_token()
@@ -169,10 +221,11 @@ def main() -> None:
         if not stored:
             print("proxy.env has no %s — run: ccp auth trae" % TOKEN_ENV)
             return 1
-        if stored != source:
+        stored_list = _split_tokens(stored)
+        if source not in stored_list:
             print("proxy.env is STALE — run: ccp auth trae")
             return 1
-        print("proxy.env is in sync (%s)" % TOKEN_ENV)
+        print("proxy.env is in sync (%s, %d account(s))" % (TOKEN_ENV, len(stored_list)))
         return 0
 
     if not source:
@@ -181,11 +234,14 @@ def main() -> None:
             "Log in with TraeCLI first (it writes the token to %s), or export it:\n"
             "    export %s=trae-lt-..." % (TOKEN_ENV, SHELL_RC, TOKEN_ENV))
 
-    if source != stored_token():
-        write_token(source)
-        print("wrote %s to %s" % (TOKEN_ENV, PROXY_ENV))
+    stored_list = _split_tokens(stored_token())
+    if source in stored_list:
+        print("%s already current in %s (%d account(s))"
+              % (TOKEN_ENV, PROXY_ENV, len(stored_list)))
     else:
-        print("%s already current in %s" % (TOKEN_ENV, PROXY_ENV))
+        merged = stored_list + [source] if len(stored_list) > 1 else [source]
+        write_token(",".join(merged))
+        print("wrote %s to %s (%d account(s))" % (TOKEN_ENV, PROXY_ENV, len(merged)))
 
     if not args.no_verify and not verify(source):
         return 1

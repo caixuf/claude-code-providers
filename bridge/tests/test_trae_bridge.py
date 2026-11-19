@@ -742,3 +742,179 @@ def test_unknown_model_falls_back_but_says_so(capsys):
     assert "WARNING" in err
     assert "gpt-5.5" in err
     assert "qwen3.8-max" in err  # ...and it lists what it could have been
+
+
+def test_parse_pats_splits_and_deduplicates():
+    assert tb.parse_pats("") == []
+    assert tb.parse_pats(None) == []
+    assert tb.parse_pats("trae-lt-aaa") == ["trae-lt-aaa"]
+    assert tb.parse_pats("trae-lt-aaa, trae-lt-bbb\ntrae-lt-aaa, 'trae-lt-ccc'") == [
+        "trae-lt-aaa", "trae-lt-bbb", "trae-lt-ccc"
+    ]
+
+
+def test_pool_round_robin_and_cooldown():
+    accs = [tb.TraeAuth(pat="trae-lt-111111"),
+            tb.TraeAuth(pat="trae-lt-222222"),
+            tb.TraeAuth(pat="trae-lt-333333")]
+    pool = tb.TraeAuthPool(accs)
+
+    picks = [pool.pick()[0] for _ in range(6)]
+    assert picks == [0, 1, 2, 0, 1, 2]
+
+    pool.mark_cooldown(1, 60.0, "HTTP 429")
+    assert pool.status() == {"total": 3, "healthy": 2, "cooldown": 1}
+    picks_after = [pool.pick()[0] for _ in range(4)]
+    assert 1 not in picks_after
+    assert picks_after == [0, 2, 0, 2]
+
+    pool.clear_cooldown(1)
+    assert pool.status() == {"total": 3, "healthy": 3, "cooldown": 0}
+
+
+def test_pool_jwt_survives_partial_failure():
+    class StubAuth(tb.TraeAuth):
+        def __init__(self, pat, fail=False):
+            super().__init__(pat=pat)
+            self._fail = fail
+
+        def jwt(self, force=False):
+            if self._fail:
+                raise SystemExit("bad pat")
+            return "jwt-" + self.pat
+
+    pool = tb.TraeAuthPool([
+        StubAuth("trae-lt-bad111", fail=True),
+        StubAuth("trae-lt-good22", fail=False),
+    ])
+    res = pool.jwt()
+    assert res[0][1] is False
+    assert res[1][1] is True
+    assert pool.status() == {"total": 2, "healthy": 1, "cooldown": 1}
+    # Next pick prefers the healthy account (#1).
+    idx, _ = pool.pick()
+    assert idx == 1
+
+
+def test_handler_fails_over_on_429_and_does_not_retry_on_400():
+    accs = [tb.TraeAuth(pat="trae-lt-aaaaaa"), tb.TraeAuth(pat="trae-lt-bbbbbb")]
+    pool = tb.TraeAuthPool(accs)
+
+    h = _FakeHandler()
+    h.pool = pool
+    h.auth = pool.primary()
+
+    calls = []
+
+    def fake_run_with_auth(auth, payload):
+        calls.append(auth.pat)
+        q = tb.queue.Queue()
+        if auth.pat == "trae-lt-aaaaaa":
+            runner = type("R", (), {"last_http_status": 429})()
+            first = ("error", "Trae upstream HTTP 429: rate limit")
+        else:
+            runner = type("R", (), {"last_http_status": None})()
+            first = ("output", {"response": "ok"})
+            q.put(("done", {"finish_reason": "stop"}))
+            q.put(("eof", None))
+        return runner, q, first
+
+    h._run_with_auth = fake_run_with_auth
+    h._messages({"model": "DeepSeek-V4.1-Flash", "messages": [{"role": "user", "content": "hi"}]})
+
+    assert calls == ["trae-lt-aaaaaa", "trae-lt-bbbbbb"]
+    assert h.status_code == 200
+    assert json.loads(h.wfile.data)["content"][0]["text"] == "ok"
+    assert pool.status()["cooldown"] == 1
+
+    # Now test 400: must fail immediately without trying the second account.
+    calls.clear()
+    h2 = _FakeHandler()
+    h2.pool = tb.TraeAuthPool([tb.TraeAuth(pat="trae-lt-cccccc"), tb.TraeAuth(pat="trae-lt-dddddd")])
+    h2.auth = h2.pool.primary()
+
+    def fake_400(auth, payload):
+        calls.append(auth.pat)
+        runner = type("R", (), {"last_http_status": 400})()
+        return runner, tb.queue.Queue(), ("error", "Trae upstream HTTP 400: bad request")
+
+    h2._run_with_auth = fake_400
+    h2._messages({"model": "DeepSeek-V4.1-Flash", "messages": [{"role": "user", "content": "hi"}]})
+    assert calls == ["trae-lt-cccccc"]
+    assert h2.status_code == 400
+
+
+def test_run_with_auth_detects_an_eof_only_stream(monkeypatch):
+    """A dead account answers 200 with no events at all.
+
+    It must not become a successful empty assistant turn: Claude Code renders
+    that as a finished turn with no content and never retries or falls back.
+    """
+    class StubStream:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def start(self):
+            return _Queue([("eof", None)])
+
+    monkeypatch.setattr(tb, "TraeStream", StubStream)
+    h = _FakeHandler()
+    h.verbose = False
+    payload = {"model": "glm-5.3-flashx", "messages": [{"role": "user", "content": "hi"}]}
+    _, _, first = tb.Handler._run_with_auth(
+        h, tb.TraeAuth(pat="trae-lt-aaaaaa"), payload)
+    assert first[0] == "empty"
+    assert "empty event stream" in first[1]
+
+
+def test_handler_retries_an_empty_stream_on_another_account():
+    accs = [tb.TraeAuth(pat="trae-lt-aaaaaa"), tb.TraeAuth(pat="trae-lt-bbbbbb")]
+    pool = tb.TraeAuthPool(accs)
+
+    h = _FakeHandler()
+    h.pool = pool
+    h.auth = pool.primary()
+
+    calls = []
+
+    def fake_run_with_auth(auth, payload):
+        calls.append(auth.pat)
+        q = tb.queue.Queue()
+        if auth.pat == "trae-lt-aaaaaa":
+            runner = type("R", (), {"last_http_status": None})()
+            return runner, q, ("empty", "Trae upstream returned an empty event stream")
+        runner = type("R", (), {"last_http_status": None})()
+        q.put(("done", {"finish_reason": "stop"}))
+        q.put(("eof", None))
+        return runner, q, ("output", {"response": "ok"})
+
+    h._run_with_auth = fake_run_with_auth
+    h._messages({"model": "DeepSeek-V4.1-Flash", "messages": [{"role": "user", "content": "hi"}]})
+
+    assert calls == ["trae-lt-aaaaaa", "trae-lt-bbbbbb"]
+    assert h.status_code == 200
+    assert json.loads(h.wfile.data)["content"][0]["text"] == "ok"
+    assert pool.status()["cooldown"] == 1
+
+
+def test_handler_reports_502_when_every_account_returns_an_empty_stream():
+    accs = [tb.TraeAuth(pat="trae-lt-aaaaaa"), tb.TraeAuth(pat="trae-lt-bbbbbb")]
+    pool = tb.TraeAuthPool(accs)
+
+    h = _FakeHandler()
+    h.pool = pool
+    h.auth = pool.primary()
+
+    def fake_run_with_auth(auth, payload):
+        runner = type("R", (), {"last_http_status": None})()
+        return runner, tb.queue.Queue(), (
+            "empty", "Trae upstream returned an empty event stream")
+
+    h._run_with_auth = fake_run_with_auth
+    h._messages({"model": "DeepSeek-V4.1-Flash", "messages": [{"role": "user", "content": "hi"}]})
+
+    assert h.status_code == 502
+    payload = json.loads(h.wfile.data)
+    assert payload["error"]["type"] == "api_error"
+    assert "empty event stream" in payload["error"]["message"]
+    assert pool.status()["cooldown"] == 2

@@ -65,6 +65,7 @@ import argparse
 import json
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -236,6 +237,130 @@ class TraeAuth:
             self._catalogue = out
             self._catalogue_at = time.time()
         return out
+
+
+def parse_pats(raw: str | None) -> list[str]:
+    """Split a comma/whitespace-separated PAT string into unique tokens."""
+    if not raw:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for part in re.split(r"[\s,]+", raw.strip()):
+        tok = part.strip().strip('"').strip("'")
+        if tok and tok not in seen:
+            seen.add(tok)
+            out.append(tok)
+    return out
+
+
+class TraeAuthPool:
+    """Round-robin pool of TraeAuth accounts with per-account cooldowns."""
+
+    def __init__(self, accounts: list[TraeAuth], verbose: bool = False):
+        if not accounts:
+            raise SystemExit(
+                "TRAECLI_PERSONAL_ACCESS_TOKEN is not set.\n"
+                "TraeCLI writes it to ~/.bashrc once you have logged in; run\n"
+                "  ccp auth trae\n"
+                "to copy it into the bridge's secrets file."
+            )
+        self.accounts = accounts
+        self.verbose = verbose
+        self._lock = threading.Lock()
+        self._cursor = 0
+        self._cooldown_until: list[float] = [0.0] * len(accounts)
+        self._last_error: list[str] = [""] * len(accounts)
+
+    @classmethod
+    def from_env(cls, pat: str | None = None, verbose: bool = False) -> "TraeAuthPool":
+        raw = pat if pat is not None else os.environ.get("TRAECLI_PERSONAL_ACCESS_TOKEN", "")
+        pats = parse_pats(raw)
+        accounts = [TraeAuth(pat=p, verbose=verbose) for p in pats]
+        return cls(accounts, verbose=verbose)
+
+    def label(self, idx: int) -> str:
+        pat = self.accounts[idx].pat
+        suffix = pat[-6:] if len(pat) >= 6 else pat
+        return f"#{idx + 1}(...{suffix})"
+
+    def primary(self) -> TraeAuth:
+        return self.accounts[0]
+
+    def jwt(self, force: bool = False) -> list[tuple[int, bool, str]]:
+        """Exchange PAT->JWT for all accounts; fail only if every account fails."""
+        results: list[tuple[int, bool, str]] = []
+        ok_count = 0
+        for idx, auth in enumerate(self.accounts):
+            try:
+                auth.jwt(force=force)
+                ok_count += 1
+                results.append((idx, True, ""))
+            except SystemExit as e:
+                msg = str(e)
+                self.mark_cooldown(idx, 300.0, msg)
+                results.append((idx, False, msg))
+                print(f"[trae] WARNING: account {self.label(idx)} auth failed: {msg}",
+                      file=sys.stderr, flush=True)
+        if ok_count == 0:
+            raise SystemExit(results[0][2] if results else "No valid Trae accounts")
+        return results
+
+    def catalogue(self, refresh: bool = False) -> list[dict]:
+        """Fetch catalogue from the first healthy account."""
+        last_err: Exception | None = None
+        for idx in range(len(self.accounts)):
+            _, auth = self.pick()
+            try:
+                return auth.catalogue(refresh=refresh)
+            except Exception as e:
+                last_err = e
+        assert last_err is not None
+        raise last_err
+
+    def pick(self, exclude: set[int] | None = None) -> tuple[int, TraeAuth]:
+        """Pick the next available account via round-robin, skipping cooled-down ones."""
+        now = time.monotonic()
+        excluded = exclude or set()
+        with self._lock:
+            n = len(self.accounts)
+            candidates = [i for i in range(n) if i not in excluded]
+            if not candidates:
+                candidates = list(range(n))
+
+            # Walk in round-robin order starting from _cursor.
+            for offset in range(n):
+                idx = (self._cursor + offset) % n
+                if idx in excluded:
+                    continue
+                if now >= self._cooldown_until[idx]:
+                    self._cursor = (idx + 1) % n
+                    return idx, self.accounts[idx]
+
+            # Every candidate is in cooldown; pick the one expiring soonest.
+            best = min(candidates, key=lambda i: self._cooldown_until[i])
+            self._cursor = (best + 1) % n
+            return best, self.accounts[best]
+
+    def mark_cooldown(self, idx: int, seconds: float, reason: str = "") -> None:
+        with self._lock:
+            self._cooldown_until[idx] = max(
+                self._cooldown_until[idx], time.monotonic() + seconds)
+            self._last_error[idx] = reason
+        if self.verbose:
+            print(f"[trae] account {self.label(idx)} cooled down for {seconds:.0f}s: {reason}",
+                  file=sys.stderr, flush=True)
+
+    def clear_cooldown(self, idx: int) -> None:
+        with self._lock:
+            self._cooldown_until[idx] = 0.0
+            self._last_error[idx] = ""
+
+    def status(self) -> dict:
+        now = time.monotonic()
+        with self._lock:
+            cooled = sum(1 for t in self._cooldown_until if t > now)
+        total = len(self.accounts)
+        return {"total": total, "healthy": total - cooled, "cooldown": cooled}
 
 
 # ── Trae <-> Anthropic translation ────────────────────────────────────────
@@ -449,6 +574,7 @@ class TraeStream:
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.metadata = metadata or {}
+        self.last_http_status: int | None = None
 
     def resolve(self) -> dict:
         """Map a requested name onto a catalogue entry."""
@@ -556,6 +682,7 @@ class TraeStream:
                         q.put((event, data))
             q.put(("eof", None))
         except urllib.error.HTTPError as e:
+            self.last_http_status = e.code
             detail = e.read()[:500].decode("utf-8", "replace")
             q.put(("error", "Trae upstream HTTP %d: %s" % (e.code, detail)))
         except Exception as e:
@@ -781,6 +908,7 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "trae-bridge"
     auth: TraeAuth = None
+    pool: TraeAuthPool | None = None
     verbose = False
     # Whether the current response body uses chunked framing, so _sse knows
     # whether to prefix each event with its chunk size.
@@ -801,10 +929,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0].rstrip("/")
         if path in ("/health", "/health/liveliness"):
-            self._json(200, {"status": "ok", "provider": "trae"})
+            info = {"status": "ok", "provider": "trae"}
+            if self.pool is not None:
+                info["accounts"] = self.pool.status()
+            self._json(200, info)
         elif path in ("/v1/models", "/models"):
             try:
-                cat = self.auth.catalogue()
+                source = self.pool if self.pool is not None else self.auth
+                cat = source.catalogue()
             except Exception as e:
                 self._json(500, {"error": {"message": str(e)}})
                 return
@@ -851,9 +983,9 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
         self.wfile.flush()
 
-    def _messages(self, payload: dict) -> None:
+    def _run_with_auth(self, auth: TraeAuth, payload: dict):
         runner = TraeStream(
-            auth=self.auth,
+            auth=auth,
             model=payload.get("model") or "",
             messages=payload.get("messages") or [],
             system=payload.get("system"),
@@ -864,15 +996,71 @@ class Handler(BaseHTTPRequestHandler):
             verbose=self.verbose,
         )
         q = runner.start()
-
         # Peek the first upstream event before committing to a status code, so
         # an upstream failure is still answerable as a normal HTTP error rather
         # than a half-written 200 stream.
         first = q.get()
-        if first[0] == "error":
-            self._json(502, {"type": "error",
-                             "error": {"type": "api_error", "message": first[1]}})
-            return
+        if first[0] == "eof":
+            # A dead-but-authenticated Trae account answers a successful HTTP
+            # request with an empty event stream: no metadata, no output, just
+            # EOF. Accepting that as a valid answer shipped a blank assistant
+            # turn to Claude Code ("Brewed for 0s") and, because the status was
+            # 200, never triggered the group fallback. Treat it as a failed
+            # attempt so the pool can try another account, and as a 502 when
+            # every account behaves this way.
+            return runner, q, ("empty",
+                               "Trae upstream returned an empty event stream")
+        return runner, q, first
+
+    def _messages(self, payload: dict) -> None:
+        if self.pool is None:
+            _, q, first = self._run_with_auth(self.auth, payload)
+            if first[0] in ("error", "empty"):
+                self._json(502, {"type": "error",
+                                 "error": {"type": "api_error", "message": first[1]}})
+                return
+        else:
+            tried: set[int] = set()
+            last_err = "No Trae accounts available"
+            last_status: int | None = None
+            q = first = None
+            for _ in range(len(self.pool.accounts)):
+                idx, auth = self.pool.pick(exclude=tried)
+                tried.add(idx)
+                runner, q, first = self._run_with_auth(auth, payload)
+                if first[0] not in ("error", "empty"):
+                    self.pool.clear_cooldown(idx)
+                    break
+                last_err = first[1]
+                if first[0] == "empty":
+                    # An empty stream is account-scoped (the other accounts
+                    # answered the same request), and retrying it costs one
+                    # round-trip, so keep it out of rotation long enough to
+                    # stop burning one request in four.
+                    last_status = None
+                    cooldown = 300.0
+                else:
+                    last_status = runner.last_http_status
+                    # 400 is a malformed client request — switching accounts will not help.
+                    if last_status == 400:
+                        self._json(400, {"type": "error",
+                                         "error": {"type": "invalid_request_error",
+                                                   "message": last_err}})
+                        return
+                    if last_status == 429:
+                        cooldown = 60.0
+                    elif last_status in (401, 403):
+                        cooldown = 300.0
+                    else:
+                        cooldown = 15.0
+                self.pool.mark_cooldown(idx, cooldown, last_err)
+                q = first = None
+            if first is None:
+                http_code = 429 if last_status == 429 else 502
+                self._json(http_code, {"type": "error",
+                                       "error": {"type": "api_error", "message": last_err}})
+                return
+
         if payload.get("stream"):
             self._streaming(q, first, payload.get("model") or "", payload.get("tools"))
         else:
@@ -1060,7 +1248,14 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _load_secrets() -> None:
-    """Adopt TRAECLI_PERSONAL_ACCESS_TOKEN from ccp's own secrets files."""
+    """Adopt TRAECLI_PERSONAL_ACCESS_TOKEN from ccp's own secrets files.
+
+    If both the shell environment (e.g. ~/.bashrc from TraeCLI) and proxy.env
+    define tokens, merge them so an interactive shell exporting a single PAT
+    does not hide the multi-account pool stored in proxy.env.
+    """
+    merged = parse_pats(os.environ.get("TRAECLI_PERSONAL_ACCESS_TOKEN"))
+    seen = set(merged)
     for path in (Path.home() / ".config" / "litellm" / "proxy.env",
                  Path.home() / ".ccp" / "secrets.env",
                  Path.home() / ".env"):
@@ -1070,11 +1265,15 @@ def _load_secrets() -> None:
             for line in path.read_text().splitlines():
                 line = line.strip()
                 if line.startswith("TRAECLI_PERSONAL_ACCESS_TOKEN=") and "=" in line:
-                    os.environ.setdefault(
-                        "TRAECLI_PERSONAL_ACCESS_TOKEN",
-                        line.split("=", 1)[1].strip().strip('"').strip("'"))
+                    raw = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    for tok in parse_pats(raw):
+                        if tok not in seen:
+                            seen.add(tok)
+                            merged.append(tok)
         except OSError:
             pass
+    if merged:
+        os.environ["TRAECLI_PERSONAL_ACCESS_TOKEN"] = ",".join(merged)
 
 
 def main() -> None:
@@ -1092,20 +1291,25 @@ def main() -> None:
     args = ap.parse_args()
 
     _load_secrets()
-    auth = TraeAuth(pat=args.token, verbose=args.verbose)
-    auth.jwt()
+    pool = TraeAuthPool.from_env(pat=args.token, verbose=args.verbose)
+    jwt_results = pool.jwt()
+    auth = pool.primary()
 
     if args.list_models_json:
         # Machine-readable catalogue; nothing else may pollute stdout.
-        print(json.dumps(auth.catalogue()))
+        print(json.dumps(pool.catalogue()))
         return
 
     if args.check or args.list_models:
-        data = auth.identity.get("Data") or auth.identity.get("data") or {}
-        who = (data.get("email") or data.get("Name") or data.get("name")
-               or "(identity unavailable)")
-        print("Trae subscription: %s" % who)
-        cat = auth.catalogue()
+        print("Trae account pool: %d account(s)" % len(pool.accounts))
+        for idx, ok, err in jwt_results:
+            acc = pool.accounts[idx]
+            data = acc.identity.get("Data") or acc.identity.get("data") or {}
+            who = (data.get("email") or data.get("Name") or data.get("name")
+                   or "(identity unavailable)")
+            state = "ok (%s)" % who if ok else "FAILED (%s)" % err
+            print("  %s: %s" % (pool.label(idx), state))
+        cat = pool.catalogue()
         print("Models available: %d" % len(cat))
         if args.list_models:
             for e in cat:
@@ -1119,12 +1323,13 @@ def main() -> None:
         ap.print_help()
         return
 
+    Handler.pool = pool
     Handler.auth = auth
     Handler.verbose = args.verbose
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     httpd.daemon_threads = True
-    print("trae bridge: Anthropic endpoint on http://%s:%d"
-          % (args.host, args.port), file=sys.stderr, flush=True)
+    print("trae bridge: Anthropic endpoint on http://%s:%d (%d account(s))"
+          % (args.host, args.port, len(pool.accounts)), file=sys.stderr, flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
