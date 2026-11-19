@@ -95,6 +95,8 @@ Usage:
   ccp music <prompt>         MiniMax text-to-music (options: --lyrics,
                              --lyrics-file, --instrumental, --lyrics-optimizer,
                              --out; official API is closed to new users)
+  ccp image <prompt>         MiniMax-H3-Image text-to-image (options: --n,
+                             --size, --aspect-ratio, --area, --format, --out)
   ccp doctor                 Is this machine still consistent with the repository?
                              (--json, --probe [--probe-model M])
   ccp hermes [provider]      Point the local Hermes agent at a provider's model.
@@ -136,6 +138,7 @@ Examples:
   ccp speech tts "你好，世界" # MiniMax M Plan TTS; shares the text quota
   ccp speech asr meeting.mp3  # MiniMax M Plan ASR (--format srt for subtitles)
   ccp music "calm solo piano" --instrumental  # MiniMax music (legacy access only)
+  ccp image "a cat on a windowsill" --aspect-ratio 16:9 --area 2K
 
 Note: CommandCode, GitHub Copilot, Codex and Antigravity are retired and no
 longer shipped. `ccp auth copilot` still runs the Copilot device flow.
@@ -1660,11 +1663,11 @@ main() {
       py_bin=$(ccp_python)
       "$py_bin" "$repo_dir/bridge/ccp_usage.py" "${@:2}"
       ;;
-    speech|tts|asr|stt|music)
+    speech|tts|asr|stt|music|image)
       local repo_dir py_bin
       repo_dir=$(ccp_repo_dir)
-      if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/ccp_speech.py" ]; then
-        echo -e "\033[31mError: speech helper not found (need bridge/ccp_speech.py).\033[0m" >&2
+      if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/ccp_media.py" ]; then
+        echo -e "\033[31mError: media helper not found (need bridge/ccp_media.py).\033[0m" >&2
         return 1
       fi
       py_bin=$(ccp_python)
@@ -1674,8 +1677,9 @@ main() {
         tts) sargs=(tts "${@:2}") ;;
         asr|stt) sargs=(asr "${@:2}") ;;
         music) sargs=(music "${@:2}") ;;
+        image) sargs=(image "${@:2}") ;;
       esac
-      "$py_bin" "$repo_dir/bridge/ccp_speech.py" "${sargs[@]}"
+      "$py_bin" "$repo_dir/bridge/ccp_media.py" "${sargs[@]}"
       ;;
     quota|--quota)
       local repo_dir py_bin

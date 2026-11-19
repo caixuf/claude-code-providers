@@ -1,4 +1,4 @@
-"""Guards for `ccp speech` (bridge/ccp_speech.py).
+"""Guards for the MiniMax multimodal helper (bridge/ccp_media.py).
 
 The expensive mistakes here are silent:
 
@@ -7,7 +7,9 @@ The expensive mistakes here are silent:
   which looks like success unless it is checked;
 * a CN M Plan key sent to the global endpoint returns "invalid api key", not a
   region error, so the hint is the only actionable part;
-* the ASR file must travel as multipart, not JSON.
+* the ASR file must travel as multipart, not JSON;
+* ``--size WIDTHxHEIGHT`` combined with ``--aspect-ratio``/``--area`` is a 400,
+  and a partial image failure must not hide the successful images.
 """
 from __future__ import annotations
 
@@ -20,7 +22,7 @@ import pytest
 BRIDGE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRIDGE))
 
-import ccp_speech as s  # noqa: E402
+import ccp_media as s  # noqa: E402
 
 
 # ── key resolution ────────────────────────────────────────────────────────
@@ -227,3 +229,81 @@ def test_music_2153_names_the_new_user_closure():
 def test_music_default_filename_is_not_speech_prefixed():
     assert s._default_out("mp3", "music").name.startswith("music-")
     assert s._default_out("mp3").name.startswith("speech-")
+
+
+# ── image ──────────────────────────────────────────────────────────────────
+
+def _image_args(**overrides):
+    values = {
+        "prompt": "a cat on a windowsill",
+        "n": 1,
+        "size": "auto",
+        "aspect_ratio": "16:9",
+        "area": None,
+        "disable_prompt_enhanced": False,
+        "key_env": None,
+        "base_url": None,
+        "model": "MiniMax-H3-Image",
+        "format": "jpeg",
+        "out": None,
+    }
+    values.update(overrides)
+    return type("A", (), values)()
+
+
+def test_image_payload_uses_fixed_size_alone():
+    payload = s.build_image_payload(
+        "a cat", model="MiniMax-H3-Image", n=2, size="2720x1536",
+        aspect_ratio=None, area=None, output_format="jpeg",
+        disable_prompt_enhanced=False,
+    )
+    assert payload["size"] == "2720x1536"
+    assert "aspect_ratio" not in payload and "area" not in payload
+    assert payload["n"] == 2
+    assert payload["response_format"] == "url"
+
+
+def test_image_payload_uses_aspect_and_area_with_auto_size():
+    payload = s.build_image_payload(
+        "a cat", model="MiniMax-H3-Image", n=1, size="auto",
+        aspect_ratio="16:9", area="2K", output_format="png",
+        disable_prompt_enhanced=True,
+    )
+    assert "size" not in payload
+    assert payload["aspect_ratio"] == "16:9"
+    assert payload["area"] == "2K"
+    assert payload["disable_prompt_enhanced"] is True
+
+
+def test_image_rejects_size_with_aspect_ratio():
+    with pytest.raises(s.SpeechError) as e:
+        s.cmd_image(_image_args(size="2720x1536", aspect_ratio="16:9"))
+    assert "cannot be combined" in str(e.value)
+
+
+def test_image_no_enhance_needs_a_shape():
+    with pytest.raises(s.SpeechError) as e:
+        s.cmd_image(_image_args(disable_prompt_enhanced=True, aspect_ratio=None))
+    assert "--no-enhance requires" in str(e.value)
+
+
+def test_image_rejects_out_of_range_n():
+    with pytest.raises(s.SpeechError) as e:
+        s.cmd_image(_image_args(n=11))
+    assert "between 1 and 10" in str(e.value)
+
+
+def test_image_2068_names_the_plan_tier():
+    assert "M Plan tier" in s._error_hint(2068, 200)
+    assert "Highspeed" in s._error_hint(2068, 200)
+
+
+def test_image_targets_accept_a_single_file(tmp_path):
+    target = tmp_path / "cat.png"
+    assert s._image_targets(str(target), 1, "png") == [target]
+
+
+def test_image_targets_use_a_numbered_directory(tmp_path):
+    targets = s._image_targets(str(tmp_path), 2, "jpeg")
+    assert len(targets) == 2
+    assert all(p.parent == tmp_path and p.name.startswith("image-") for p in targets)

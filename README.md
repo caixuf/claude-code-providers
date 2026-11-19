@@ -189,6 +189,7 @@ stale.
 | `ccp usage` | Tokens and latency from the bridge's ledger |
 | `ccp speech tts/asr …` | MiniMax M Plan text-to-speech and speech-to-text |
 | `ccp music …` | MiniMax text-to-music (legacy paying keys only) |
+| `ccp image …` | MiniMax-H3-Image text-to-image |
 | `ccp doctor` | Check litter, duplicate keys, proxy and live answering model |
 | `ccp hermes [provider]` | Point the local Hermes agent at a provider's model |
 | `ccp -h` / `ccp --help` | Full help |
@@ -357,7 +358,7 @@ comments, snapshots the profile, and restarts the gateway unit. `--profile`,
 
 ---
 
-## Speech (MiniMax M Plan)
+## MiniMax media (speech, music, image)
 
 Speech is a plan capability, not a Claude Code tier: `ccp speech` calls
 MiniMax directly and works even when the bridge is stopped. `ccp tts` and
@@ -397,6 +398,23 @@ without legacy access answer HTTP 410 / code 2153; the command names that
 closure instead of reporting a generic network failure. For new access, use
 [MiniMax Audio](https://www.minimax.io/audio) or a third-party host of
 MiniMax Music 3.
+
+### Image
+
+`ccp image` calls `/v1/images/generations` with `MiniMax-H3-Image` (or
+`MiniMax-H3-Image-Highspeed` on Explore/Build):
+
+```bash
+ccp image "a cat on a windowsill" --aspect-ratio 16:9 --area 2K
+ccp image "isometric city" --size 2720x1536 --n 2 --out renders/
+ccp image "poster" --no-enhance --aspect-ratio 3:4 --out poster.png
+```
+
+Images are downloaded as `image-<timestamp>-<i>.<ext>`. A partial failure is
+reported per image and the successful ones are kept; only successful images are
+billed. The endpoint is synchronous and not idempotent, so the client timeout
+is 600s and retries are not automatic. Image editing (`/v1/images/edits`) is
+not wired yet.
 
 ---
 

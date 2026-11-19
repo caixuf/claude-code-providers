@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""`ccp speech` — MiniMax M Plan text-to-speech and speech-to-text.
+"""`ccp media` — MiniMax multimodal endpoints: speech, music and images.
 
 The M Plan subscription key is the same one the MiniMax text profile uses, but
-speech does not travel through LiteLLM: these are MiniMax's own HTTP endpoints.
-Keeping the two paths separate means `ccp speech` still works when the bridge is
-stopped, and it never pretends a speech model is a Claude Code tier.
+these endpoints do not travel through LiteLLM: they are MiniMax's own HTTP
+APIs. Keeping the paths separate means `ccp speech` / `ccp music` / `ccp image`
+still work when the bridge is stopped, and they never pretend a media model is
+a Claude Code tier.
 
-`ccp music` shares the same key/error layer. Its official API has been closed to
-new users since 2026-08-20, so a key without legacy music access gets a clear
-2153 error instead of a generic failure.
+`ccp music` is wired but the official Music API has been closed to new users
+since 2026-08-20, so a key without legacy access gets a clear 2153 error
+instead of a generic failure.
 
 The key is region-specific. A Mainland China key (`sk-cp-...`) is accepted by
 `api.minimaxi.com` and `api.minimax.cn`; the global platform is
@@ -24,6 +25,7 @@ Usage:
     ccp speech tts "你好，世界" [--voice ...] [--out FILE]
     ccp speech asr meeting.mp3 [--language zh] [--format srt]
     ccp music "calm solo piano" --instrumental
+    ccp image "a cat on a windowsill" --aspect-ratio 16:9 --area 2K
 """
 
 from __future__ import annotations
@@ -43,6 +45,7 @@ DEFAULT_BASE = "https://api.minimaxi.com"
 DEFAULT_TTS_MODEL = "speech-2.8-hd"
 DEFAULT_ASR_MODEL = "asr-1.0"
 DEFAULT_MUSIC_MODEL = "music-3.0"
+DEFAULT_IMAGE_MODEL = "MiniMax-H3-Image"
 DEFAULT_VOICE = "Chinese (Mandarin)_Lyrical_Voice"
 KEY_ENV = "MINIMAX_PLAN_API_KEY"
 MAX_ASR_BYTES = 50 * 1024 * 1024
@@ -114,16 +117,22 @@ def _error_hint(code: int | None, http_status: int | None) -> str:
         return ("the official Music API is closed to new users since "
                 "2026-08-20; use MiniMax Audio, an existing paying key, or a "
                 "third-party host of MiniMax Music 3")
-    if code in (1002, 1039) or http_status == 429:
+    if code in (1002, 1039, 2056) or http_status == 429:
         return ("rate limit or the current M Plan 5-hour/weekly window is "
-                "spent; speech shares the text quota")
-    if code == 1008 or http_status == 402:
+                "spent; text, speech, image and video share the same quota")
+    if code == 2068:
+        return ("this model is not included in the current M Plan tier "
+                "(Highspeed image needs Explore or Build)")
+    if code in (1008, 2053, 2067) or http_status == 402:
         return ("M Plan quota/credits are exhausted; check the usage page at "
                 "platform.minimaxi.com/console/usage")
+    if code in (1026, 1027) or http_status == 422:
+        return "the prompt or generated media failed MiniMax's content safety check"
     if code in (1004, 1001) or http_status in (401, 403):
         return "authentication failed; check the key and its region"
     if code == 2013 or http_status == 400:
-        return "the request was rejected as invalid; check the text/audio format and model id"
+        return ("the request was rejected as invalid; check the prompt, size, "
+                "lyrics or audio format and the model id")
     if http_status and http_status >= 500:
         return "MiniMax returned a server error; retry later"
     return ""
@@ -238,6 +247,13 @@ def _default_out(audio_format: str, prefix: str = "speech") -> Path:
     return Path(time.strftime(f"{prefix}-%Y%m%d-%H%M%S") + "." + audio_format)
 
 
+def _write_bytes(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".part")
+    tmp.write_bytes(data)
+    tmp.replace(path)
+
+
 def _write_audio(out: str | None, audio: bytes, audio_format: str,
                  prefix: str = "speech") -> Path | None:
     if out == "-":
@@ -247,10 +263,7 @@ def _write_audio(out: str | None, audio: bytes, audio_format: str,
     path = Path(os.path.expanduser(out)) if out else _default_out(audio_format, prefix)
     if path.is_dir():
         path = path / _default_out(audio_format, prefix)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".part")
-    tmp.write_bytes(audio)
-    tmp.replace(path)
+    _write_bytes(path, audio)
     return path
 
 
@@ -536,6 +549,146 @@ def cmd_music(args) -> int:
     return 0
 
 
+# ── image generation ──────────────────────────────────────────────────────
+
+def build_image_payload(prompt: str, *, model: str, n: int, size: str | None,
+                        aspect_ratio: str | None, area: str | None,
+                        output_format: str,
+                        disable_prompt_enhanced: bool) -> dict:
+    payload: dict = {
+        "model": model,
+        "prompt": prompt,
+        "n": n,
+        "response_format": "url",
+        "output_format": output_format,
+    }
+    if disable_prompt_enhanced:
+        payload["disable_prompt_enhanced"] = True
+    if size and size != "auto":
+        payload["size"] = size
+    else:
+        if aspect_ratio:
+            payload["aspect_ratio"] = aspect_ratio
+        if area:
+            payload["area"] = area
+    return payload
+
+
+def _image_targets(out: str | None, n: int, extension: str) -> list[Path]:
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    if out and out != "-":
+        base = Path(os.path.expanduser(out))
+        if n == 1 and base.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
+            return [base]
+        base.mkdir(parents=True, exist_ok=True)
+    elif out == "-":
+        raise SpeechError("--out - is not supported for images; pass a directory or a file")
+    else:
+        base = Path(".")
+    return [base / f"image-{stamp}-{i}.{extension}" for i in range(n)]
+
+
+def cmd_image(args) -> int:
+    prompt = (args.prompt or "").strip()
+    if not prompt:
+        raise SpeechError("no image prompt")
+    if len(prompt) > 32000:
+        raise SpeechError(f"prompt is {len(prompt)} characters; the Image API accepts at most 32,000")
+    if not 1 <= args.n <= 10:
+        raise SpeechError("--n must be between 1 and 10")
+
+    size = (args.size or "auto").strip().lower()
+    fixed_size = size != "auto"
+    if fixed_size:
+        if args.aspect_ratio or args.area:
+            raise SpeechError("--size WIDTHxHEIGHT cannot be combined with --aspect-ratio or --area")
+        if "x" not in size:
+            raise SpeechError("--size must be WIDTHxHEIGHT, e.g. 2720x1536, or auto")
+    if args.disable_prompt_enhanced and not fixed_size and not args.aspect_ratio:
+        raise SpeechError(
+            "--no-enhance requires --size WIDTHxHEIGHT or --aspect-ratio X:Y")
+
+    key_name, key = resolve_key(args.key_env)
+    base = resolve_base_url(args.base_url)
+    payload = build_image_payload(
+        prompt,
+        model=args.model,
+        n=args.n,
+        size=size,
+        aspect_ratio=args.aspect_ratio,
+        area=args.area,
+        output_format=args.format,
+        disable_prompt_enhanced=args.disable_prompt_enhanced,
+    )
+    body = _request(base + "/v1/images/generations", key,
+                    json.dumps(payload).encode(), "application/json", timeout=600)
+    data = _parse_json(body, "image generation")
+    _raise_base_resp(data, "image generation")
+
+    items = data.get("data") or []
+    if not items:
+        raise SpeechError("image generation returned no images")
+    extension = args.format
+    targets = _image_targets(args.out, len(items), extension)
+    results: list[dict] = []
+    succeeded = 0
+    for i, item in enumerate(items):
+        if item.get("error"):
+            err = item["error"]
+            results.append({"index": i, "error": err.get("message") or "failed",
+                            "code": err.get("code")})
+            continue
+        url = item.get("url")
+        if not url:
+            results.append({"index": i, "error": "no URL in the response"})
+            continue
+        try:
+            with urllib.request.urlopen(url, timeout=180) as resp:
+                image = resp.read()
+        except (urllib.error.URLError, TimeoutError) as e:
+            results.append({"index": i, "error": f"download failed: {e}"})
+            continue
+        path = targets[i]
+        _write_bytes(path, image)
+        succeeded += 1
+        results.append({
+            "index": i,
+            "path": str(path),
+            "size": item.get("size"),
+            "bytes": len(image),
+            "revised_prompt": item.get("revised_prompt"),
+        })
+
+    usage = data.get("usage") or {}
+    result = {
+        "model": args.model,
+        "images": results,
+        "generated": succeeded,
+        "usage": usage,
+        "request_id": data.get("request_id"),
+        "key_env": key_name,
+        "base_url": base,
+    }
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        for item in results:
+            if item.get("error"):
+                print(f"{RED}! image {item['index']}: {item['error']}"
+                      + (f" ({item['code']})" if item.get("code") else "")
+                      + RESET, file=sys.stderr)
+            else:
+                size = item.get("size") or ""
+                print(f"{GREEN}✔ {item['path']}{RESET} "
+                      f"{DIM}({size}, {item.get('bytes', 0)} bytes){RESET}")
+        if succeeded:
+            print(f"{DIM}{succeeded}/{len(items)} image(s), "
+                  f"{usage.get('total_tokens', 0)} tokens{RESET}")
+    if succeeded == 0:
+        raise SpeechError("all images failed; see the per-image errors above")
+    return 0
+
+
 # ── CLI ────────────────────────────────────────────────────────────────────
 
 def _add_common(p: argparse.ArgumentParser) -> None:
@@ -550,7 +703,7 @@ def _add_common(p: argparse.ArgumentParser) -> None:
 def build_parser(prog: str = "ccp speech") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=prog,
-        description="MiniMax speech and music endpoints.",
+        description="MiniMax multimodal endpoints: speech, music and images.",
         epilog=(
             "The key is read from ~/.config/litellm/proxy.env unless it is in the\n"
             "environment. Speech shares the M Plan 5-hour and weekly quota with text.\n"
@@ -560,7 +713,7 @@ def build_parser(prog: str = "ccp speech") -> argparse.ArgumentParser:
             '  ccp speech tts "Hello" --voice English_Graceful_Lady --out hello.mp3\n'
             "  ccp speech asr meeting.mp3 --language zh --format verbose_json\n"
             '  ccp music "calm solo piano" --instrumental\n'
-            '  ccp music "indie folk" --lyrics-file lyrics.txt --out song.mp3\n'
+            '  ccp image "a cat on a windowsill" --aspect-ratio 16:9 --area 2K\n'
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -624,12 +777,34 @@ def build_parser(prog: str = "ccp speech") -> argparse.ArgumentParser:
     music.add_argument("--bitrate", type=int, default=256000)
     _add_common(music)
     music.set_defaults(func=cmd_music)
+
+    image = sub.add_parser(
+        "image",
+        prog="ccp image",
+        help="text to image (MiniMax-H3-Image)")
+    image.add_argument("prompt", help="image description (up to 32,000 chars)")
+    image.add_argument("--model", default=DEFAULT_IMAGE_MODEL,
+                       help=f"image model (default: {DEFAULT_IMAGE_MODEL})")
+    image.add_argument("--n", type=int, default=1, help="images per request, 1-10")
+    image.add_argument("--size", default="auto",
+                       help="auto or WIDTHxHEIGHT (e.g. 2720x1536)")
+    image.add_argument("--aspect-ratio", default=None,
+                       help="e.g. 16:9, 3:4, 21:9 (with --size auto)")
+    image.add_argument("--area", choices=("1K", "2K", "4K"), default=None,
+                       help="target area when --size is auto (default: server 4K)")
+    image.add_argument("--format", choices=("jpeg", "png", "webp"), default="jpeg")
+    image.add_argument("--out", default=None,
+                       help="directory, or a .png/.jpg/.jpeg/.webp file when --n 1")
+    image.add_argument("--no-enhance", dest="disable_prompt_enhanced",
+                       action="store_true",
+                       help="disable prompt enhancement (then set size or aspect ratio)")
+    _add_common(image)
+    image.set_defaults(func=cmd_image)
     return parser
 
 
 def main(argv: list[str]) -> int:
-    prog = "ccp music" if argv and argv[0] == "music" else "ccp speech"
-    parser = build_parser(prog)
+    parser = build_parser()
     args = parser.parse_args(argv)
     try:
         return args.func(args)
