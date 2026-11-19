@@ -295,6 +295,10 @@ accounts: {}
 # fallbacks. Trae GLM stays out of main/flash: its 16k output cap would lower
 # their group clamp.
 #
+# MiniMax publishes a 5-hour plan window: a 429 means *this* window is spent,
+# not that the plan is gone. It stays in every fallback chain — the next
+# window restores it with no code or registry change.
+#
 # A local, git-ignored `registry/profiles.local.yaml` can override groups for
 # experiments; render merges it over these committed defaults.
 #
@@ -306,6 +310,7 @@ groups:
     members:
     - opencode-deepseek-v4.1-flash
     fallback:
+    - MiniMax-M3.1-Flash
     - omp-deepseek-v4.1-flash
   pro:
     # Fast and 1.05M-context: the front-end/architecture slot.
@@ -314,11 +319,13 @@ groups:
     fallback:
     - trae-doubao-seed-2.1-pro
     - opencode-deepseek-v4.1-flash
+    - MiniMax-M3.1-Flash
     - omp-deepseek-v4.1-flash
   flash:
     members:
     - opencode-deepseek-v4.1-flash
     fallback:
+    - MiniMax-M3.1-Flash
     - omp-deepseek-v4.1-flash
 # Example — cheap-first, escalating to a different vendor when both are out:
 #   groups:
