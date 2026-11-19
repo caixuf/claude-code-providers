@@ -97,6 +97,8 @@ Usage:
                              --out; official API is closed to new users)
   ccp image <prompt>         MiniMax-H3-Image text-to-image (options: --n,
                              --size, --aspect-ratio, --area, --format, --out)
+  ccp video <prompt>         MiniMax-H3 video (async; options: --model,
+                             --resolution, --duration, --image, --task, --no-wait)
   ccp doctor                 Is this machine still consistent with the repository?
                              (--json, --probe [--probe-model M])
   ccp hermes [provider]      Point the local Hermes agent at a provider's model.
@@ -139,6 +141,7 @@ Examples:
   ccp speech asr meeting.mp3  # MiniMax M Plan ASR (--format srt for subtitles)
   ccp music "calm solo piano" --instrumental  # MiniMax music (legacy access only)
   ccp image "a cat on a windowsill" --aspect-ratio 16:9 --area 2K
+  ccp video "a paper boat drifting on a calm pond" --duration 4
 
 Note: CommandCode, GitHub Copilot, Codex and Antigravity are retired and no
 longer shipped. `ccp auth copilot` still runs the Copilot device flow.
@@ -1663,7 +1666,7 @@ main() {
       py_bin=$(ccp_python)
       "$py_bin" "$repo_dir/bridge/ccp_usage.py" "${@:2}"
       ;;
-    speech|tts|asr|stt|music|image)
+    speech|tts|asr|stt|music|image|video)
       local repo_dir py_bin
       repo_dir=$(ccp_repo_dir)
       if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/ccp_media.py" ]; then
@@ -1678,6 +1681,7 @@ main() {
         asr|stt) sargs=(asr "${@:2}") ;;
         music) sargs=(music "${@:2}") ;;
         image) sargs=(image "${@:2}") ;;
+        video) sargs=(video "${@:2}") ;;
       esac
       "$py_bin" "$repo_dir/bridge/ccp_media.py" "${sargs[@]}"
       ;;

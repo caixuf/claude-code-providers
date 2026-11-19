@@ -190,6 +190,7 @@ stale.
 | `ccp speech tts/asr …` | MiniMax M Plan text-to-speech and speech-to-text |
 | `ccp music …` | MiniMax text-to-music (legacy paying keys only) |
 | `ccp image …` | MiniMax-H3-Image text-to-image |
+| `ccp video …` | MiniMax-H3 text/image-to-video (Explore/Build) |
 | `ccp doctor` | Check litter, duplicate keys, proxy and live answering model |
 | `ccp hermes [provider]` | Point the local Hermes agent at a provider's model |
 | `ccp -h` / `ccp --help` | Full help |
@@ -415,6 +416,24 @@ reported per image and the successful ones are kept; only successful images are
 billed. The endpoint is synchronous and not idempotent, so the client timeout
 is 600s and retries are not automatic. Image editing (`/v1/images/edits`) is
 not wired yet.
+
+### Video
+
+`ccp video` creates an H3 task, polls it, and downloads the MP4. M Plan
+Explore/Build include the video model; Go does not.
+
+```bash
+ccp video "a paper boat drifting on a calm pond" --duration 4
+ccp video "a fox walking through snow" --model MiniMax-H3 --resolution 768P
+ccp video "animate this frame" --image first.png --duration 5
+ccp video "add steam to the ramen" --image first.png --last-frame last.png
+ccp video --task 464993176097318 --out clip.mp4   # resume an existing task
+```
+
+The default is `MiniMax-H3-Lite` at 480P, 4s, 16:9, with audio. `MiniMax-H3`
+supports 768P/2K; Highspeed/Lite/Max support 480P/768P. The task is
+asynchronous: `--no-wait` prints the task id, and `--task` polls it later.
+Output URLs are time-limited, so the download happens immediately.
 
 ---
 

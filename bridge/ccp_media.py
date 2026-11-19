@@ -31,6 +31,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import mimetypes
 import os
@@ -46,7 +47,18 @@ DEFAULT_TTS_MODEL = "speech-2.8-hd"
 DEFAULT_ASR_MODEL = "asr-1.0"
 DEFAULT_MUSIC_MODEL = "music-3.0"
 DEFAULT_IMAGE_MODEL = "MiniMax-H3-Image"
+DEFAULT_VIDEO_MODEL = "MiniMax-H3-Lite"
 DEFAULT_VOICE = "Chinese (Mandarin)_Lyrical_Voice"
+VIDEO_MODELS = {
+    "MiniMax-H3": {"resolutions": ("768P", "2K"), "min_duration": 4,
+                    "default_resolution": "768P"},
+    "MiniMax-H3-Highspeed": {"resolutions": ("480P", "768P"), "min_duration": 4,
+                              "default_resolution": "768P"},
+    "MiniMax-H3-Lite": {"resolutions": ("480P", "768P"), "min_duration": 4,
+                         "default_resolution": "480P"},
+    "MiniMax-H3-Max": {"resolutions": ("480P", "768P"), "min_duration": 5,
+                        "default_resolution": "768P"},
+}
 KEY_ENV = "MINIMAX_PLAN_API_KEY"
 MAX_ASR_BYTES = 50 * 1024 * 1024
 SUPPORTED_AUDIO = {"wav", "aiff", "flac", "m4a", "mp3", "aac", "opus", "ogg"}
@@ -189,6 +201,22 @@ def _parse_json(body: bytes, what: str) -> dict:
     if not isinstance(data, dict):
         raise SpeechError(f"{what} returned {type(data).__name__}, expected an object")
     return data
+
+
+def _get_json(url: str, key: str, what: str = "MiniMax",
+              timeout: int = 120) -> dict:
+    req = urllib.request.Request(url, method="GET")
+    req.add_header("Authorization", "Bearer " + key)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return _parse_json(resp.read(), what)
+    except urllib.error.HTTPError as e:
+        _raise_http_error(what, e.code, e.read())
+    except urllib.error.URLError as e:
+        raise SpeechError(f"cannot reach {url}: {e.reason}") from e
+    except TimeoutError as e:
+        raise SpeechError(f"request to {url} timed out after {timeout}s") from e
+    raise AssertionError("unreachable")
 
 
 def _raise_base_resp(data: dict, what: str) -> None:
@@ -689,6 +717,185 @@ def cmd_image(args) -> int:
     return 0
 
 
+# ── video generation ──────────────────────────────────────────────────────
+
+def _image_ref(value: str, label: str) -> str:
+    if value.startswith(("http://", "https://", "data:")):
+        return value
+    path = Path(os.path.expanduser(value))
+    if not path.is_file():
+        raise SpeechError(f"{label} image not found: {path}")
+    size = path.stat().st_size
+    if size > 30 * 1024 * 1024:
+        raise SpeechError(f"{label} image is {size / 1_000_000:.1f} MB; "
+                          "the Video API accepts at most 30 MB")
+    mime = mimetypes.guess_type(path.name)[0] or "image/jpeg"
+    encoded = base64.b64encode(path.read_bytes()).decode()
+    return f"data:{mime};base64,{encoded}"
+
+
+def build_video_payload(prompt: str, *, model: str, resolution: str,
+                        duration: int, ratio: str, generate_audio: bool,
+                        first_frame: str | None = None,
+                        last_frame: str | None = None) -> dict:
+    content: list[dict] = [{"type": "text", "text": prompt}]
+    if first_frame:
+        content.append({"type": "image_url",
+                        "image_url": {"url": _image_ref(first_frame, "first-frame")},
+                        "role": "first_frame"})
+    if last_frame:
+        content.append({"type": "image_url",
+                        "image_url": {"url": _image_ref(last_frame, "last-frame")},
+                        "role": "last_frame"})
+    return {
+        "model": model,
+        "content": content,
+        "resolution": resolution,
+        "duration": duration,
+        "ratio": ratio,
+        "generate_audio": generate_audio,
+    }
+
+
+def _video_target(out: str | None) -> Path:
+    stamp = time.strftime("video-%Y%m%d-%H%M%S")
+    if out == "-":
+        raise SpeechError("--out - is not supported for video; pass a directory or a file")
+    if out:
+        base = Path(os.path.expanduser(out))
+        if base.suffix.lower() in (".mp4", ".mov"):
+            return base
+        base.mkdir(parents=True, exist_ok=True)
+    else:
+        base = Path(".")
+    return base / (stamp + ".mp4")
+
+
+def _poll_video(base: str, key: str, task_id: str, timeout: int,
+                interval: int) -> dict:
+    deadline = time.time() + timeout
+    last_status: str | None = None
+    while time.time() < deadline:
+        data = _get_json(f"{base}/v2/query/video_generation/{task_id}", key,
+                         "video query")
+        task = data.get("task") or data
+        status = str(task.get("status") or "")
+        if status != last_status:
+            print(f"{DIM}video {task_id}: {status or 'unknown'}{RESET}",
+                  file=sys.stderr)
+            last_status = status
+        if status == "succeeded":
+            return task
+        if status in ("failed", "cancelled"):
+            err = task.get("error") or {}
+            raise SpeechError(
+                f"video generation {status}"
+                + (f" ({err.get('code')}): {err.get('message')}" if err else ""))
+        time.sleep(interval)
+    raise SpeechError(
+        f"video task {task_id} did not finish within {timeout}s; "
+        f"query it later with `ccp video --task {task_id}`")
+
+
+def cmd_video(args) -> int:
+    if args.task and args.prompt:
+        raise SpeechError("use either a prompt or --task, not both")
+    if not args.task and not (args.prompt or "").strip():
+        raise SpeechError("no video prompt (or pass --task to poll an existing task)")
+
+    key_name, key = resolve_key(args.key_env)
+    base = resolve_base_url(args.base_url)
+    requested_duration = args.duration
+    task: dict
+    task_id = args.task
+
+    if not task_id:
+        prompt = args.prompt.strip()
+        if len(prompt) > 7000:
+            raise SpeechError(f"prompt is {len(prompt)} characters; "
+                              "the Video API accepts at most 7,000")
+        spec = VIDEO_MODELS.get(args.model)
+        if not spec:
+            raise SpeechError(f"unknown video model {args.model!r}; "
+                              f"choose one of: {', '.join(VIDEO_MODELS)}")
+        resolution = (args.resolution or spec["default_resolution"]).upper()
+        if resolution not in spec["resolutions"]:
+            raise SpeechError(
+                f"{args.model} supports {', '.join(spec['resolutions'])}; "
+                f"{resolution} is not available")
+        duration = requested_duration or spec["min_duration"]
+        if duration < spec["min_duration"] or duration > 15:
+            raise SpeechError(
+                f"{args.model} duration must be {spec['min_duration']}-15 seconds")
+        if args.last_frame and not args.image:
+            raise SpeechError("--last-frame requires --image (the first frame)")
+        if not args.image and args.ratio == "adaptive":
+            raise SpeechError("text-to-video needs a concrete --ratio, not adaptive")
+
+        payload = build_video_payload(
+            prompt,
+            model=args.model,
+            resolution=resolution,
+            duration=duration,
+            ratio=args.ratio,
+            generate_audio=not args.silent,
+            first_frame=args.image,
+            last_frame=args.last_frame,
+        )
+        body = _request(base + "/v2/video_generation", key,
+                        json.dumps(payload).encode(), "application/json",
+                        timeout=120)
+        data = _parse_json(body, "video generation")
+        _raise_base_resp(data, "video generation")
+        task_id = data.get("task_id") or (data.get("task") or {}).get("id")
+        if not task_id:
+            raise SpeechError("video generation returned no task_id")
+        if args.no_wait:
+            if args.json:
+                print(json.dumps({"task_id": task_id, "status": "queued",
+                                  "model": args.model, "key_env": key_name,
+                                  "base_url": base}, ensure_ascii=False))
+            else:
+                print(task_id)
+            return 0
+
+    task = _poll_video(base, key, str(task_id), args.timeout, args.poll)
+    content = task.get("content") or {}
+    url = content.get("url")
+    if not url:
+        raise SpeechError("video task succeeded but returned no download URL")
+    try:
+        with urllib.request.urlopen(url, timeout=300) as resp:
+            video = resp.read()
+    except (urllib.error.URLError, TimeoutError) as e:
+        raise SpeechError(f"cannot download the generated video: {e}") from e
+    if not video:
+        raise SpeechError("video download returned an empty file")
+
+    path = _video_target(args.out)
+    _write_bytes(path, video)
+    result = {
+        "task_id": str(task_id),
+        "path": str(path),
+        "status": task.get("status"),
+        "model": task.get("model") or args.model,
+        "resolution": task.get("resolution"),
+        "duration": task.get("duration"),
+        "ratio": task.get("ratio"),
+        "bytes": len(video),
+        "usage": task.get("usage"),
+        "key_env": key_name,
+        "base_url": base,
+    }
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        size = f", {result['resolution']}" if result.get("resolution") else ""
+        dur = f", {result['duration']}s" if result.get("duration") else ""
+        print(f"{GREEN}✔ {path}{RESET} {DIM}({len(video)} bytes{size}{dur}){RESET}")
+    return 0
+
+
 # ── CLI ────────────────────────────────────────────────────────────────────
 
 def _add_common(p: argparse.ArgumentParser) -> None:
@@ -714,6 +921,7 @@ def build_parser(prog: str = "ccp speech") -> argparse.ArgumentParser:
             "  ccp speech asr meeting.mp3 --language zh --format verbose_json\n"
             '  ccp music "calm solo piano" --instrumental\n'
             '  ccp image "a cat on a windowsill" --aspect-ratio 16:9 --area 2K\n'
+            '  ccp video "a paper boat drifting on a calm pond" --duration 4\n'
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -800,6 +1008,42 @@ def build_parser(prog: str = "ccp speech") -> argparse.ArgumentParser:
                        help="disable prompt enhancement (then set size or aspect ratio)")
     _add_common(image)
     image.set_defaults(func=cmd_image)
+
+    video = sub.add_parser(
+        "video",
+        prog="ccp video",
+        help="text/image to video (async; M Plan Explore/Build)")
+    video.add_argument("prompt", nargs="?", default=None,
+                       help="video description (up to 7,000 chars)")
+    video.add_argument("--task", default=None,
+                       help="poll and download an existing task id")
+    video.add_argument("--model", default=DEFAULT_VIDEO_MODEL,
+                       choices=tuple(VIDEO_MODELS),
+                       help=f"video model (default: {DEFAULT_VIDEO_MODEL})")
+    video.add_argument("--resolution", choices=("480P", "768P", "2K"),
+                       default=None,
+                       help="per-model default: Lite 480P, H3 768P")
+    video.add_argument("--duration", type=int, default=None,
+                       help="seconds; 4-15 (Max: 5-15)")
+    video.add_argument("--ratio", default="16:9",
+                       choices=("adaptive", "21:9", "16:9", "4:3",
+                                "1:1", "3:4", "9:16"))
+    video.add_argument("--image", default=None,
+                       help="first-frame image: local path, URL or data URI")
+    video.add_argument("--last-frame", default=None,
+                       help="last-frame image (requires --image)")
+    video.add_argument("--silent", action="store_true",
+                       help="generate a silent video (default: with audio)")
+    video.add_argument("--out", default=None,
+                       help="directory, or a .mp4/.mov file (default: video-<timestamp>.mp4)")
+    video.add_argument("--no-wait", action="store_true",
+                       help="create the task and print its id instead of polling")
+    video.add_argument("--timeout", type=int, default=900,
+                       help="poll deadline in seconds (default: 900)")
+    video.add_argument("--poll", type=int, default=10,
+                       help="poll interval in seconds (default: 10)")
+    _add_common(video)
+    video.set_defaults(func=cmd_video)
     return parser
 
 

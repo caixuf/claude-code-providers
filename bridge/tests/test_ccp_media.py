@@ -307,3 +307,90 @@ def test_image_targets_use_a_numbered_directory(tmp_path):
     targets = s._image_targets(str(tmp_path), 2, "jpeg")
     assert len(targets) == 2
     assert all(p.parent == tmp_path and p.name.startswith("image-") for p in targets)
+
+
+# ── video ──────────────────────────────────────────────────────────────────
+
+def _video_args(**overrides):
+    values = {
+        "prompt": "a paper boat drifting on a calm pond",
+        "task": None,
+        "model": "MiniMax-H3-Lite",
+        "resolution": None,
+        "duration": None,
+        "ratio": "16:9",
+        "image": None,
+        "last_frame": None,
+        "silent": False,
+        "out": None,
+        "no_wait": False,
+        "timeout": 900,
+        "poll": 10,
+        "json": False,
+        "key_env": None,
+        "base_url": None,
+    }
+    values.update(overrides)
+    return type("A", (), values)()
+
+
+def test_video_payload_text_only():
+    payload = s.build_video_payload(
+        "a paper boat", model="MiniMax-H3-Lite", resolution="480P",
+        duration=4, ratio="16:9", generate_audio=False,
+    )
+    assert payload["model"] == "MiniMax-H3-Lite"
+    assert payload["content"] == [{"type": "text", "text": "a paper boat"}]
+    assert payload["generate_audio"] is False
+    assert payload["duration"] == 4
+
+
+def test_video_payload_first_and_last_frame(tmp_path):
+    first = tmp_path / "first.png"
+    last = tmp_path / "last.png"
+    first.write_bytes(b"\x89PNG\r\n\x1a\nfirst")
+    last.write_bytes(b"\x89PNG\r\n\x1a\nlast")
+    payload = s.build_video_payload(
+        "animate this", model="MiniMax-H3", resolution="768P",
+        duration=5, ratio="adaptive", generate_audio=True,
+        first_frame=str(first), last_frame=str(last),
+    )
+    assert [item["role"] for item in payload["content"][1:]] == [
+        "first_frame", "last_frame"]
+    assert payload["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
+
+
+def test_video_requires_prompt_or_task():
+    with pytest.raises(s.SpeechError) as e:
+        s.cmd_video(_video_args(prompt=None))
+    assert "no video prompt" in str(e.value)
+
+
+def test_video_rejects_2k_on_lite():
+    with pytest.raises(s.SpeechError) as e:
+        s.cmd_video(_video_args(resolution="2K"))
+    assert "480P, 768P" in str(e.value)
+
+
+def test_video_max_needs_at_least_five_seconds():
+    with pytest.raises(s.SpeechError) as e:
+        s.cmd_video(_video_args(model="MiniMax-H3-Max", duration=4))
+    assert "5-15" in str(e.value)
+
+
+def test_video_text_to_video_rejects_adaptive_ratio():
+    with pytest.raises(s.SpeechError) as e:
+        s.cmd_video(_video_args(ratio="adaptive"))
+    assert "concrete --ratio" in str(e.value)
+
+
+def test_video_last_frame_requires_first_frame():
+    with pytest.raises(s.SpeechError) as e:
+        s.cmd_video(_video_args(last_frame="last.png"))
+    assert "--last-frame requires --image" in str(e.value)
+
+
+def test_video_target_defaults_to_mp4(tmp_path):
+    target = s._video_target(str(tmp_path))
+    assert target.parent == tmp_path
+    assert target.suffix == ".mp4" and target.name.startswith("video-")
