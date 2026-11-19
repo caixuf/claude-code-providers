@@ -92,6 +92,9 @@ Usage:
                              --model, --out, --format; TEXT='-' reads stdin)
   ccp speech asr <audio>     MiniMax M Plan speech-to-text (options: --language,
                              --format json|verbose_json|srt|vtt, --out)
+  ccp music <prompt>         MiniMax text-to-music (options: --lyrics,
+                             --lyrics-file, --instrumental, --lyrics-optimizer,
+                             --out; official API is closed to new users)
   ccp doctor                 Is this machine still consistent with the repository?
                              (--json, --probe [--probe-model M])
   ccp hermes [provider]      Point the local Hermes agent at a provider's model.
@@ -132,6 +135,7 @@ Examples:
   ccp hermes                 # What model the local Hermes bot is running
   ccp speech tts "你好，世界" # MiniMax M Plan TTS; shares the text quota
   ccp speech asr meeting.mp3  # MiniMax M Plan ASR (--format srt for subtitles)
+  ccp music "calm solo piano" --instrumental  # MiniMax music (legacy access only)
 
 Note: CommandCode, GitHub Copilot, Codex and Antigravity are retired and no
 longer shipped. `ccp auth copilot` still runs the Copilot device flow.
@@ -1656,7 +1660,7 @@ main() {
       py_bin=$(ccp_python)
       "$py_bin" "$repo_dir/bridge/ccp_usage.py" "${@:2}"
       ;;
-    speech|tts|asr|stt)
+    speech|tts|asr|stt|music)
       local repo_dir py_bin
       repo_dir=$(ccp_repo_dir)
       if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/ccp_speech.py" ]; then
@@ -1669,6 +1673,7 @@ main() {
         speech) sargs=("${@:2}") ;;
         tts) sargs=(tts "${@:2}") ;;
         asr|stt) sargs=(asr "${@:2}") ;;
+        music) sargs=(music "${@:2}") ;;
       esac
       "$py_bin" "$repo_dir/bridge/ccp_speech.py" "${sargs[@]}"
       ;;

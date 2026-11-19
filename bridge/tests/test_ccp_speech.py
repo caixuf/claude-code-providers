@@ -153,3 +153,77 @@ def test_tts_rejects_text_over_the_synchronous_limit():
     with pytest.raises(s.SpeechError) as e:
         s.cmd_tts(args)
     assert "10,000" in str(e.value)
+
+
+# ── music ──────────────────────────────────────────────────────────────────
+
+def _music_args(**overrides):
+    values = {
+        "prompt": "calm solo piano",
+        "lyrics": None,
+        "lyrics_file": None,
+        "instrumental": True,
+        "lyrics_optimizer": False,
+    }
+    values.update(overrides)
+    return type("A", (), values)()
+
+
+def test_music_payload_is_url_based_and_instrumental():
+    payload = s.build_music_payload(
+        "calm solo piano", model="music-3.0", lyrics=None,
+        is_instrumental=True, lyrics_optimizer=False,
+        audio_format="mp3", sample_rate=44100, bitrate=256000,
+    )
+    assert payload["model"] == "music-3.0"
+    assert payload["output_format"] == "url"
+    assert payload["stream"] is False
+    assert payload["is_instrumental"] is True
+    assert "lyrics" not in payload
+    assert payload["audio_setting"]["sample_rate"] == 44100
+
+
+def test_music_payload_carries_lyrics_and_optimizer():
+    payload = s.build_music_payload(
+        "indie folk", model="music-3.0", lyrics="[Verse]\nhello",
+        is_instrumental=False, lyrics_optimizer=True,
+        audio_format="wav", sample_rate=32000, bitrate=128000,
+    )
+    assert payload["lyrics"] == "[Verse]\nhello"
+    assert payload["lyrics_optimizer"] is True
+    assert "is_instrumental" not in payload
+
+
+def test_music_rejects_an_empty_prompt():
+    with pytest.raises(s.SpeechError) as e:
+        s.cmd_music(_music_args(prompt="  "))
+    assert "no music prompt" in str(e.value)
+
+
+def test_music_requires_lyrics_or_optimizer_when_not_instrumental():
+    with pytest.raises(s.SpeechError) as e:
+        s.cmd_music(_music_args(instrumental=False))
+    assert "needs lyrics" in str(e.value)
+
+
+def test_music_rejects_both_lyrics_sources():
+    with pytest.raises(s.SpeechError) as e:
+        s.cmd_music(_music_args(lyrics="x", lyrics_file="y"))
+    assert "either --lyrics or --lyrics-file" in str(e.value)
+
+
+def test_music_rejects_lyrics_over_the_limit():
+    with pytest.raises(s.SpeechError) as e:
+        s.cmd_music(_music_args(instrumental=False, lyrics="x" * 3501))
+    assert "3,500" in str(e.value)
+
+
+def test_music_2153_names_the_new_user_closure():
+    hint = s._error_hint(2153, 410)
+    assert "closed to new users" in hint
+    assert "MiniMax Audio" in hint
+
+
+def test_music_default_filename_is_not_speech_prefixed():
+    assert s._default_out("mp3", "music").name.startswith("music-")
+    assert s._default_out("mp3").name.startswith("speech-")

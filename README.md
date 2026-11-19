@@ -188,6 +188,7 @@ stale.
 | `ccp quota [provider]` | What is left on each plan |
 | `ccp usage` | Tokens and latency from the bridge's ledger |
 | `ccp speech tts/asr …` | MiniMax M Plan text-to-speech and speech-to-text |
+| `ccp music …` | MiniMax text-to-music (legacy paying keys only) |
 | `ccp doctor` | Check litter, duplicate keys, proxy and live answering model |
 | `ccp hermes [provider]` | Point the local Hermes agent at a provider's model |
 | `ccp -h` / `ccp --help` | Full help |
@@ -379,6 +380,23 @@ M Plan keys are region-specific. The default base is the CN endpoint
 `https://api.minimaxi.com`; a global key needs
 `--base-url https://api.minimax.io`. Speech shares the M Plan 5-hour and
 weekly quota with text, so a 429 is the same window the text models see.
+
+### Music
+
+`ccp music` uses the same key/error layer and the documented
+`/v1/music_generation` API:
+
+```bash
+ccp music "calm solo piano" --instrumental
+ccp music "indie folk" --lyrics-file lyrics.txt --out song.mp3
+ccp music "melodic trap" --lyrics-optimizer
+```
+
+The official Music API has been closed to new users since 2026-08-20. Keys
+without legacy access answer HTTP 410 / code 2153; the command names that
+closure instead of reporting a generic network failure. For new access, use
+[MiniMax Audio](https://www.minimax.io/audio) or a third-party host of
+MiniMax Music 3.
 
 ---
 

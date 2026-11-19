@@ -6,6 +6,10 @@ speech does not travel through LiteLLM: these are MiniMax's own HTTP endpoints.
 Keeping the two paths separate means `ccp speech` still works when the bridge is
 stopped, and it never pretends a speech model is a Claude Code tier.
 
+`ccp music` shares the same key/error layer. Its official API has been closed to
+new users since 2026-08-20, so a key without legacy music access gets a clear
+2153 error instead of a generic failure.
+
 The key is region-specific. A Mainland China key (`sk-cp-...`) is accepted by
 `api.minimaxi.com` and `api.minimax.cn`; the global platform is
 `api.minimax.io`. The default here is the CN endpoint because that is where this
@@ -19,6 +23,7 @@ loads; they are never written to the repository or printed.
 Usage:
     ccp speech tts "你好，世界" [--voice ...] [--out FILE]
     ccp speech asr meeting.mp3 [--language zh] [--format srt]
+    ccp music "calm solo piano" --instrumental
 """
 
 from __future__ import annotations
@@ -37,6 +42,7 @@ from pathlib import Path
 DEFAULT_BASE = "https://api.minimaxi.com"
 DEFAULT_TTS_MODEL = "speech-2.8-hd"
 DEFAULT_ASR_MODEL = "asr-1.0"
+DEFAULT_MUSIC_MODEL = "music-3.0"
 DEFAULT_VOICE = "Chinese (Mandarin)_Lyrical_Voice"
 KEY_ENV = "MINIMAX_PLAN_API_KEY"
 MAX_ASR_BYTES = 50 * 1024 * 1024
@@ -104,6 +110,10 @@ def _error_hint(code: int | None, http_status: int | None) -> str:
         return ("the key is not valid for this endpoint; M Plan keys are "
                 "region-specific (CN: api.minimaxi.com / api.minimax.cn, "
                 "global: api.minimax.io)")
+    if code == 2153 or http_status == 410:
+        return ("the official Music API is closed to new users since "
+                "2026-08-20; use MiniMax Audio, an existing paying key, or a "
+                "third-party host of MiniMax Music 3")
     if code in (1002, 1039) or http_status == 429:
         return ("rate limit or the current M Plan 5-hour/weekly window is "
                 "spent; speech shares the text quota")
@@ -224,18 +234,19 @@ def build_tts_payload(text: str, *, model: str, voice: str, audio_format: str,
     return payload
 
 
-def _default_out(audio_format: str) -> Path:
-    return Path(time.strftime("speech-%Y%m%d-%H%M%S") + "." + audio_format)
+def _default_out(audio_format: str, prefix: str = "speech") -> Path:
+    return Path(time.strftime(f"{prefix}-%Y%m%d-%H%M%S") + "." + audio_format)
 
 
-def _write_audio(out: str | None, audio: bytes, audio_format: str) -> Path | None:
+def _write_audio(out: str | None, audio: bytes, audio_format: str,
+                 prefix: str = "speech") -> Path | None:
     if out == "-":
         sys.stdout.buffer.write(audio)
         sys.stdout.buffer.flush()
         return None
-    path = Path(os.path.expanduser(out)) if out else _default_out(audio_format)
+    path = Path(os.path.expanduser(out)) if out else _default_out(audio_format, prefix)
     if path.is_dir():
-        path = path / _default_out(audio_format)
+        path = path / _default_out(audio_format, prefix)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".part")
     tmp.write_bytes(audio)
@@ -408,6 +419,123 @@ def cmd_asr(args) -> int:
     return 0
 
 
+# ── music generation ──────────────────────────────────────────────────────
+
+def build_music_payload(prompt: str, *, model: str, lyrics: str | None,
+                        is_instrumental: bool, lyrics_optimizer: bool,
+                        audio_format: str, sample_rate: int,
+                        bitrate: int) -> dict:
+    payload: dict = {
+        "model": model,
+        "prompt": prompt,
+        "output_format": "url",
+        "stream": False,
+        "audio_setting": {
+            "format": audio_format,
+            "sample_rate": sample_rate,
+            "bitrate": bitrate,
+        },
+    }
+    if is_instrumental:
+        payload["is_instrumental"] = True
+    elif lyrics:
+        payload["lyrics"] = lyrics
+    if lyrics_optimizer:
+        payload["lyrics_optimizer"] = True
+    return payload
+
+
+def _music_lyrics(args) -> str | None:
+    if args.lyrics and args.lyrics_file:
+        raise SpeechError("use either --lyrics or --lyrics-file, not both")
+    if args.lyrics:
+        return args.lyrics
+    if not args.lyrics_file:
+        return None
+    path = Path(os.path.expanduser(args.lyrics_file))
+    if args.lyrics_file == "-":
+        return sys.stdin.read()
+    if not path.is_file():
+        raise SpeechError(f"lyrics file not found: {path}")
+    return path.read_text(encoding="utf-8")
+
+
+def cmd_music(args) -> int:
+    prompt = (args.prompt or "").strip()
+    if not prompt:
+        raise SpeechError("no music prompt (describe style, mood and scenario)")
+    if len(prompt) > 2000:
+        raise SpeechError(f"prompt is {len(prompt)} characters; the Music API accepts at most 2,000")
+
+    lyrics = _music_lyrics(args)
+    if lyrics is not None:
+        lyrics = lyrics.strip()
+    if not args.instrumental and not lyrics and not args.lyrics_optimizer:
+        raise SpeechError(
+            "non-instrumental music needs lyrics: pass --lyrics/--lyrics-file, "
+            "or --lyrics-optimizer, or --instrumental")
+    if lyrics and len(lyrics) > 3500:
+        raise SpeechError(f"lyrics are {len(lyrics)} characters; the Music API accepts at most 3,500")
+
+    key_name, key = resolve_key(args.key_env)
+    base = resolve_base_url(args.base_url)
+    payload = build_music_payload(
+        prompt,
+        model=args.model,
+        lyrics=lyrics,
+        is_instrumental=args.instrumental,
+        lyrics_optimizer=args.lyrics_optimizer,
+        audio_format=args.format,
+        sample_rate=args.sample_rate,
+        bitrate=args.bitrate,
+    )
+    body = _request(base + "/v1/music_generation", key,
+                    json.dumps(payload).encode(), "application/json", timeout=600)
+    data = _parse_json(body, "music generation")
+    _raise_base_resp(data, "music generation")
+
+    audio_ref = (data.get("data") or {}).get("audio")
+    if not audio_ref:
+        raise SpeechError("music generation returned no audio")
+    if str(audio_ref).startswith(("http://", "https://")):
+        try:
+            with urllib.request.urlopen(audio_ref, timeout=180) as resp:
+                audio = resp.read()
+        except (urllib.error.URLError, TimeoutError) as e:
+            raise SpeechError(f"cannot download the generated music: {e}") from e
+    else:
+        try:
+            audio = bytes.fromhex(str(audio_ref))
+        except ValueError as e:
+            raise SpeechError("music generation returned neither a URL nor hex audio") from e
+    if not audio:
+        raise SpeechError("music generation returned an empty audio file")
+
+    path = _write_audio(args.out, audio, args.format, prefix="music")
+    info = data.get("extra_info") or {}
+    duration_ms = info.get("music_duration")
+    result = {
+        "path": str(path) if path else "-",
+        "model": args.model,
+        "format": args.format,
+        "bytes": len(audio),
+        "duration_ms": duration_ms,
+        "sample_rate": info.get("music_sample_rate"),
+        "instrumental": bool(args.instrumental),
+        "trace_id": data.get("trace_id"),
+        "key_env": key_name,
+        "base_url": base,
+    }
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        where = str(path) if path else "stdout"
+        dur = f"{duration_ms / 1000:.1f}s, " if isinstance(duration_ms, (int, float)) else ""
+        print(f"{GREEN}✔ {where}{RESET} {DIM}({dur}{len(audio)} bytes){RESET}",
+              file=sys.stderr if path is None else sys.stdout)
+    return 0
+
+
 # ── CLI ────────────────────────────────────────────────────────────────────
 
 def _add_common(p: argparse.ArgumentParser) -> None:
@@ -419,17 +547,20 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--json", action="store_true", help="emit one JSON object")
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(prog: str = "ccp speech") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="ccp speech",
-        description="MiniMax M Plan text-to-speech and speech-to-text.",
+        prog=prog,
+        description="MiniMax speech and music endpoints.",
         epilog=(
             "The key is read from ~/.config/litellm/proxy.env unless it is in the\n"
-            "environment. Speech shares the M Plan 5-hour and weekly quota with text.\n\n"
+            "environment. Speech shares the M Plan 5-hour and weekly quota with text.\n"
+            "The official Music API is closed to new users since 2026-08-20.\n\n"
             "Examples:\n"
             '  ccp speech tts "你好，世界"\n'
             '  ccp speech tts "Hello" --voice English_Graceful_Lady --out hello.mp3\n'
             "  ccp speech asr meeting.mp3 --language zh --format verbose_json\n"
+            '  ccp music "calm solo piano" --instrumental\n'
+            '  ccp music "indie folk" --lyrics-file lyrics.txt --out song.mp3\n'
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -470,11 +601,35 @@ def build_parser() -> argparse.ArgumentParser:
                      help="write the raw response here instead of stdout")
     _add_common(asr)
     asr.set_defaults(func=cmd_asr)
+
+    music = sub.add_parser(
+        "music",
+        prog="ccp music",
+        help="text to music (official API is closed to new users since 2026-08-20)")
+    music.add_argument("prompt", help="style, mood and scenario (1-2000 chars)")
+    music.add_argument("--model", default=DEFAULT_MUSIC_MODEL,
+                       help=f"music model (default: {DEFAULT_MUSIC_MODEL})")
+    music.add_argument("--lyrics", default=None,
+                       help="lyrics with [Verse]/[Chorus] structure tags")
+    music.add_argument("--lyrics-file", default=None,
+                       help="read lyrics from a file; '-' reads stdin")
+    music.add_argument("--instrumental", action="store_true",
+                       help="no vocals; prompt is required and lyrics are ignored")
+    music.add_argument("--lyrics-optimizer", action="store_true",
+                       help="let the API write lyrics from the prompt")
+    music.add_argument("--out", default=None,
+                       help="output file (default: music-<timestamp>.<format>; '-' = stdout)")
+    music.add_argument("--format", choices=("mp3", "wav", "pcm"), default="mp3")
+    music.add_argument("--sample-rate", type=int, default=44100)
+    music.add_argument("--bitrate", type=int, default=256000)
+    _add_common(music)
+    music.set_defaults(func=cmd_music)
     return parser
 
 
 def main(argv: list[str]) -> int:
-    parser = build_parser()
+    prog = "ccp music" if argv and argv[0] == "music" else "ccp speech"
+    parser = build_parser(prog)
     args = parser.parse_args(argv)
     try:
         return args.func(args)
