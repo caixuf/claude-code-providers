@@ -187,6 +187,7 @@ stale.
 | `ccp route [--json] [--strict]` | Show each group's chain and the quota evidence |
 | `ccp quota [provider]` | What is left on each plan |
 | `ccp usage` | Tokens and latency from the bridge's ledger |
+| `ccp speech tts/asr …` | MiniMax M Plan text-to-speech and speech-to-text |
 | `ccp doctor` | Check litter, duplicate keys, proxy and live answering model |
 | `ccp hermes [provider]` | Point the local Hermes agent at a provider's model |
 | `ccp -h` / `ccp --help` | Full help |
@@ -352,6 +353,32 @@ Both layouts work: one config per profile under
 `~/.hermes/config.yaml`. The command edits only the model keys, preserves
 comments, snapshots the profile, and restarts the gateway unit. `--profile`,
 `--config`, `--json` and `--dry-run` are available.
+
+---
+
+## Speech (MiniMax M Plan)
+
+Speech is a plan capability, not a Claude Code tier: `ccp speech` calls
+MiniMax directly and works even when the bridge is stopped. `ccp tts` and
+`ccp asr` are shorthand.
+
+```bash
+ccp speech tts "你好，世界"                       # -> speech-<timestamp>.mp3
+ccp speech tts "Hello" --voice English_Graceful_Lady --out hello.mp3
+ccp speech asr meeting.mp3 --language zh --format srt
+ccp speech asr meeting.mp3 --format verbose_json --json
+```
+
+It reads `MINIMAX_PLAN_API_KEY` from `~/.config/litellm/proxy.env`. A missing
+plan key fails instead of silently billing the pay-as-you-go balance;
+`--key-env MINIMAX_API_KEY` is the explicit opt-in for that key. TTS models are
+`speech-2.8-hd` (default), `speech-2.8-turbo`, the `speech-2.6-*`,
+`speech-02-*` and `speech-01-*` families; ASR is `asr-1.0`.
+
+M Plan keys are region-specific. The default base is the CN endpoint
+`https://api.minimaxi.com`; a global key needs
+`--base-url https://api.minimax.io`. Speech shares the M Plan 5-hour and
+weekly quota with text, so a 429 is the same window the text models see.
 
 ---
 

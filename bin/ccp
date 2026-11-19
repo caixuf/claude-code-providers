@@ -88,6 +88,10 @@ Usage:
                              (omp only; other providers publish no usage API).
   ccp quota [provider]       What is left on each plan
   ccp usage                  Tokens actually spent, from the bridge's ledger
+  ccp speech tts [TEXT]      MiniMax M Plan text-to-speech (options: --voice,
+                             --model, --out, --format; TEXT='-' reads stdin)
+  ccp speech asr <audio>     MiniMax M Plan speech-to-text (options: --language,
+                             --format json|verbose_json|srt|vtt, --out)
   ccp doctor                 Is this machine still consistent with the repository?
                              (--json, --probe [--probe-model M])
   ccp hermes [provider]      Point the local Hermes agent at a provider's model.
@@ -126,6 +130,8 @@ Examples:
   ccp accounts group add daily opencode-deepseek-v4.1-flash beam-free
   ccp -m group/daily         # One name over several models; fails over when one runs out
   ccp hermes                 # What model the local Hermes bot is running
+  ccp speech tts "你好，世界" # MiniMax M Plan TTS; shares the text quota
+  ccp speech asr meeting.mp3  # MiniMax M Plan ASR (--format srt for subtitles)
 
 Note: CommandCode, GitHub Copilot, Codex and Antigravity are retired and no
 longer shipped. `ccp auth copilot` still runs the Copilot device flow.
@@ -1649,6 +1655,22 @@ main() {
       fi
       py_bin=$(ccp_python)
       "$py_bin" "$repo_dir/bridge/ccp_usage.py" "${@:2}"
+      ;;
+    speech|tts|asr|stt)
+      local repo_dir py_bin
+      repo_dir=$(ccp_repo_dir)
+      if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/bridge/ccp_speech.py" ]; then
+        echo -e "\033[31mError: speech helper not found (need bridge/ccp_speech.py).\033[0m" >&2
+        return 1
+      fi
+      py_bin=$(ccp_python)
+      local -a sargs
+      case "$1" in
+        speech) sargs=("${@:2}") ;;
+        tts) sargs=(tts "${@:2}") ;;
+        asr|stt) sargs=(asr "${@:2}") ;;
+      esac
+      "$py_bin" "$repo_dir/bridge/ccp_speech.py" "${sargs[@]}"
       ;;
     quota|--quota)
       local repo_dir py_bin
