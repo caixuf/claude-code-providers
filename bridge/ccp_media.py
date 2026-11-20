@@ -602,6 +602,18 @@ def build_image_payload(prompt: str, *, model: str, n: int, size: str | None,
     return payload
 
 
+def _image_data_url(raw: str) -> str:
+    """Encode a local image path or pass through an http(s)/data URL."""
+    if raw.startswith(("http://", "https://", "data:")):
+        return raw
+    path = Path(os.path.expanduser(raw))
+    if not path.is_file():
+        raise SpeechError(f"reference image not found: {raw}")
+    mime = mimetypes.guess_type(path.name)[0] or "image/png"
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
 def _image_targets(out: str | None, n: int, extension: str) -> list[Path]:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     if out and out != "-":
@@ -638,17 +650,46 @@ def cmd_image(args) -> int:
 
     key_name, key = resolve_key(args.key_env)
     base = resolve_base_url(args.base_url)
-    payload = build_image_payload(
-        prompt,
-        model=args.model,
-        n=args.n,
-        size=size,
-        aspect_ratio=args.aspect_ratio,
-        area=args.area,
-        output_format=args.format,
-        disable_prompt_enhanced=args.disable_prompt_enhanced,
-    )
-    body = _request(base + "/v1/images/generations", key,
+    reference_images = [p for p in (getattr(args, "image", None) or []) if p]
+    if len(reference_images) > 16:
+        raise SpeechError("--image accepts at most 16 reference images")
+    if reference_images:
+        # Reference-conditioned editing: H3 ignores `subject_reference` on
+        # /v1/images/generations, so references must go through /v1/images/edits.
+        entries = []
+        for raw in reference_images:
+            entries.append({"image_url": _image_data_url(raw)})
+        payload = {
+            "model": args.model,
+            "prompt": prompt,
+            "images": entries,
+            "n": args.n,
+            "response_format": "url",
+            "output_format": args.format,
+        }
+        if args.disable_prompt_enhanced:
+            payload["disable_prompt_enhanced"] = True
+        if size and size != "auto":
+            payload["size"] = size
+        else:
+            if args.aspect_ratio:
+                payload["aspect_ratio"] = args.aspect_ratio
+            if args.area:
+                payload["area"] = args.area
+        endpoint = "/v1/images/edits"
+    else:
+        payload = build_image_payload(
+            prompt,
+            model=args.model,
+            n=args.n,
+            size=size,
+            aspect_ratio=args.aspect_ratio,
+            area=args.area,
+            output_format=args.format,
+            disable_prompt_enhanced=args.disable_prompt_enhanced,
+        )
+        endpoint = "/v1/images/generations"
+    body = _request(base + endpoint, key,
                     json.dumps(payload).encode(), "application/json", timeout=600)
     data = _parse_json(body, "image generation")
     _raise_base_resp(data, "image generation")
@@ -1003,6 +1044,10 @@ def build_parser(prog: str = "ccp speech") -> argparse.ArgumentParser:
     image.add_argument("--format", choices=("jpeg", "png", "webp"), default="jpeg")
     image.add_argument("--out", default=None,
                        help="directory, or a .png/.jpg/.jpeg/.webp file when --n 1")
+    image.add_argument("--image", dest="image", action="append", default=None,
+                       metavar="PATH_OR_URL",
+                       help="reference image for editing (repeat up to 16; local "
+                            "path or URL; routes to /v1/images/edits)")
     image.add_argument("--no-enhance", dest="disable_prompt_enhanced",
                        action="store_true",
                        help="disable prompt enhancement (then set size or aspect ratio)")
