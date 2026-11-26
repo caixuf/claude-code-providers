@@ -56,6 +56,7 @@ HOP = {
     "upgrade",
     "host",
     "content-length",
+    "content-encoding",
 }
 
 
