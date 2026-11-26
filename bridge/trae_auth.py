@@ -248,7 +248,7 @@ def main() -> None:
 
     print("")
     print("\033[32m✔ Trae credentials ready!\033[0m")
-    print("Start the bridge:  ccp bridge start trae")
+    print("Start the bridge:  ccp bridge start-trae")
     print("Switch profile:    ccp trae")
 
 

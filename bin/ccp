@@ -720,6 +720,34 @@ EOF
   fi
 }
 
+ensure_trae_unit_installed() {
+  local unit="$HOME/.config/systemd/user/ccp-trae-bridge.service"
+  [ -f "$unit" ] && return 0
+
+  local repo_dir py template tmp
+  repo_dir=$(ccp_repo_dir)
+  py=$(ccp_python)
+  template="$repo_dir/bridge/ccp-trae-bridge.service.example"
+  if [ ! -r "$template" ]; then
+    echo -e "\033[31mMissing Trae unit template: $template\033[0m" >&2
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$unit")"
+  tmp=$(mktemp)
+  if ! sed -e "s|/usr/bin/env python3|$py|" \
+          -e "s|%h/code/claude-code-providers/bridge|$repo_dir/bridge|" \
+          "$template" > "$tmp"; then
+    rm -f "$tmp"
+    echo -e "\033[31mCould not render the Trae unit.\033[0m" >&2
+    return 1
+  fi
+  chmod 644 "$tmp"
+  mv "$tmp" "$unit"
+  systemctl --user daemon-reload
+  echo -e "  \033[32m✔ Installed $unit\033[0m"
+}
+
 ensure_bridge_running() {
   local url="$1"
   if [[ "$url" =~ (127\.0\.0\.1|localhost):4000 ]]; then
@@ -731,7 +759,7 @@ ensure_bridge_running() {
 
     if [ "$p4000" -eq 0 ] || [ "$p4001" -eq 0 ]; then
       echo -e "  \033[33m⚡ Universal Bridge (:4000 -> :4001) not running. Auto-starting...\033[0m"
-      systemctl --user start litellm-ccp.service ccp-sse-watchdog.service 2>/dev/null || true
+      systemctl --user enable --now litellm-ccp.service ccp-sse-watchdog.service 2>/dev/null || true
       for _ in {1..10}; do
         sleep 0.5
         check_bridge_port 4000 && p4000=1
@@ -768,7 +796,7 @@ ensure_bridge_running() {
       return 0
     fi
     echo -e "  \033[33m⚡ Trae bridge (:4100) not running. Auto-starting...\033[0m"
-    if systemctl --user start ccp-trae-bridge.service 2>/dev/null; then
+    if ensure_trae_unit_installed && systemctl --user enable --now ccp-trae-bridge.service 2>/dev/null; then
       for _ in {1..10}; do
         sleep 0.5
         check_bridge_port 4100 && break
@@ -776,11 +804,6 @@ ensure_bridge_running() {
     fi
     if check_bridge_port 4100; then
       echo -e "  \033[32m✔ Trae bridge active (:4100)\033[0m"
-    elif [ ! -f "$HOME/.config/systemd/user/ccp-trae-bridge.service" ]; then
-      echo -e "  \033[33m⚠ No service installed. Run this once:\033[0m"
-      echo -e "      cp \$(ccp_repo_dir)/bridge/ccp-trae-bridge.service.example \\"
-      echo -e "         \$HOME/.config/systemd/user/ccp-trae-bridge.service"
-      echo -e "      systemctl --user daemon-reload && systemctl --user enable --now ccp-trae-bridge.service"
     else
       echo -e "  \033[31m⚠ Trae bridge failed to start: systemctl --user status ccp-trae-bridge.service\033[0m"
     fi
@@ -836,12 +859,22 @@ manage_bridge() {
       # The adapter is independent of LiteLLM: its own process on its own port,
       # driven by a local CLI. (opencode and agy were the same shape and are
       # archived.)
-      local adapter="${action#*-}" adapter="${adapter%-*}"  # strip verb, strip suffix
+      local adapter="${action#*-}"
+      adapter="${adapter%-*}"  # strip verb, strip suffix
       case "$adapter" in
         trae)     unit=ccp-trae-bridge.service;     port=4100; label=Trae ;;
         *) echo "Unknown adapter '$adapter'." >&2; return 1 ;;
       esac
-      systemctl --user "${action%%-*}" "$unit" 2>/dev/null || {
+      local verb="${action%%-*}"
+      if [ "$verb" != "stop" ] && ! ensure_trae_unit_installed; then
+        echo -e "\033[31mCould not install $unit.\033[0m" >&2
+        return 1
+      fi
+      case "$verb" in
+        start)   systemctl --user enable --now "$unit" 2>/dev/null ;;
+        restart) systemctl --user enable "$unit" 2>/dev/null; systemctl --user restart "$unit" 2>/dev/null ;;
+        stop)    systemctl --user stop "$unit" 2>/dev/null ;;
+      esac || {
         echo -e "\033[31mNo $unit installed. See README → $label.\033[0m" >&2
         return 1
       }
@@ -883,10 +916,13 @@ manage_bridge() {
       echo "Restarting bridge services..."
       deploy_bridge_config
       sync_proxy_env
+      systemctl --user enable litellm-ccp.service ccp-sse-watchdog.service 2>/dev/null || true
       systemctl --user restart litellm-ccp.service 2>/dev/null || true
       sleep 1.5
       systemctl --user restart ccp-sse-watchdog.service 2>/dev/null || true
       for u in ccp-trae-bridge; do
+        ensure_trae_unit_installed
+        systemctl --user enable "$u.service" 2>/dev/null || true
         systemctl --user restart "$u.service" 2>/dev/null || true
       done
       sleep 0.5
@@ -896,11 +932,13 @@ manage_bridge() {
       echo "Starting bridge services..."
       deploy_bridge_config
       sync_proxy_env
-      systemctl --user start litellm-ccp.service ccp-sse-watchdog.service 2>/dev/null || true
-      # Adapters, where installed: each is optional and independent, so a
-      # unit that was never installed must not fail the whole start.
+      systemctl --user enable --now litellm-ccp.service ccp-sse-watchdog.service 2>/dev/null || true
+      # Adapters are installed from the shipped template on first use. They
+      # are optional, but once present they must be enabled so a reboot does
+      # not silently remove a route the user relies on.
       for u in ccp-trae-bridge; do
-        systemctl --user start "$u.service" 2>/dev/null || true
+        ensure_trae_unit_installed
+        systemctl --user enable --now "$u.service" 2>/dev/null || true
       done
       sleep 1
       manage_bridge status

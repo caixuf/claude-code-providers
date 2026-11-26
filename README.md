@@ -61,7 +61,10 @@ The bridge installs a Python venv at `~/.local/share/litellm-venv`, generates
 - `ccp-sse-watchdog.service` — SSE/request-rewrite proxy on `127.0.0.1:4000`
 - `ccp-trae-bridge.service` — Trae adapter on `127.0.0.1:4100` (optional)
 
-`ccp bridge status` is the one-command health check.
+`ccp bridge status` is the one-command health check. The first
+`ccp bridge start` / `start-trae` renders the Trae unit for the actual checkout
+and enables it, so a reboot does not silently remove the adapter. `ccp restore`
+disables the services; a later `ccp bridge start` re-enables them.
 
 Optional multi-account login through **omp**:
 
